@@ -324,12 +324,31 @@ Demonstrates the three techniques the brief requires:
 * **Gradient clipping** — `clip_grad_norm_` after unscaling
 * **LR scheduling** — cosine decay with linear warmup
 
-**On batch size.** 256 is the default here. The 64px stem adaptation keeps
-ResNet-50's `layer1` at full 64x64 resolution, so stored activations are far
-larger than at the usual 224px — roughly 11 GB at batch 256 and 22 GB at 512.
-256 leaves comfortable headroom on a 40 GB A100 and is also closer to standard
-practice for this dataset. Raise it to 512 if you want to push throughput;
-drop to 128 on a T4 (16 GB).
+**Why 128px with the original stem.** Tiny-ImageNet images are 64x64, so
+this upsamples them. That is deliberate. ResNet-50's stem is a stride-2 7x7
+convolution followed by a stride-2 maxpool, which reduces its input 4x before
+the first residual block. Feed it 64px and `layer1` sees 16x16 - too little
+spatial detail - so the usual fix is to replace the stem with a stride-1 3x3
+and drop the maxpool. That works, but it throws away pretrained stem weights
+and leaves `layer1` running at 64x64.
+
+Feeding 128px through the **original** stem gives `layer1` a 32x32 map and
+uses ResNet-50 exactly as it was pretrained. It is the better transfer setup,
+and - counter-intuitively - the *cheaper* one: 32x32 into `layer1` is a
+quarter the spatial area of the 64px-with-adapted-stem config, so a 128px
+epoch runs faster than a 64px one did, not slower.
+
+**On batch size.** 256 at 128px with the original stem leaves comfortable
+headroom on a 40 GB A100 - noticeably more than the adapted-stem config used,
+for the reason above. Raise it to 512 to push throughput; drop to 128 on a
+T4 (16 GB).
+
+**On epoch count.** 60, not 30. The augmentation pipeline here is heavy
+(RandAugment + MixUp + CutMix), and heavy regularisation needs a long schedule
+to pay for itself - at 30 epochs it can cost accuracy rather than buy it. Note
+that the cosine schedule is defined over the *total* epoch count, so changing
+this number changes the whole LR curve: it is a fresh run (`--no-resume`), not
+an extension of a shorter one.
 
 > **Resume is on by default.** If the session drops, just re-run this cell —
 > it continues from the last completed epoch with the optimiser and LR
@@ -338,7 +357,7 @@ drop to 128 on a T4 (16 GB).
     code("""
 !python -u -m models.training.train_classifier \\
     --arch resnet50 \\
-    --epochs 30 \\
+    --epochs 60 \\
     --batch-size 256 \\
     --lr 1e-3 \\
     --num-workers 8 \\
@@ -346,6 +365,8 @@ drop to 128 on a T4 (16 GB).
     --warmup-ratio 0.05 \\
     --grad-clip 1.0 \\
     --label-smoothing 0.1 \\
+    --image-size 128 \\
+    --no-stem-adapt \\
     --device cuda
 """),
     md("### Training curves"),
@@ -536,7 +557,7 @@ Registry().register(
     version="1.0.0",
     task="classification",
     artifacts={"onnx": "resnet50-tiny-imagenet.onnx"},
-    preprocess="tiny_imagenet_64",
+    preprocess="tiny_imagenet",
     labels_file="tiny_imagenet_labels.json",
     num_classes=200,
     input_shape=[1, 3, 64, 64],
@@ -618,7 +639,7 @@ unzip gpu_results.zip -d /tmp/gpu && \\
 python -m models.registry register \\
     --name resnet50-tiny-imagenet --version 1.0.0 --task classification \\
     --onnx resnet50-tiny-imagenet.onnx --labels tiny_imagenet_labels.json \\
-    --preprocess tiny_imagenet_64 --num-classes 200 \\
+    --preprocess tiny_imagenet --num-classes 200 \\
     --input-shape 1,3,64,64 --default --overwrite
 
 # 3. Confirm it serves

@@ -64,7 +64,7 @@ class TestTinyImageNetParity:
         ],
     )
     def test_matches_training_eval_transform(self, width: int, height: int) -> None:
-        config = AugmentationConfig(image_size=64)
+        config = AugmentationConfig(image_size=TINY_IMAGENET_PREPROCESS.size[0])
         data = make_image(width, height)
 
         expected = EvalTransform(config)(Image.open(io.BytesIO(data)).convert("RGB")).numpy()
@@ -86,12 +86,12 @@ class TestTinyImageNetParity:
     def test_normalisation_constants_match(self) -> None:
         """Mean/std drift is the other half of this bug class, and is even
         harder to spot than a resize difference."""
-        config = AugmentationConfig(image_size=64)
+        config = AugmentationConfig(image_size=TINY_IMAGENET_PREPROCESS.size[0])
         assert TINY_IMAGENET_PREPROCESS.mean == config.mean
         assert TINY_IMAGENET_PREPROCESS.std == config.std
 
     def test_output_size_matches(self) -> None:
-        config = AugmentationConfig(image_size=64)
+        config = AugmentationConfig(image_size=TINY_IMAGENET_PREPROCESS.size[0])
         assert TINY_IMAGENET_PREPROCESS.size == (config.image_size, config.image_size)
 
     def test_uses_direct_resize_not_crop(self) -> None:
@@ -153,7 +153,7 @@ class TestRegistryPresetsResolve:
 
         assert set(PREPROCESS_PRESETS) >= {
             "imagenet_224",
-            "tiny_imagenet_64",
+            "tiny_imagenet",
             "yolo_640",
             "clip_224",
         }
@@ -161,8 +161,8 @@ class TestRegistryPresetsResolve:
     def test_tiny_imagenet_preset_is_the_fixed_one(self) -> None:
         from api.services.model_service import PREPROCESS_PRESETS
 
-        preset = PREPROCESS_PRESETS["tiny_imagenet_64"]
-        assert preset.size == (64, 64)
+        preset = PREPROCESS_PRESETS["tiny_imagenet"]
+        assert preset.size == TINY_IMAGENET_PREPROCESS.size
         assert preset.resize_mode == "stretch"
 
     def test_registered_models_name_a_real_preset(self) -> None:

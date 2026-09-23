@@ -58,7 +58,7 @@ logger = get_logger(__name__)
 # that the registry file stays pure data.
 PREPROCESS_PRESETS: dict[str, PreprocessConfig] = {
     "imagenet_224": CLASSIFICATION_PREPROCESS,
-    "tiny_imagenet_64": TINY_IMAGENET_PREPROCESS,
+    "tiny_imagenet": TINY_IMAGENET_PREPROCESS,
     "yolo_640": DETECTION_PREPROCESS,
     "clip_224": SIMILARITY_PREPROCESS,
 }

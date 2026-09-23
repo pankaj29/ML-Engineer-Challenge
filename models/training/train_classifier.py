@@ -883,7 +883,7 @@ def main() -> int:
     parser.add_argument("--arch", default="resnet50")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--image-size", type=int, default=64)
+    parser.add_argument("--image-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3, dest="learning_rate")
     parser.add_argument("--weight-decay", type=float, default=5e-2)
     parser.add_argument("--warmup-ratio", type=float, default=0.05)
