@@ -241,7 +241,78 @@ assert len(train.classes) == 200 and len(train) == 100_000 and distinct == 200, 
 print("\\nDataset verified COMPLETE.")
 """),
     md("""
-## 5. Train on the full dataset
+## 5. Recover a previous checkpoint
+
+Training writes `models/checkpoints/last.pth` every epoch, and the training
+script resumes from it automatically. But that file lives on the runtime's
+local disk, which does not survive a reset — and a fresh `git clone` lands in
+a new directory that has no checkpoints in it.
+
+So before training, this looks for a usable checkpoint elsewhere on the
+machine and adopts the most recent one. Without it, a dropped session or a
+re-clone silently costs a full training run.
+
+It never overwrites a newer checkpoint already in place, and it is safe to
+re-run. If nothing is found it says so and training simply starts from
+scratch.
+"""),
+    code("""
+import shutil
+from pathlib import Path
+
+CKPT_DIR = Path.cwd() / "models" / "checkpoints"
+CKPT_NAME = "last.pth"
+
+# Anywhere a previous session may have left a checkpoint: an earlier checkout
+# under a different directory name, or a copy saved to Drive.
+search_roots = [Path("/content"), Path("/content/drive/MyDrive")]
+
+mine = CKPT_DIR / CKPT_NAME
+candidates = []
+for root in search_roots:
+    if not root.exists():
+        continue
+    for found in root.glob(f"**/models/checkpoints/{CKPT_NAME}"):
+        if found.resolve() != mine.resolve() and found.is_file():
+            candidates.append(found)
+
+if not candidates:
+    print("no previous checkpoint found - training will start from epoch 1")
+else:
+    newest = max(candidates, key=lambda f: f.stat().st_mtime)
+    for found in sorted(candidates, key=lambda f: f.stat().st_mtime, reverse=True):
+        marker = " <- newest" if found == newest else ""
+        print(f"found: {found}{marker}")
+
+    if mine.exists() and mine.stat().st_mtime >= newest.stat().st_mtime:
+        # Never trade a newer checkpoint for an older one just because the
+        # older one was found somewhere else.
+        print()
+        print(f"keeping the checkpoint already in place: {mine}")
+    else:
+        CKPT_DIR.mkdir(parents=True, exist_ok=True)
+        # Copy the whole directory: history and best.pth belong with last.pth,
+        # and resuming without the history loses the training curves.
+        for sibling in newest.parent.iterdir():
+            if sibling.is_file():
+                shutil.copy2(sibling, CKPT_DIR / sibling.name)
+        print()
+        print(f"adopted: {newest}")
+        print(f"     -> {CKPT_DIR}")
+
+if mine.exists():
+    import torch
+
+    state = torch.load(mine, map_location="cpu", weights_only=False)
+    epoch = state.get("epoch", "?")
+    best = state.get("best_top1")
+    best_str = f"{best:.2f}%" if isinstance(best, (int, float)) else "n/a"
+    print()
+    print(f"checkpoint at epoch {epoch}, best top-1 so far {best_str}")
+    print("the next cell will resume from here rather than retrain")
+"""),
+    md("""
+## 6. Train on the full dataset
 
 **All 200 classes, all 100,000 images, every batch.** The script has no option
 to subset — `verify_full_dataset()` refuses to start otherwise.
@@ -310,7 +381,7 @@ else:
     print("no epochs recorded yet")
 """),
     md("""
-## 6. Export the fine-tuned model
+## 7. Export the fine-tuned model
 
 Exports to ONNX with **numerical verification** against PyTorch, then applies
 INT8 quantization calibrated on real images.
@@ -367,7 +438,7 @@ q = quantize_onnx_static(
 print(q.summary())
 """),
     md("""
-## 7. TensorRT
+## 8. TensorRT
 
 **This is the part that has never run.** TensorRT compiles the ONNX graph for
 this specific GPU: it fuses layers, picks the fastest kernel for each operation
@@ -420,7 +491,7 @@ else:
             print(f"  FAILED: {type(exc).__name__}: {exc}")
 """),
     md("""
-## 8. Benchmark every format on this GPU
+## 9. Benchmark every format on this GPU
 
 The first GPU numbers for this project. Compare against the CPU baselines in
 `benchmarks/reports/BENCHMARKS.md`.
@@ -452,7 +523,7 @@ out.write_text(render_markdown(results, env), encoding="utf-8")
 print(f"\\nwrote {out}")
 """),
     md(
-        "## 9. Validate the trained model\n\nThe same gate the CPU models pass: determinism, batch invariance, output sanity, calibration and latency."
+        "## 10. Validate the trained model\n\nThe same gate the CPU models pass: determinism, batch invariance, output sanity, calibration and latency."
     ),
     code("""
 from pathlib import Path
@@ -489,7 +560,7 @@ for k, v in sorted(report.metrics.items()):
     print(f"  {k:<28} {v}")
 """),
     md(
-        "## 10. Download the results\n\nBrings the trained weights, exports and reports back to your machine."
+        "## 11. Download the results\n\nBrings the trained weights, exports and reports back to your machine."
     ),
     code("""
 import shutil, sys
