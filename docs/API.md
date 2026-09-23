@@ -18,6 +18,7 @@ collection.
 
 ## Contents
 
+0. [Before you start: bash or PowerShell](#before-you-start-bash-or-powershell)
 1. [Authentication](#1-authentication)
 2. [Rate limits](#2-rate-limits)
 3. [Supplying an image](#3-supplying-an-image)
@@ -25,6 +26,109 @@ collection.
 5. [Errors](#5-errors)
 6. [Correlation IDs](#6-correlation-ids)
 7. [Model versioning](#7-model-versioning)
+
+---
+
+## Before you start: bash or PowerShell
+
+Examples in this document are written for **bash** (macOS / Linux). They do
+**not** work in Windows PowerShell, for three reasons:
+
+| | |
+| --- | --- |
+| `curl` | In PowerShell this is an **alias for `Invoke-WebRequest`**, a different program that rejects `-X` and `-H`. Use `curl.exe` for real curl. |
+| `\` at end of line | Bash line continuation. PowerShell uses a backtick `` ` ``. |
+| `base64` | A Unix command. Windows has no equivalent binary. |
+
+### PowerShell helpers
+
+Paste these into your session once. Every PowerShell example below then fits
+on one line.
+
+```powershell
+# Windows PowerShell
+function Get-ImageB64 {
+    param([string]$Path)
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $Path).Path))
+}
+
+function Invoke-Api {
+    param(
+        [string]$Path,
+        [hashtable]$Body,
+        [string]$Method = "Post",
+        [string]$Key = "dev-key-pro"
+    )
+    $req = @{
+        Uri     = "http://localhost/api/v1/$Path"
+        Method  = $Method
+        Headers = @{ "X-API-Key" = $Key }
+    }
+    if ($Body) {
+        $req.ContentType = "application/json"
+        $req.Body = ($Body | ConvertTo-Json -Depth 6)
+    }
+    Invoke-RestMethod @req
+}
+```
+
+Check they loaded:
+
+```powershell
+# Windows PowerShell
+Invoke-Api health -Method Get      # -> status : healthy
+```
+
+`Get-ImageB64` uses `Resolve-Path` deliberately. `[IO.File]` is a .NET call and
+resolves relative paths against .NET's own current directory, which `cd` does
+**not** update - so a bare relative path fails with "Could not find file"
+naming a folder you are not in.
+
+### One call per task, in PowerShell
+
+```powershell
+# Windows PowerShell
+$img = Get-ImageB64 "photo.jpg"
+
+# classification
+(Invoke-Api classify @{ image_base64 = $img; top_k = 5 }).predictions |
+    Format-Table rank, label, confidence -AutoSize
+
+# detection
+(Invoke-Api detect @{ image_base64 = $img; confidence_threshold = 0.25 }).detections |
+    Format-Table rank, label, confidence -AutoSize
+
+# similarity - index one image, then search for it
+Invoke-Api similarity/index  @{ image_base64 = $img; label = "example" }
+(Invoke-Api similarity/search @{ image_base64 = $img; top_k = 3 }).results |
+    Format-Table rank, label, score -AutoSize
+
+# embedding vector only
+(Invoke-Api similarity/embed @{ image_base64 = $img }).dimension     # 2048
+
+# batch: submit, then poll
+$job = Invoke-Api batch @{
+    task  = "classification"
+    top_k = 3
+    items = @(@{ image_base64 = $img; image_id = "img-a" })
+}
+do {
+    Start-Sleep -Seconds 2
+    $s = Invoke-Api "batch/$($job.job_id)" -Method Get
+    "$($s.status)  $($s.completed_items)/$($s.total_items)  failed=$($s.failed_items)"
+} while ($s.status -notin @("completed", "failed", "cancelled"))
+
+$s | ConvertTo-Json -Depth 5        # the full response
+```
+
+Multipart upload needs real curl, so use `curl.exe`:
+
+```powershell
+# Windows PowerShell - note curl.exe, not curl
+curl.exe -X POST http://localhost/api/v1/classify/upload `
+         -H "X-API-Key: dev-key-pro" `
+         -F "file=@photo.jpg" -F "top_k=5"
+```
 
 ---
 
@@ -165,6 +269,36 @@ applied, so a portrait phone photo is not analysed sideways.
 ---
 
 ## 4. Endpoints
+
+Every endpoint at a glance:
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/v1/classify` | POST | Classify one image (JSON body) |
+| `/api/v1/classify/upload` | POST | Same, multipart file upload |
+| `/api/v1/detect` | POST | Detect objects, returns boxes |
+| `/api/v1/detect/upload` | POST | Same, multipart |
+| `/api/v1/similarity/embed` | POST | Return the 2048-dim vector only |
+| `/api/v1/similarity/index` | POST | Add an image to the search index |
+| `/api/v1/similarity/search` | POST | Find nearest neighbours |
+| `/api/v1/similarity/upload` | POST | Search by multipart upload |
+| `/api/v1/similarity/stats` | GET | Index size, dimension, memory |
+| `/api/v1/batch` | POST | Submit a background job, returns a job id |
+| `/api/v1/batch/{job_id}` | GET | Job status, progress and results |
+| `/api/v1/batch/{job_id}` | DELETE | Attempt to cancel a job |
+| `/api/v1/models` | GET | List registered models; filter with `?task=` |
+| `/api/v1/models/{name}` | GET | One model's metadata and metrics |
+| `/api/v1/models/reload` | POST | Re-read `registry.json` without restarting |
+| `/api/v1/health` | GET | Full check: models, cache, database |
+| `/api/v1/health/live` | GET | Is the process alive? Checks no dependencies |
+| `/api/v1/health/ready` | GET | Ready for traffic? Checks dependencies |
+| `/api/v1/metrics` | GET | Prometheus metrics (private networks only) |
+
+The two health probes differ deliberately. `live` checks nothing external, so a
+Redis hiccup cannot make the orchestrator restart healthy containers; `ready`
+checks dependencies, so a degraded instance leaves the load balancer without
+being killed.
+
 
 ### `POST /api/v1/classify`
 

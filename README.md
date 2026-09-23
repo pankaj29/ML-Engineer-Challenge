@@ -113,423 +113,68 @@ Expect `{"status": "healthy", ...}`. If you get `SERVICE_UNAVAILABLE`, see
 
 ## Using the API
 
-> ### Read this first if you are on Windows
->
-> **The `curl` examples in this guide are for bash (macOS / Linux). They will
-> not work in PowerShell**, for three reasons:
->
-> | | |
-> | --- | --- |
-> | `curl` | In PowerShell this is an **alias for `Invoke-WebRequest`**, a different program that rejects `-X` and `-H`. |
-> | `\` at end of line | Bash line continuation. PowerShell uses a backtick `` ` ``. |
-> | `base64` | A Unix command. Windows has no such thing. |
->
-> Every example below is given in **both** shells. Use the PowerShell tab, or
-> set up the two helpers in the next section and get one-liners instead.
+One worked example here; the complete reference for all 18 endpoints - both
+shells, every parameter, every response shape - is in
+[`docs/API.md`](docs/API.md).
 
-### Setup — Windows only
+> **On Windows**, the `curl` examples in this repo are bash and will not run in
+> PowerShell: `curl` is an alias for `Invoke-WebRequest`, `\` is not a line
+> continuation, and there is no `base64` command. Use the PowerShell block
+> below, or the helpers in [`docs/API.md`](docs/API.md#before-you-start-bash-or-powershell)
+> which reduce every call to one line.
 
-**On macOS or Linux there is nothing to set up.** Skip to the next section and
-use the `bash` blocks.
-
-**On Windows**, paste these two helpers into your PowerShell session once. They
-exist because PowerShell has no `curl` and no `base64`, and because every
-example below then becomes a single line:
-
-```powershell
-# Windows PowerShell
-function Get-ImageB64 {
-    param([string]$Path)
-    [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $Path).Path))
-}
-
-function Invoke-Api {
-    param(
-        [string]$Path,
-        [hashtable]$Body,
-        [string]$Method = "Post",
-        [string]$Key = "dev-key-pro"
-    )
-    $req = @{
-        Uri     = "http://localhost/api/v1/$Path"
-        Method  = $Method
-        Headers = @{ "X-API-Key" = $Key }
-    }
-    if ($Body) {
-        $req.ContentType = "application/json"
-        $req.Body = ($Body | ConvertTo-Json -Depth 6)
-    }
-    Invoke-RestMethod @req
-}
-```
-
-Check they loaded:
-
-```powershell
-# Windows PowerShell
-Invoke-Api health -Method Get      # -> status : healthy
-```
-
-`Get-ImageB64` uses `Resolve-Path` deliberately: `[IO.File]` is a .NET call and
-resolves relative paths against .NET's own current directory, which `cd` does
-**not** update. Without it you get "Could not find file" naming a folder you are
-not in.
-
-### Image classification
-
-Answers *what is this?* - a ranked list of categories.
+### Classify an image
 
 ```bash
 # bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/classify -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
+curl -X POST http://localhost/api/v1/classify \
+     -H "X-API-Key: dev-key-pro" \
+     -H "Content-Type: application/json" \
      -d "{\"image_base64\": \"$(base64 -w0 photo.jpg)\", \"top_k\": 5}"
 ```
 
 ```powershell
 # Windows PowerShell
-$img = Get-ImageB64 "photo.jpg"
-$r = Invoke-Api classify @{ image_base64 = $img; top_k = 5 }
+$bytes = [IO.File]::ReadAllBytes((Resolve-Path "photo.jpg").Path)
+$body  = @{ image_base64 = [Convert]::ToBase64String($bytes); top_k = 5 } | ConvertTo-Json
+
+$r = Invoke-RestMethod -Uri "http://localhost/api/v1/classify" -Method Post `
+        -Headers @{ "X-API-Key" = "dev-key-pro" } `
+        -ContentType "application/json" -Body $body
+
 $r.predictions | Format-Table rank, label, confidence -AutoSize
 ```
 
 ```json
 {
   "predictions": [
-    {"class_id": 285, "label": "Egyptian cat", "confidence": 0.81, "rank": 1}
+    {"class_id": 101, "label": "tusker",           "confidence": 0.309, "rank": 1},
+    {"class_id": 386, "label": "African elephant", "confidence": 0.243, "rank": 2}
   ],
-  "top_prediction": {"class_id": 285, "label": "Egyptian cat", "rank": 1},
+  "top_prediction": {"class_id": 101, "label": "tusker", "rank": 1},
   "model":  {"name": "resnet50", "version": "1.0.0", "runtime": "onnx"},
   "timing": {"preprocess_ms": 3.1, "inference_ms": 11.4, "total_ms": 15.2},
   "correlation_id": "0f3c...", "cached": false
 }
 ```
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `top_k` | 5 | How many predictions to return (1-100) |
-| `confidence_threshold` | none | Drop predictions below this score |
-| `include_probabilities` | false | Also return the full probability vector |
-| `model_name` / `model_version` | task default | Pin a specific model |
-
----
-
-### Object detection
-
-Answers *where is it?* - a bounding box per object, in pixels of the original
-image.
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/detect -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
-     -d '{"image_base64": "...", "confidence_threshold": 0.25, "max_detections": 10}'
-```
-
-```powershell
-# Windows PowerShell
-$img = Get-ImageB64 "photo.jpg"
-$r = Invoke-Api detect @{ image_base64 = $img; confidence_threshold = 0.25 }
-$r.detections | Format-Table rank, label, confidence -AutoSize
-```
-
-```json
-{
-  "count": 2,
-  "detections": [
-    {"class_id": 16, "label": "dog", "confidence": 0.91, "rank": 1,
-     "box": {"x1": 84.2, "y1": 241.0, "x2": 259.7, "y2": 430.4,
-             "width": 175.5, "height": 189.4}}
-  ],
-  "model": {"name": "yolov8n", "version": "1.0.0", "runtime": "onnx"}
-}
-```
-
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `confidence_threshold` | 0.25 | Minimum score for a box to be reported |
-| `iou_threshold` | 0.45 | Overlap above which a duplicate box is suppressed |
-| `max_detections` | 100 | Hard cap, highest score first |
-| `class_filter` | none | Only these labels, e.g. `["person", "car"]` |
-
-**`count: 0` is a normal answer, not an error.** It means nothing from the 80
-COCO categories was found.
-
----
-
-### Image similarity
-
-Answers *what looks like this?* Three endpoints, because a search needs
-something to search in.
-
-**Add an image to the index:**
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/similarity/index -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
-     -d '{"image_base64": "...", "label": "red-jumper", "metadata": {"sku": "A-1"}}'
-```
-
-```powershell
-# Windows PowerShell
-$img = Get-ImageB64 "photo.jpg"
-Invoke-Api similarity/index @{ image_base64 = $img; label = "red-jumper" }
-```
-
-```json
-{"image_id": "983139cd23b24d19864f36b2cea9cd7d", "index_size": 3}
-```
-
-**Search with a query image:**
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/similarity/search -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
-     -d '{"image_base64": "...", "top_k": 3}'
-```
-
-```powershell
-# Windows PowerShell
-$r = Invoke-Api similarity/search @{ image_base64 = $img; top_k = 3 }
-$r.results | Format-Table rank, label, score -AutoSize
-```
-
-```json
-{
-  "count": 3, "index_size": 3,
-  "results": [
-    {"id": "983139cd...", "score": 1.0,   "rank": 1, "label": "red-jumper",
-     "metadata": {"sku": "A-1"}},
-    {"id": "1a7c02be...", "score": 0.612, "rank": 2, "label": "blue-jumper",
-     "metadata": null}
-  ]
-}
-```
-
-`score` is **cosine similarity**: 1.0 identical, 0.0 unrelated. Searching with
-an image already in the index returns it at rank 1 with score exactly 1.0 - a
-quick way to confirm the pipeline is wired correctly.
-
-**Get the raw vector, without searching:**
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/similarity/embed -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
-     -d '{"image_base64": "..."}'
-```
-
-```powershell
-# Windows PowerShell
-(Invoke-Api similarity/embed @{ image_base64 = $img }).dimension    # 2048
-```
-
-2048 numbers describing the image, L2-normalised so cosine similarity is a
-plain dot product. Use this to store vectors in your own database.
-
-**Index status:**
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl http://localhost/api/v1/similarity/stats -H "X-API-Key: dev-key-pro"
-```
-
-```powershell
-# Windows PowerShell
-Invoke-Api similarity/stats -Method Get
-```
-
-```json
-{"size": 3, "dimension": 2048, "memory_mb": 0.02, "persisted": false}
-```
-
-> **`persisted: false` matters.** The index lives in one API process's memory.
-> It empties on restart, and with several replicas each holds a *different*
-> index - so an image indexed through one replica is invisible to a search that
-> lands on another. Fine for a demo; see *Known limitations*.
-
----
-
-### Batch processing
-
-Everything above handles one image and answers immediately. A batch of 64 would
-outlast a sensible HTTP timeout, so batches go to a background worker: you get a
-job id at once and poll for the result. Set `task` to `classification`,
-`detection` or `similarity`.
-
-**Submit** - returns `202 Accepted` in milliseconds:
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/batch -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
-     -d '{"task": "classification", "top_k": 3,
-          "items": [{"image_base64": "...", "image_id": "img-a"},
-                    {"image_base64": "...", "image_id": "img-b"}]}'
-```
-
-```powershell
-# Windows PowerShell
-$img = Get-ImageB64 "photo.jpg"
-$job = Invoke-Api batch @{
-    task  = "classification"
-    top_k = 3
-    items = @(@{ image_base64 = $img; image_id = "img-a" })
-}
-$job | Format-List job_id, status, total_items, estimated_seconds
-```
-
-```json
-{
-  "job_id": "0ae654e8-f909-47e0-99c8-7feea10b9be8",
-  "status": "pending",
-  "task": "classification",
-  "total_items": 3,
-  "status_url": "/api/v1/batch/0ae654e8-f909-47e0-99c8-7feea10b9be8",
-  "estimated_seconds": 0.3,
-  "correlation_id": "dfab814d11bf4c2f973a67aee57433e3",
-  "submitted_at": "2026-09-23T14:35:08.411385Z"
-}
-```
-
-`status` is `pending` until a worker picks the job up - the submit call does
-not wait. `status_url` is the path to poll, and `estimated_seconds` is a rough
-guide based on the item count.
-
-**Poll:**
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl http://localhost/api/v1/batch/0ae654e8-... -H "X-API-Key: dev-key-pro"
-```
-
-```powershell
-# Windows PowerShell - poll until the job finishes, printing progress
-do {
-    Start-Sleep -Seconds 2
-    $s = Invoke-Api "batch/$($job.job_id)" -Method Get
-    "$($s.status)  $($s.completed_items)/$($s.total_items)  failed=$($s.failed_items)"
-} while ($s.status -notin @("completed", "failed", "cancelled"))
-
-# $s now holds the full response shown below. To see it as JSON:
-$s | ConvertTo-Json -Depth 5
-
-# Or just the predictions for the first item:
-$s.results[0].result.predictions | Format-Table rank, label, confidence -AutoSize
-```
-
-The loop prints a short progress line each time round - `completed  1/1
-failed=0` - because a raw JSON dump every two seconds is unreadable. The
-**full response** is in `$s`, and looks like this (the API returns the same
-JSON whatever shell you called it from):
-
-```json
-{
-  "job_id": "0ae654e8-...", "status": "completed", "task": "classification",
-  "total_items": 3, "completed_items": 2, "failed_items": 1,
-  "progress_percent": 100.0, "duration_seconds": 0.89,
-  "results": [
-    {"index": 0, "image_id": "img-a", "success": true, "duration_ms": 493.3,
-     "result": {"predictions": [...]}, "error": null},
-    {"index": 2, "image_id": "img-broken", "success": false, "duration_ms": 0.19,
-     "result": null,
-     "error": {"code": "INVALID_IMAGE",
-               "message": "The items[2] does not look like an image file."}}
-  ]
-}
-```
-
-> **Read that response carefully.** Three items, one deliberately corrupt. Two
-> succeeded, one failed, and the job status is **`completed`, not `failed`**.
-> One bad image never fails a batch - the failure is recorded against its own
-> item, with its index, and everything else is processed.
-
-**Cancel:**
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X DELETE http://localhost/api/v1/batch/0ae654e8-... -H "X-API-Key: dev-key-pro"
-```
-
-```powershell
-# Windows PowerShell
-Invoke-Api "batch/$($job.job_id)" -Method Delete
-```
-
-```json
-{"cancelled": false, "reason": "The job has already finished with status success."}
-```
-
-Cancelling is best-effort: a job that already ran cannot be un-run, and the
-response says so rather than pretending.
-
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| `task` | required | `classification`, `detection` or `similarity` |
-| `items` | required | Per-request cap depends on your tier |
-| `top_k`, `confidence_threshold`, `iou_threshold`, `max_detections` | per task | As the single-image endpoints |
-| `callback_url` | none | Optional **https** URL to POST the result to |
-| `priority` | 5 | 0-9, lower runs first |
-
-Job records expire after **24 hours**; an unknown or expired id returns `404`
-`JOB_NOT_FOUND`.
-
----
-
-### Uploading a file instead of base64
-
-Base64 inflates an image by about a third and must be built in memory. Every
-inference endpoint also accepts a normal multipart upload:
-
-```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
-curl -X POST http://localhost/api/v1/classify/upload -H "X-API-Key: dev-key-pro" \
-     -F "file=@photo.jpg" -F "top_k=5"
-```
-
-```powershell
-# Windows PowerShell - note curl.exe, not curl
-curl.exe -X POST http://localhost/api/v1/classify/upload `
-         -H "X-API-Key: dev-key-pro" `
-         -F "file=@photo.jpg" -F "top_k=5"
-```
-
-Note `curl.exe`, not `curl` - see the warning at the top of this section. The
-same exists for `/detect/upload` and `/similarity/upload`. Prefer these for
-anything large: the size limit is enforced *while streaming*, so an oversized
-file is rejected without being read into memory.
-
----
-
-### Every endpoint
-
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
-| `/api/v1/classify` | POST | Classify one image (JSON body) |
-| `/api/v1/classify/upload` | POST | Same, multipart file upload |
-| `/api/v1/detect` | POST | Detect objects, returns boxes |
-| `/api/v1/detect/upload` | POST | Same, multipart |
-| `/api/v1/similarity/embed` | POST | Return the 2048-dim vector only |
-| `/api/v1/similarity/index` | POST | Add an image to the search index |
-| `/api/v1/similarity/search` | POST | Find nearest neighbours |
-| `/api/v1/similarity/upload` | POST | Search by multipart upload |
-| `/api/v1/similarity/stats` | GET | Index size, dimension, memory |
-| `/api/v1/batch` | POST | Submit a background job, returns a job id |
-| `/api/v1/batch/{job_id}` | GET | Job status, progress and results |
-| `/api/v1/batch/{job_id}` | DELETE | Attempt to cancel a job |
-| `/api/v1/models` | GET | List registered models; filter with `?task=` |
-| `/api/v1/models/{name}` | GET | One model's metadata and metrics |
-| `/api/v1/models/reload` | POST | Re-read `registry.json` without restarting |
-| `/api/v1/health` | GET | Full check: models, cache, database |
-| `/api/v1/health/live` | GET | Is the process alive? Checks no dependencies |
-| `/api/v1/health/ready` | GET | Ready for traffic? Checks dependencies |
-| `/api/v1/metrics` | GET | Prometheus metrics (private networks only) |
-
-The two health probes differ deliberately. `live` checks nothing external, so a
-Redis hiccup cannot make the orchestrator restart healthy containers; `ready`
-checks dependencies, so a degraded instance leaves the load balancer without
-being killed.
-
-Full parameter reference: [`docs/API.md`](docs/API.md), or the interactive docs
-at **<http://localhost:8000/docs>**.
-
----
+Note what comes back besides the answer: which model version produced it, a
+per-stage timing breakdown, a `correlation_id` for finding this exact request
+in the logs, and whether it was served from cache.
+
+### The rest of the API
+
+| | |
+| --- | --- |
+| **Object detection** | `POST /api/v1/detect` - bounding boxes, in pixels of the original image |
+| **Image similarity** | `POST /api/v1/similarity/{embed,index,search}` - 2048-dim vectors and nearest-neighbour search |
+| **Batch** | `POST /api/v1/batch` - background jobs for many images, returns a job id to poll |
+| **File upload** | Add `/upload` to any inference endpoint for multipart instead of base64 |
+| **Models** | `GET /api/v1/models` - what is registered and which is default |
+| **Health** | `/health`, `/health/live`, `/health/ready` - full, liveness, readiness |
+
+Full reference: **[`docs/API.md`](docs/API.md)**. Interactive docs, generated
+from the code: **<http://localhost:8000/docs>**.
 
 ### If something goes wrong
 
