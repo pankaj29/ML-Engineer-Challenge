@@ -388,17 +388,34 @@ Reproduce: `python -m models.optimization.benchmark`
 │   ├── validation/           validate, ab_test, drift, regression
 │   ├── cards/                one model card per model
 │   └── registry.py           model registry CLI
+│   └── artifacts/            .onnx / .pt model files -- tracked in Git LFS
 ├── worker/                   Celery app and batch tasks
 ├── db/                       SQLAlchemy models
 ├── tests/                    unit, integration, performance
+├── notebooks/                colab_gpu_pipeline.ipynb (generated -- see below)
 ├── Dockerfile                main application container (the API)
 ├── docker/                   Dockerfile.worker, nginx/
 ├── monitoring/               prometheus config + alerts, grafana provisioning
 ├── scripts/                  prepare_models, download_datasets, checklist
 ├── benchmarks/               baselines and generated reports
 ├── docs/                     API, TECHNICAL, ASSUMPTIONS, DEPLOYMENT, openapi
+├── .gitattributes            Git LFS rules for the model files
 └── .github/workflows/        CI pipeline
 ```
+
+Two paths are **generated**, not hand-edited:
+
+* `notebooks/colab_gpu_pipeline.ipynb` comes from
+  `scripts/build_colab_notebook.py`. Editing the notebook directly is
+  overwritten on the next build, and CI fails if the two drift apart
+  (`python scripts/build_colab_notebook.py --check`).
+* `DELIVERABLES_CHECKLIST.xlsx` comes from `scripts/generate_checklist.py`.
+
+`models/artifacts/` is tracked with **Git LFS** (see `.gitattributes`): those
+files cannot be regenerated without a GPU session, unlike the dataset, which
+is excluded because one command rebuilds it. A clone made without git-lfs gets
+130-byte pointer files and the model tests skip with `git lfs pull` as the
+stated remedy.
 
 Two files extend the brief's prescribed structure: `api/config.py` (required
 by "environment-based configuration" and "no hardcoded secrets") and
@@ -408,6 +425,10 @@ router). Extra routers exist because the brief requires those endpoints.
 ---
 
 ## Development
+
+Activate the virtual environment from step 2 of the Quick start first -
+`.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate`
+elsewhere. Your prompt should read `(.venv)`.
 
 ```bash
 pip install -r requirements-dev.txt
@@ -503,6 +524,13 @@ Stated plainly; the full list with reasoning is in
    classifier measures ECE 0.063, but the ImageNet-1k model measures 0.22. Use
    the ranking, not the absolute scores, unless you have measured otherwise.
 5. **YOLOv8 is AGPL-3.0**, which has real implications for commercial use.
+6. **The gateway round-robins rather than least-connections.** nginx caches an
+   upstream's DNS answer at startup, so an `upstream` block pointed at a
+   container that is later rebuilt keeps calling a dead IP - observed here as a
+   gateway stuck on a stale address for 22 hours. The fix resolves per request
+   via a variable, which cannot reference an upstream block, so `least_conn`
+   and upstream keepalive were given up to get self-healing. Reasoning is in
+   `docker/nginx/nginx.conf`.
 
 ### Next, in priority order
 
@@ -512,8 +540,14 @@ Stated plainly; the full list with reasoning is in
 4. Calibrate confidence with temperature scaling
 5. Add OpenTelemetry tracing
 
-*Done since the first draft: the full Tiny-ImageNet fine-tune (77.66% top-1)
-and the TensorRT fp32/fp16 path (0.729 ms p50).*
+6. Restore least-connections balancing at the gateway (needs nginx Plus, or a
+   hook that restarts the gateway when the API is recreated)
+7. Alert when the rate limiter is running on local buckets rather than Redis
+
+*Done since the first draft: the full Tiny-ImageNet fine-tune (77.66% top-1),
+the TensorRT fp32/fp16 path (0.729 ms p50), a green CI pipeline, and a fix for
+rate limiting that had silently been per-process rather than shared across
+replicas.*
 
 ---
 
