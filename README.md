@@ -400,13 +400,24 @@ curl http://localhost/api/v1/batch/0ae654e8-... -H "X-API-Key: dev-key-pro"
 ```
 
 ```powershell
-# Windows PowerShell
+# Windows PowerShell - poll until the job finishes, printing progress
 do {
     Start-Sleep -Seconds 2
     $s = Invoke-Api "batch/$($job.job_id)" -Method Get
     "$($s.status)  $($s.completed_items)/$($s.total_items)  failed=$($s.failed_items)"
 } while ($s.status -notin @("completed", "failed", "cancelled"))
+
+# $s now holds the full response shown below. To see it as JSON:
+$s | ConvertTo-Json -Depth 5
+
+# Or just the predictions for the first item:
+$s.results[0].result.predictions | Format-Table rank, label, confidence -AutoSize
 ```
+
+The loop prints a short progress line each time round - `completed  1/1
+failed=0` - because a raw JSON dump every two seconds is unreadable. The
+**full response** is in `$s`, and looks like this (the API returns the same
+JSON whatever shell you called it from):
 
 ```json
 {
