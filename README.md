@@ -102,6 +102,7 @@ docker compose ps        # every service should reach "healthy"
 ### 6. Confirm
 
 ```bash
+# bash - macOS / Linux. Will NOT work in PowerShell.
 curl http://localhost/api/v1/health
 ```
 
@@ -126,20 +127,17 @@ Expect `{"status": "healthy", ...}`. If you get `SERVICE_UNAVAILABLE`, see
 > Every example below is given in **both** shells. Use the PowerShell tab, or
 > set up the two helpers in the next section and get one-liners instead.
 
-### Setup
+### Setup — Windows only
 
-Pick one. Everything afterwards assumes you have done this.
+**On macOS or Linux there is nothing to set up.** Skip to the next section and
+use the `bash` blocks.
 
-**bash (macOS / Linux)** - nothing to set up, but define these for brevity:
-
-```bash
-API=http://localhost/api/v1
-KEY="X-API-Key: dev-key-pro"
-```
-
-**PowerShell (Windows)** - paste these two helpers into your session once:
+**On Windows**, paste these two helpers into your PowerShell session once. They
+exist because PowerShell has no `curl` and no `base64`, and because every
+example below then becomes a single line:
 
 ```powershell
+# Windows PowerShell
 function Get-ImageB64 {
     param([string]$Path)
     [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $Path).Path))
@@ -165,23 +163,30 @@ function Invoke-Api {
 }
 ```
 
+Check they loaded:
+
+```powershell
+# Windows PowerShell
+Invoke-Api health -Method Get      # -> status : healthy
+```
+
 `Get-ImageB64` uses `Resolve-Path` deliberately: `[IO.File]` is a .NET call and
 resolves relative paths against .NET's own current directory, which `cd` does
 **not** update. Without it you get "Could not find file" naming a folder you are
 not in.
-
----
 
 ### Image classification
 
 Answers *what is this?* - a ranked list of categories.
 
 ```bash
-curl -X POST $API/classify -H "$KEY" -H "Content-Type: application/json" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/classify -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
      -d "{\"image_base64\": \"$(base64 -w0 photo.jpg)\", \"top_k\": 5}"
 ```
 
 ```powershell
+# Windows PowerShell
 $img = Get-ImageB64 "photo.jpg"
 $r = Invoke-Api classify @{ image_base64 = $img; top_k = 5 }
 $r.predictions | Format-Table rank, label, confidence -AutoSize
@@ -214,11 +219,13 @@ Answers *where is it?* - a bounding box per object, in pixels of the original
 image.
 
 ```bash
-curl -X POST $API/detect -H "$KEY" -H "Content-Type: application/json" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/detect -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
      -d '{"image_base64": "...", "confidence_threshold": 0.25, "max_detections": 10}'
 ```
 
 ```powershell
+# Windows PowerShell
 $img = Get-ImageB64 "photo.jpg"
 $r = Invoke-Api detect @{ image_base64 = $img; confidence_threshold = 0.25 }
 $r.detections | Format-Table rank, label, confidence -AutoSize
@@ -256,11 +263,13 @@ something to search in.
 **Add an image to the index:**
 
 ```bash
-curl -X POST $API/similarity/index -H "$KEY" -H "Content-Type: application/json" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/similarity/index -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
      -d '{"image_base64": "...", "label": "red-jumper", "metadata": {"sku": "A-1"}}'
 ```
 
 ```powershell
+# Windows PowerShell
 $img = Get-ImageB64 "photo.jpg"
 Invoke-Api similarity/index @{ image_base64 = $img; label = "red-jumper" }
 ```
@@ -272,11 +281,13 @@ Invoke-Api similarity/index @{ image_base64 = $img; label = "red-jumper" }
 **Search with a query image:**
 
 ```bash
-curl -X POST $API/similarity/search -H "$KEY" -H "Content-Type: application/json" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/similarity/search -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
      -d '{"image_base64": "...", "top_k": 3}'
 ```
 
 ```powershell
+# Windows PowerShell
 $r = Invoke-Api similarity/search @{ image_base64 = $img; top_k = 3 }
 $r.results | Format-Table rank, label, score -AutoSize
 ```
@@ -300,11 +311,13 @@ quick way to confirm the pipeline is wired correctly.
 **Get the raw vector, without searching:**
 
 ```bash
-curl -X POST $API/similarity/embed -H "$KEY" -H "Content-Type: application/json" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/similarity/embed -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
      -d '{"image_base64": "..."}'
 ```
 
 ```powershell
+# Windows PowerShell
 (Invoke-Api similarity/embed @{ image_base64 = $img }).dimension    # 2048
 ```
 
@@ -314,10 +327,12 @@ plain dot product. Use this to store vectors in your own database.
 **Index status:**
 
 ```bash
-curl $API/similarity/stats -H "$KEY"
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl http://localhost/api/v1/similarity/stats -H "X-API-Key: dev-key-pro"
 ```
 
 ```powershell
+# Windows PowerShell
 Invoke-Api similarity/stats -Method Get
 ```
 
@@ -342,13 +357,15 @@ job id at once and poll for the result. Set `task` to `classification`,
 **Submit** - returns `202 Accepted` in milliseconds:
 
 ```bash
-curl -X POST $API/batch -H "$KEY" -H "Content-Type: application/json" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/batch -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
      -d '{"task": "classification", "top_k": 3,
           "items": [{"image_base64": "...", "image_id": "img-a"},
                     {"image_base64": "...", "image_id": "img-b"}]}'
 ```
 
 ```powershell
+# Windows PowerShell
 $img = Get-ImageB64 "photo.jpg"
 $job = Invoke-Api batch @{
     task  = "classification"
@@ -365,10 +382,12 @@ $job = Invoke-Api batch @{
 **Poll:**
 
 ```bash
-curl $API/batch/0ae654e8-... -H "$KEY"
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl http://localhost/api/v1/batch/0ae654e8-... -H "X-API-Key: dev-key-pro"
 ```
 
 ```powershell
+# Windows PowerShell
 do {
     Start-Sleep -Seconds 2
     $s = Invoke-Api "batch/$($job.job_id)" -Method Get
@@ -400,10 +419,12 @@ do {
 **Cancel:**
 
 ```bash
-curl -X DELETE $API/batch/0ae654e8-... -H "$KEY"
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X DELETE http://localhost/api/v1/batch/0ae654e8-... -H "X-API-Key: dev-key-pro"
 ```
 
 ```powershell
+# Windows PowerShell
 Invoke-Api "batch/$($job.job_id)" -Method Delete
 ```
 
@@ -433,11 +454,13 @@ Base64 inflates an image by about a third and must be built in memory. Every
 inference endpoint also accepts a normal multipart upload:
 
 ```bash
-curl -X POST $API/classify/upload -H "$KEY" \
+# bash - macOS / Linux. Will NOT work in PowerShell.
+curl -X POST http://localhost/api/v1/classify/upload -H "X-API-Key: dev-key-pro" \
      -F "file=@photo.jpg" -F "top_k=5"
 ```
 
 ```powershell
+# Windows PowerShell - note curl.exe, not curl
 curl.exe -X POST http://localhost/api/v1/classify/upload `
          -H "X-API-Key: dev-key-pro" `
          -F "file=@photo.jpg" -F "top_k=5"
