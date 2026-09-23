@@ -257,8 +257,18 @@ re-run. If nothing is found it says so and training simply starts from
 scratch.
 """),
     code("""
-import shutil
+import shutil, time
 from pathlib import Path
+
+# --- The training config, in one place -------------------------------------
+# The next cell reads these, so there is exactly one definition of what is
+# being trained. Change it here, not in the command below.
+ARCH = "resnet50"
+EPOCHS = 60
+IMAGE_SIZE = 128
+STEM_ADAPTED = False      # False = keep ResNet's original pretrained stem
+BATCH_SIZE = 256
+LR = "1e-3"
 
 CKPT_DIR = Path.cwd() / "models" / "checkpoints"
 CKPT_NAME = "last.pth"
@@ -272,23 +282,23 @@ candidates = []
 for root in search_roots:
     if not root.exists():
         continue
-    for found in root.glob(f"**/models/checkpoints/{CKPT_NAME}"):
+    for found in root.glob("**/models/checkpoints/" + CKPT_NAME):
         if found.resolve() != mine.resolve() and found.is_file():
             candidates.append(found)
 
 if not candidates:
-    print("no previous checkpoint found - training will start from epoch 1")
+    print("no previous checkpoint found elsewhere")
 else:
     newest = max(candidates, key=lambda f: f.stat().st_mtime)
     for found in sorted(candidates, key=lambda f: f.stat().st_mtime, reverse=True):
         marker = " <- newest" if found == newest else ""
-        print(f"found: {found}{marker}")
+        print("found: " + str(found) + marker)
 
     if mine.exists() and mine.stat().st_mtime >= newest.stat().st_mtime:
         # Never trade a newer checkpoint for an older one just because the
         # older one was found somewhere else.
         print()
-        print(f"keeping the checkpoint already in place: {mine}")
+        print("keeping the checkpoint already in place: " + str(mine))
     else:
         CKPT_DIR.mkdir(parents=True, exist_ok=True)
         # Copy the whole directory: history and best.pth belong with last.pth,
@@ -297,19 +307,57 @@ else:
             if sibling.is_file():
                 shutil.copy2(sibling, CKPT_DIR / sibling.name)
         print()
-        print(f"adopted: {newest}")
-        print(f"     -> {CKPT_DIR}")
+        print("adopted: " + str(newest))
+        print("     -> " + str(CKPT_DIR))
 
+# --- Is the checkpoint actually resumable into THIS config? ----------------
+#
+# Resuming only works if the architecture matches. A checkpoint trained at
+# 64px with the adapted stem has a different conv1 shape from a 128px
+# original-stem model, so load_state_dict would fail - or worse, a partial
+# load could succeed and train something subtly wrong.
+#
+# Incompatible checkpoints are MOVED ASIDE, never deleted: a training run is
+# expensive and "superseded" is not the same as "worthless".
 if mine.exists():
     import torch
 
     state = torch.load(mine, map_location="cpu", weights_only=False)
+    ckpt_cfg = state.get("config") or {}
+    ckpt_arch = state.get("arch", ckpt_cfg.get("arch"))
+    ckpt_size = ckpt_cfg.get("image_size")
+    ckpt_stem = state.get("stem_adapted", ckpt_cfg.get("adapt_stem"))
+
+    mismatches = []
+    if ckpt_arch is not None and ckpt_arch != ARCH:
+        mismatches.append("arch: checkpoint " + str(ckpt_arch) + ", wanted " + ARCH)
+    if ckpt_size is not None and ckpt_size != IMAGE_SIZE:
+        mismatches.append("image_size: checkpoint " + str(ckpt_size) + ", wanted " + str(IMAGE_SIZE))
+    if ckpt_stem is not None and bool(ckpt_stem) != STEM_ADAPTED:
+        mismatches.append("stem_adapted: checkpoint " + str(bool(ckpt_stem)) + ", wanted " + str(STEM_ADAPTED))
+
     epoch = state.get("epoch", "?")
     best = state.get("best_top1")
-    best_str = f"{best:.2f}%" if isinstance(best, (int, float)) else "n/a"
+    best_str = ("%.2f%%" % best) if isinstance(best, (int, float)) else "n/a"
     print()
-    print(f"checkpoint at epoch {epoch}, best top-1 so far {best_str}")
-    print("the next cell will resume from here rather than retrain")
+    print("checkpoint: epoch " + str(epoch) + ", best top-1 " + best_str)
+
+    if mismatches:
+        stash = CKPT_DIR.parent / ("checkpoints-superseded-" + time.strftime("%Y%m%d-%H%M%S"))
+        print()
+        print("INCOMPATIBLE with the config above:")
+        for line in mismatches:
+            print("  - " + line)
+        shutil.move(str(CKPT_DIR), str(stash))
+        CKPT_DIR.mkdir(parents=True, exist_ok=True)
+        print()
+        print("moved aside (not deleted): " + str(stash))
+        print("the next cell will train from epoch 1")
+    else:
+        print("compatible - the next cell will resume from here")
+else:
+    print()
+    print("no checkpoint in place; the next cell will train from epoch 1")
 """),
     md("""
 ## 6. Train on the full dataset
@@ -356,16 +404,16 @@ an extension of a shorter one.
 """),
     code("""
 !python -u -m models.training.train_classifier \\
-    --arch resnet50 \\
-    --epochs 60 \\
-    --batch-size 256 \\
-    --lr 1e-3 \\
+    --arch {ARCH} \\
+    --epochs {EPOCHS} \\
+    --image-size {IMAGE_SIZE} \\
+    --batch-size {BATCH_SIZE} \\
+    --lr {LR} \\
     --num-workers 8 \\
     --scheduler cosine \\
     --warmup-ratio 0.05 \\
     --grad-clip 1.0 \\
     --label-smoothing 0.1 \\
-    --image-size 128 \\
     --no-stem-adapt \\
     --device cuda
 """),
