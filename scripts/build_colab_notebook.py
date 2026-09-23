@@ -114,9 +114,17 @@ bug that was already fixed.
 The repository is public, so this needs no token, no credentials and no
 prompt.
 
-1. **Already reachable from the kernel** — used in place, so re-running this
-   cell after a runtime restart costs nothing and never re-downloads.
-2. **`git clone`** — otherwise.
+1. **An existing checkout** — fetched and **hard-reset to the remote**, so it
+   cannot be stale. It prints the commit it moved from and to.
+2. **`git clone`** — if there is no checkout yet.
+
+A directory that is a checkout of some *other* repository (your own local
+working copy, say) is left untouched.
+
+> **Why reset rather than reuse.** Reusing a directory because it merely
+> exists is how a runtime ends up running code from before the last push. That
+> happened repeatedly here, and each time it cost a training run at stale
+> settings before anyone noticed.
 
 > **Why nothing here prompts.** `files.upload()` and `getpass()` both render a
 > *browser* widget. Driving a Colab kernel from VS Code means there is no
@@ -130,6 +138,7 @@ from pathlib import Path
 
 REPO_NAME = "ML-Engineer-Challenge"
 REPO_URL = "https://github.com/pankaj29/ML-Engineer-Challenge.git"
+BRANCH = "main"
 IN_COLAB = "google.colab" in sys.modules or os.path.exists("/content")
 
 
@@ -137,29 +146,64 @@ def looks_like_repo(path):
     return (Path(path) / "models" / "training" / "train_classifier.py").is_file()
 
 
+def git(*args, cwd=None):
+    return subprocess.run(
+        ["git", *args], cwd=None if cwd is None else str(cwd), capture_output=True, text=True
+    )
+
+
+def is_our_checkout(path):
+    # True if `path` is a git clone whose origin is this repository.
+    done = git("-C", str(path), "remote", "get-url", "origin")
+    return done.returncode == 0 and REPO_NAME.lower() in done.stdout.strip().lower()
+
+
 REPO = None
 
-# --- 1. Already here? (a re-run, or a local checkout) ----------------------
+# --- 1. An existing checkout: UPDATE it, never just trust it ---------------
+#
+# Reusing a directory because it merely exists is how a runtime ends up
+# silently running code from before the last push - which has happened
+# repeatedly, costing whole training runs at stale settings. If the directory
+# is a checkout of this repo, it gets forced to match the remote.
 for candidate in [Path.cwd(), Path.cwd().parent, Path("/content") / REPO_NAME]:
-    if looks_like_repo(candidate):
+    if not looks_like_repo(candidate):
+        continue
+    if not is_our_checkout(candidate):
+        # A local working copy that is not a clone of this repo - someone's own
+        # checkout. Leave it entirely alone.
         REPO = candidate.resolve()
-        print(f"found repo in place  : {REPO}")
+        print("found repo in place  : " + str(REPO) + " (not a clone of this repo; left as-is)")
         break
 
-# --- 2. git clone ----------------------------------------------------------
+    before = git("-C", str(candidate), "rev-parse", "--short", "HEAD").stdout.strip()
+    fetched = git("-C", str(candidate), "fetch", "--depth", "1", "origin", BRANCH)
+    if fetched.returncode != 0:
+        print(fetched.stderr.strip(), file=sys.stderr)
+        print("could not reach the remote; using the checkout as-is", file=sys.stderr)
+        REPO = candidate.resolve()
+        break
+
+    # reset --hard, not pull: a shallow clone cannot always fast-forward, and
+    # this cell's job is "make the runtime match the remote", not "merge".
+    git("-C", str(candidate), "reset", "--hard", "origin/" + BRANCH)
+    after = git("-C", str(candidate), "rev-parse", "--short", "HEAD").stdout.strip()
+    REPO = candidate.resolve()
+    if before == after:
+        print("repo up to date      : " + str(REPO) + " @ " + after)
+    else:
+        print("repo UPDATED         : " + str(REPO) + "  " + before + " -> " + after)
+    break
+
+# --- 2. No checkout yet: clone -------------------------------------------
 if REPO is None:
     target = (Path("/content") if IN_COLAB else Path.cwd()) / REPO_NAME
-    print(f"cloning              : {REPO_URL}")
-    # --depth 1 because the GPU runtime needs the working tree, not the
-    # history; it turns a multi-megabyte fetch into a fast one.
-    done = subprocess.run(
-        ["git", "clone", "--depth", "1", REPO_URL, str(target)],
-        capture_output=True,
-        text=True,
-    )
+    print("cloning              : " + REPO_URL)
+    done = git("clone", "--depth", "1", "--branch", BRANCH, REPO_URL, str(target))
     if done.returncode == 0 and looks_like_repo(target):
         REPO = target.resolve()
-        print(f"cloned to            : {REPO}")
+        head = git("-C", str(REPO), "rev-parse", "--short", "HEAD").stdout.strip()
+        print("cloned to            : " + str(REPO) + " @ " + head)
     else:
         print(done.stderr.strip(), file=sys.stderr)
         print()
@@ -167,14 +211,12 @@ if REPO is None:
         print("so this is almost always one of:")
         print("  - this runtime has no network access to github.com")
         print("  - the repository was moved, renamed, or made private again")
-        print(f"Check by opening {REPO_URL[:-4]} in a browser.")
         raise SystemExit("repository not available")
 
 os.chdir(REPO)
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
-print(f"working directory    : {Path.cwd()}")
-"""),
+print("working directory    : " + str(Path.cwd()))"""),
     md("""
 ## 3. Install dependencies
 
@@ -216,29 +258,46 @@ Preview the plan without installing anything:
 (for example when the repo lives on Drive).
 """),
     code("""
+import os
 from pathlib import Path
 
-if Path("data/tiny-imagenet-200").exists():
-    print("dataset already present")
+# The dataset lives OUTSIDE the repository.
+#
+# On a hosted runtime the repo is disposable - re-cloning it is the normal way
+# to pick up a fix. If the 240 MB dataset sits inside the working tree, every
+# re-clone deletes it and costs another download. Keeping it at /content/data
+# makes the two independent.
+#
+# DATA_DIR is exported so the training cell and the validation cell both point
+# at the same place.
+DATA_DIR = Path("/content/data") if Path("/content").exists() else Path.cwd() / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+os.environ["TINY_IMAGENET_DATA_DIR"] = str(DATA_DIR)
+print("data directory    : " + str(DATA_DIR))
+
+if (DATA_DIR / "tiny-imagenet-200").exists():
+    print("dataset already present - not re-downloading")
 else:
-    !python scripts/download_datasets.py --dataset tiny_imagenet --data-dir data
+    !python scripts/download_datasets.py --dataset tiny_imagenet --data-dir {DATA_DIR}
 
 # Verify it is COMPLETE before committing to a long run. The training script
 # refuses to start on a partial dataset anyway, but failing here is cheaper.
 from models.training.dataset import TinyImageNetTrain, TinyImageNetVal, find_dataset_root
 
-root = find_dataset_root(Path("data"))
+root = find_dataset_root(DATA_DIR)
 train = TinyImageNetTrain(root)
 val = TinyImageNetVal(root, train.class_to_idx)
 distinct = len({label for _, label in val.samples})
 
-print(f"root      : {root}")
-print(f"classes   : {len(train.classes)}")
-print(f"train     : {len(train):,} images")
-print(f"val       : {len(val):,} images across {distinct} labels")
-assert len(train.classes) == 200 and len(train) == 100_000 and distinct == 200, \\
+print("root      : " + str(root))
+print("classes   : " + str(len(train.classes)))
+print("train     : " + format(len(train), ",") + " images")
+print("val       : " + format(len(val), ",") + " images across " + str(distinct) + " labels")
+assert len(train.classes) == 200 and len(train) == 100_000 and distinct == 200, (
     "dataset is incomplete - re-download before training"
-print("\\nDataset verified COMPLETE.")
+)
+print()
+print("Dataset verified COMPLETE.")
 """),
     md("""
 ## 5. Recover a previous checkpoint
@@ -439,6 +498,7 @@ an extension of a shorter one.
     --grad-clip 1.0 \\
     --label-smoothing 0.1 \\
     --no-stem-adapt \\
+    --data-dir {DATA_DIR} \\
     --device cuda
 """),
     md("### Training curves"),
