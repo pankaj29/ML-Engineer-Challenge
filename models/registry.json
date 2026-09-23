@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-09-22T14:15:24.210168+00:00",
+  "updated_at": "2026-09-23T10:52:18.880396+00:00",
   "models": [
     {
       "name": "resnet50",
@@ -87,6 +87,29 @@
       "description": "yolov8n (YOLOv8 nano) trained on COCO, exported to ONNX. Detects 80 common object categories with bounding boxes.",
       "is_default": true,
       "registered_at": "2026-09-22T14:15:24.209631+00:00",
+      "status": "active"
+    },
+    {
+      "name": "resnet50-tiny-imagenet",
+      "version": "1.0.0",
+      "task": "classification",
+      "artifacts": {
+        "onnx": "resnet50-tiny-imagenet.onnx"
+      },
+      "preprocess": "tiny_imagenet",
+      "labels_file": "tiny_imagenet_labels.json",
+      "num_classes": 200,
+      "input_shape": [
+        1,
+        3,
+        128,
+        128
+      ],
+      "metrics": {},
+      "limitations": [],
+      "description": null,
+      "is_default": false,
+      "registered_at": "2026-09-23T10:52:18.880260+00:00",
       "status": "active"
     }
   ]
