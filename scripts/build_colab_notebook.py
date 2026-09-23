@@ -571,7 +571,7 @@ model.load_state_dict(ckpt["model_state_dict"])
 result = export_to_onnx(
     model,
     Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
-    input_shape=(1, 3, 64, 64),
+    input_shape=(1, 3, IMAGE_SIZE, IMAGE_SIZE),
     name="resnet50-tiny-imagenet",
 )
 print(f"onnx      : {result.size_mb:.1f} MB")
@@ -596,7 +596,7 @@ from models.optimization.quantize import quantize_onnx_static
 q = quantize_onnx_static(
     Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
     DATA_DIR / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images",
-    PreprocessConfig(size=(64, 64)),
+    PreprocessConfig(size=(IMAGE_SIZE, IMAGE_SIZE)),
     num_calibration=200,
 )
 print(q.summary())
@@ -647,7 +647,10 @@ else:
                 print(f"  note: {note}")
 
             bench = benchmark_engine(
-                Path(res.engine_path), input_shape=(1, 3, 64, 64), iterations=200, warmup=50
+                Path(res.engine_path),
+                input_shape=(1, 3, IMAGE_SIZE, IMAGE_SIZE),
+                iterations=200,
+                warmup=50,
             )
             print(f"  latency: p50 {bench['p50_ms']:.3f} ms | p95 {bench['p95_ms']:.3f} ms "
                   f"| {bench['throughput_ips']:.0f} img/s")
@@ -672,7 +675,7 @@ for name in ("resnet50-tiny-imagenet.onnx", "resnet50-tiny-imagenet_int8_static.
         continue
     print(f"benchmarking {name} ...")
     results.extend(
-        benchmark_onnx(path, input_shape=(3, 64, 64), batch_sizes=(1, 8, 32),
+        benchmark_onnx(path, input_shape=(3, IMAGE_SIZE, IMAGE_SIZE), batch_sizes=(1, 8, 32),
                        iterations=100, warmup=20, device="cuda")
     )
 
@@ -703,7 +706,7 @@ Registry().register(
     preprocess="tiny_imagenet",
     labels_file="tiny_imagenet_labels.json",
     num_classes=200,
-    input_shape=[1, 3, 64, 64],
+    input_shape=[1, 3, IMAGE_SIZE, IMAGE_SIZE],
     description="ResNet-50 fine-tuned on Tiny-ImageNet (200 classes) with AMP, "
                 "gradient clipping and cosine LR scheduling.",
     overwrite=True,
@@ -783,7 +786,7 @@ python -m models.registry register \\
     --name resnet50-tiny-imagenet --version 1.0.0 --task classification \\
     --onnx resnet50-tiny-imagenet.onnx --labels tiny_imagenet_labels.json \\
     --preprocess tiny_imagenet --num-classes 200 \\
-    --input-shape 1,3,64,64 --default --overwrite
+    --input-shape 1,3,128,128 --default --overwrite
 
 # 3. Confirm it serves
 python -m models.registry validate
