@@ -10,7 +10,34 @@ import zipfile
 import tarfile
 import hashlib
 from pathlib import Path
-from tqdm import tqdm
+
+try:
+    from tqdm import tqdm
+except ImportError:  # pragma: no cover - depends on the environment
+    # tqdm draws a progress bar. It is cosmetic, and it lives in
+    # requirements-train.txt, so environments that only install the serving or
+    # dev dependencies do not have it. Importing it at module level made this
+    # script die with ModuleNotFoundError before downloading anything - which
+    # is how CI ended up silently skipping 14 dataset tests. A no-op stand-in
+    # keeps the download working everywhere.
+    class tqdm:  # type: ignore[no-redef]
+        def __init__(self, *args, desc=None, total=None, **kwargs):
+            self._desc = desc
+            self._total = total
+
+        def __enter__(self):
+            if self._desc:
+                size = f" ({self._total / 1e6:.0f} MB)" if self._total else ""
+                print(f"{self._desc}{size} - install tqdm for a progress bar", flush=True)
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def update(self, _n):
+            pass
+
+
 import argparse
 
 

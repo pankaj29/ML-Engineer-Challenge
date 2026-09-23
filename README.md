@@ -14,12 +14,19 @@ preserved at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| **Tests** | 370 passing (unit, integration, performance) |
-| **Coverage** | 83.5% overall; 85-100% on critical paths |
+| **CI** | All 7 jobs green on Python 3.11 and 3.12 |
+| **Tests** | 404 passing locally; 390 passing / 14 skipped on CI |
+| **Coverage** | 83.9% overall; 85-100% on critical paths |
 | **Lint** | `ruff` and `black` clean |
 | **Stack** | 7 services, all verified healthy |
-| **Latency** | 43-121 ms p50 per image on CPU — the requirement is < 1 s |
+| **Classifier** | 77.66% top-1 on Tiny-ImageNet (200 classes), validated 8/8 |
+| **Latency** | 0.73 ms p50 on A100 via TensorRT fp16; 43-121 ms on CPU |
 | **Load tested** | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
+
+The 14 CI skips are the Tiny-ImageNet dataset tests. The dataset is 519 MB
+across 120,203 files and is not committed — CI downloads and caches it, and
+that step is deliberately non-fatal so an external host being down cannot turn
+the build red.
 
 Progress against every line of the brief is tracked in
 [`DELIVERABLES_CHECKLIST.xlsx`](DELIVERABLES_CHECKLIST.xlsx), regenerated from
@@ -279,6 +286,7 @@ Reproduce: `python -m models.optimization.benchmark`
 * 370 tests: 286 unit, 67 integration, 15 performance, 2 load-test classes
 * Runs with **no external services** — fakeredis, in-memory SQLite, fake runtimes
 * Real-artifact integration tests that skip cleanly when artifacts are absent
+  **or are unfetched Git LFS pointers**, naming the remedy in the skip message
 * Memory-leak profiling and concurrency verification
 * Locust load testing against the live stack
 * CI with lint, type-check, test, coverage gate, Docker build and security scan

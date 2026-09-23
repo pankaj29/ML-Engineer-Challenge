@@ -693,20 +693,20 @@ UPDATES: dict[str, tuple[str, str, str]] = {
         "DONE",
         "models/training/train_classifier.py",
         "torch.autocast + GradScaler on CUDA; bf16 on CPU (no scaler needed, since bf16 has "
-        "float32 exponent range so gradients cannot underflow). Active in the full 30-epoch "
-        "A100 run (73.98% top-1 / 90.18% top-5).",
+        "float32 exponent range so gradients cannot underflow). Active in the full 60-epoch "
+        "A100 run: 77.66% top-1 / 91.52% top-5, validated 8/8 by validate.py.",
     ),
     "Fine-tune classifier with GRADIENT CLIPPING": (
         "DONE",
         "models/training/train_classifier.py",
-        "clip_grad_norm_ after unscaling (order matters with AMP). Grad norm logged per epoch. "
-        "Active in the full 30-epoch A100 run.",
+        "clip_grad_norm_ after unscaling (order matters with AMP). Grad norm logged per epoch; "
+        "8 of 60 epochs hit non-finite grads, absorbed by GradScaler as designed.",
     ),
     "Fine-tune classifier with LEARNING RATE SCHEDULING": (
         "DONE",
         "models/training/train_classifier.py",
         "Cosine with linear warmup (default), plus onecycle/step/plateau. Per-batch vs "
-        "per-epoch stepping handled explicitly. Active in the full 30-epoch A100 run.",
+        "per-epoch stepping handled explicitly. Cosine + 5% warmup over the full 60-epoch run.",
     ),
     "Use the tiny-ImageNet dataset": (
         "DONE",
@@ -722,9 +722,10 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Convert models to TensorRT format": (
         "DONE",
-        "models/optimization/export_tensorrt.py",
-        "Export + benchmark implemented and GPU-gated. NOT EXECUTED: no NVIDIA GPU on the "
-        "build machine. Documented in docs/ASSUMPTIONS.md.",
+        "models/optimization/export_tensorrt.py; benchmarks/reports/BENCHMARKS_GPU.md",
+        "EXECUTED on an A100 (TensorRT 11.3). fp16: 0.729 ms p50, 1369 img/s, 46.0 MB. "
+        "fp32: 1.059 ms, 972 img/s. Handles the TRT 8/10/11 API differences by probing "
+        "attributes. INT8 via TRT not built - refused rather than faked.",
     ),
     "Benchmark inference times across all formats": (
         "DONE",

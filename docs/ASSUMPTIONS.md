@@ -381,6 +381,37 @@ Requested explicitly. Noted at the time that the repository sits inside a
 OneDrive-synced folder, so 120k dataset files will be synced; `data/` is
 gitignored. Pausing OneDrive sync during dataset work is advisable.
 
+### 3.8 Model artifacts are committed via Git LFS; the dataset is not
+
+These two look like the same decision and are not.
+
+**Artifacts go in** (457 MB across 9 files, through Git LFS). They cannot be
+reproduced without a GPU session and several hours - the fine-tuned checkpoint
+represents a 34-minute A100 run - so a reviewer cloning the repo would
+otherwise have no way to run the model tests or serve a prediction.
+
+**The dataset stays out** (519 MB, 120,203 files). It *is* reproducible, from
+one documented command, so committing it would store half a gigabyte to save a
+five-minute download.
+
+Three alternatives were weighed:
+
+| Option | Why not |
+| --- | --- |
+| Commit binaries directly | ~460 MB in history permanently, and `resnet50.onnx` at 97.4 MB is 2.6 MB below the size at which GitHub **rejects** a push outright. A slightly larger future export would break it. |
+| GitHub Release assets | No history cost and 2 GB per file, but the artifacts stop being versioned alongside the code that expects them. |
+| **Git LFS** (chosen) | Repository stays ~2 MB, artifacts are versioned with the code, and CI fetches them with `lfs: true`. |
+
+**The cost, stated plainly:** GitHub's free tier gives 1 GB of LFS storage and
+**1 GB of bandwidth per month**. At 457 MB, storage is comfortable but roughly
+two full clones per month exhausts the bandwidth. For a take-home submission
+that is the right trade; for a busy repository it would not be, and Release
+assets would win.
+
+A clone made without git-lfs gets pointer files rather than models. That used
+to fail 24 tests with an unhelpful message - see §5.8 - and now skips with
+`git lfs pull` as the stated remedy.
+
 ---
 
 ## 4. Bugs found in the provided scaffolding
@@ -486,7 +517,67 @@ decompression bomb is caught before its pixels are allocated. The cost was
 that a truncated file passed. Caught by a test; fixed by adding Pillow's
 `verify()` (a CRC check that does not decode pixels).
 
-### 5.8 Others, briefly
+### 5.8 CI was red from the first commit, for four separate reasons
+
+The pipeline never passed once between the initial push and late in the
+project. Every run was failing while local runs were green, which is the worst
+shape a test suite can be in: the signal exists and says nothing.
+
+Four independent causes, each hidden behind the previous one.
+
+**1. The workflow's own environment broke authentication.** `conftest.py` set
+the test API keys with `os.environ.setdefault(...)`, and the workflow exported
+`API_KEYS=ci-key:pro`. `setdefault` is a no-op when the variable already
+exists, so the app knew only `ci-key` while every fixture sent
+`test-pro-key` - **50+ failures**, all reading as unrelated assertion errors
+rather than "your key is wrong".
+
+Settings the tests assert against are now **assigned, not setdefault-ed**.
+Tunables such as `CACHE_ENABLED` keep `setdefault`, because nothing asserts on
+them. The redundant `env:` block is gone from the workflow.
+
+**2. A test was a 46% coin flip.** The fake detector emitted
+`uniform(0, 1.0)` across 80 classes x 8400 anchors = 672,000 values, and
+`test_high_threshold_returns_nothing` asserted that none exceeds 0.999999.
+Expected survivors: 0.67. Measured across 300 seeds, it failed 46% of the
+time - and the seed derives from the input sum, so CI and local disagreed.
+Fake scores are now capped at `MAX_FAKE_SCORE = 0.99`; 0 of 500 seeds break
+the assertion.
+
+**3. Git LFS pointers looked like model files.** Once artifacts moved into LFS,
+`actions/checkout@v4` - which does **not** fetch LFS content by default - left
+~130-byte pointer TEXT files at each artifact path. The availability check
+used `.exists()`, which a pointer satisfies, so 24 tests ran and failed with
+`ModelLoadError: could not be loaded in any available format`. Fixed on both
+sides: `lfs: true` on every checkout, and the guard now reads the file header
+for the LFS magic string and skips with the accurate remedy (`git lfs pull`).
+
+**4. One job installed a bare `pytest`.** The model-export job ran
+`pip install ... pytest`, which resolved to pytest 9 **without
+pytest-asyncio**, while `pytest.ini` declares `asyncio_mode` and
+`asyncio_default_fixture_loop_scope`. Under `--strict-config` that is a hard
+error: pytest collected all 25 tests, then aborted with "Unknown config
+option". It now installs `requirements-dev.txt`, so its pytest matches the
+test job's. This job only runs on `main`, which is why it surfaced last.
+
+**Why this belongs in a document about assumptions.** The implicit assumption
+was that a green local run meant a green pipeline. It did not, for months of
+commits, because the two environments differed in four ways that were each
+invisible from the other side. The lesson encoded in the fixes: anything a
+test asserts on must be owned by the test suite, not inherited from whatever
+the environment happens to export.
+
+**Current state: all seven jobs green.** 390 passed, 14 skipped on the
+runners; 404 passed locally. The 14 are the Tiny-ImageNet dataset tests -
+519 MB across 120,203 files, deliberately not committed - which CI now
+downloads and caches. That step is `continue-on-error` on purpose: it reaches
+an external host (cs231n.stanford.edu), and a third party's uptime should not
+decide whether the build is green. When it fails, those tests skip exactly as
+they did before, which is how the 14 skips above arose on the first green run
+(`tqdm` was missing from that job, so the download aborted before starting -
+since fixed by making the progress bar optional).
+
+### 5.9 Others, briefly
 
 * `/batch/{job_id}` returned 500 instead of 503 when Redis was down.
 * A typo'd model name silently fell back to the default model instead of
