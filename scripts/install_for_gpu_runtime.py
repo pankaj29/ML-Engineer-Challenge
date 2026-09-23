@@ -292,7 +292,22 @@ def main() -> int:
             return result.returncode
 
     # --- Stage 2: everything else ------------------------------------------
-    cmd = [sys.executable, "-m", "pip", "install", "--prefer-binary"]
+    #
+    # Excluding the BINARY_ONLY names from this command's ARGUMENTS is not
+    # enough. pip can still drag them back in as TRANSITIVE dependencies -
+    # ultralytics and onnxscript both depend on onnx - and then resolve them
+    # freely, which is how a source build reappears in a stage that was
+    # supposed to be safe. --only-binary is a global constraint on the
+    # resolver, not a filter on the argument list, so repeating it here closes
+    # that door whoever asks for the package.
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--prefer-binary",
+        f"--only-binary={','.join(sorted(BINARY_ONLY))}",
+    ]
     if args.quiet:
         cmd.append("-q")
     cmd.extend(rest)
