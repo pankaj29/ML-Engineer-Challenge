@@ -212,12 +212,21 @@ def build_engine(
 
     notes: list[str] = []
 
+    # builder.platform_has_fast_fp16 / _int8 were deprecated in TensorRT 8.6
+    # and REMOVED in 10, where querying them raises AttributeError. They were
+    # only ever advisory: setting the flag on a GPU without fast support is
+    # harmless, because TensorRT falls back to a supported precision per layer.
+    # So probe for the attribute and skip the note when it is gone.
+    def _platform_supports(attr: str) -> bool | None:
+        value = getattr(builder, attr, None)
+        return None if value is None else bool(value)
+
     if precision == "fp16":
-        if not builder.platform_has_fast_fp16:
+        if _platform_supports("platform_has_fast_fp16") is False:
             notes.append("this GPU has no fast fp16 support, so the engine will fall back to fp32")
         config.set_flag(trt.BuilderFlag.FP16)
     elif precision == "int8":
-        if not builder.platform_has_fast_int8:
+        if _platform_supports("platform_has_fast_int8") is False:
             notes.append("this GPU has no fast INT8 support; expect little or no speed-up")
         config.set_flag(trt.BuilderFlag.INT8)
         config.int8_calibrator = _EntropyCalibrator(
