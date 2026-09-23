@@ -268,7 +268,13 @@ EPOCHS = 60
 IMAGE_SIZE = 128
 STEM_ADAPTED = False      # False = keep ResNet's original pretrained stem
 BATCH_SIZE = 256
-LR = "1e-3"
+# LR 3e-4, not 1e-3. AdamW at 1e-3 suits a network with a randomly
+# initialised stem (the 64px adapted-stem config), where part of the model
+# trains from scratch. With STEM_ADAPTED = False the whole pretrained
+# ResNet-50 is intact, and 1e-3 erodes exactly the features 128px was chosen
+# to preserve: validation top-1 regressed 70.5% -> 64.8% while train loss
+# kept falling, with non-finite gradients appearing.
+LR = "3e-4"            # see the note below before changing this
 
 # These names come from train_classifier.py (see best_path / last_path there).
 # Checkpoints live in models/artifacts/ alongside the ONNX exports - NOT in a
