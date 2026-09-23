@@ -804,9 +804,30 @@ for name in wanted:
         shutil.copy2(src, bundle / "artifacts" / name)
         print(f"  + {name}  ({src.stat().st_size / 1e6:.1f} MB)")
 
+# TensorRT engines are NOT portable: one is built for a specific GPU
+# architecture and TensorRT version, so an A100 / TRT 11.3 engine will not load
+# on a laptop, and .gitignore excludes *.engine anyway. Their metadata sidecars
+# are the useful evidence and cost nothing, so those always travel; the engine
+# binaries themselves add ~140 MB to the download and are opt-in.
+INCLUDE_ENGINE_BINARIES = False
+
+for meta in Path("models/artifacts").glob("*.engine.json"):
+    shutil.copy2(meta, bundle / "artifacts" / meta.name)
+    print("  + " + meta.name + "  (engine metadata)")
+
 for engine in Path("models/artifacts").glob("*.engine"):
-    shutil.copy2(engine, bundle / "artifacts" / engine.name)
-    print(f"  + {engine.name}")
+    if INCLUDE_ENGINE_BINARIES:
+        shutil.copy2(engine, bundle / "artifacts" / engine.name)
+        print("  + " + engine.name)
+    else:
+        mb = engine.stat().st_size / 1e6
+        print(
+            "  - "
+            + engine.name
+            + "  ("
+            + format(mb, ".1f")
+            + " MB, skipped: not portable off this GPU)"
+        )
 
 for report in Path("benchmarks/reports").glob("*"):
     if report.is_file():
@@ -818,11 +839,59 @@ archive = shutil.make_archive(str(bundle), "zip", bundle)
 size = Path(archive).stat().st_size / 1e6
 print(f"\\nbundle: {archive}  ({size:.1f} MB)")
 
-if "google.colab" in sys.modules:
-    from google.colab import files
-    files.download(archive)
-else:
-    print("Not in Colab - copy the file above off the machine yourself.")
+# Deliver into a folder on Drive, not a browser download.
+#
+# The Colab download helper renders a browser widget. Driving a Colab kernel
+# from VS Code has no browser session, so it hangs or silently does nothing -
+# the same failure as the upload widget. Drive works headless.
+#
+# Files are written individually AND as the zip: individually so you can grab
+# just the ONNX or just the reports without a 300 MB download, and zipped for
+# when you want the lot in one go.
+DRIVE_FOLDER = "ML-Engineer-Challenge-results"
+
+delivered = False
+if Path("/content").exists():
+    drive_root = Path("/content/drive/MyDrive")
+    if not drive_root.exists():
+        try:
+            from google.colab import drive as _drive
+
+            _drive.mount("/content/drive")
+        except Exception as exc:
+            print("could not mount Drive: " + str(exc))
+
+    if drive_root.exists():
+        dest = drive_root / DRIVE_FOLDER
+        # Replace rather than merge: a stale artifact from an earlier run
+        # sitting next to a fresh one is how the wrong file gets downloaded.
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(bundle, dest)
+        shutil.copy2(archive, dest / Path(archive).name)
+        delivered = True
+
+        print()
+        print("saved to Drive: My Drive / " + DRIVE_FOLDER)
+        total = 0.0
+        for item in sorted(dest.rglob("*")):
+            if item.is_file():
+                mb = item.stat().st_size / 1e6
+                total += mb
+                print("    " + str(item.relative_to(dest)) + "  (" + format(mb, ".1f") + " MB)")
+        print("    " + format(total, ".1f") + " MB total")
+        print()
+        print("Open drive.google.com, download what you need, then in the repo:")
+        print("    cp <downloaded>/artifacts/* models/artifacts/")
+        print("    cp <downloaded>/reports/*   benchmarks/reports/")
+
+if not delivered:
+    print()
+    print("Could not copy to Drive. The files are on the runtime at:")
+    print("    " + str(bundle))
+    print("    " + archive)
+    print("Fetch them from Colab's Files pane (folder icon, left sidebar), or")
+    print("mount Drive and re-run this cell.")
 """),
     md("""
 ## Next steps, back on your machine
