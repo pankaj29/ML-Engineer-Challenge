@@ -152,6 +152,24 @@ def git(*args, cwd=None):
     )
 
 
+def _purge_stale_modules():
+    # Updating files on disk does NOT update an already-running kernel.
+    # Python caches imported modules in sys.modules, so `from
+    # models.optimization... import NewThing` keeps returning the OLD module
+    # and fails with ImportError even though the file on disk is correct.
+    #
+    # Dropping this project's packages from the cache makes the next import
+    # read the new files. Third-party modules are left alone - reloading torch
+    # or tensorrt mid-session is how you get two incompatible copies of a C
+    # extension in one process.
+    ours = ("models", "api", "worker", "db", "scripts")
+    stale = [m for m in sys.modules if m.split(".")[0] in ours]
+    for name in stale:
+        del sys.modules[name]
+    if stale:
+        print("reloaded modules     : " + str(len(stale)) + " (kernel had cached the old code)")
+
+
 def is_our_checkout(path):
     # True if `path` is a git clone whose origin is this repository.
     done = git("-C", str(path), "remote", "get-url", "origin")
@@ -193,6 +211,7 @@ for candidate in [Path.cwd(), Path.cwd().parent, Path("/content") / REPO_NAME]:
         print("repo up to date      : " + str(REPO) + " @ " + after)
     else:
         print("repo UPDATED         : " + str(REPO) + "  " + before + " -> " + after)
+        _purge_stale_modules()
     break
 
 # --- 2. No checkout yet: clone -------------------------------------------
