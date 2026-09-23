@@ -106,35 +106,30 @@ except ImportError:
     md("""
 ## 2. Get the code
 
-Finds the repository, in this order:
+Clones the repository from GitHub, so the runtime's copy always matches the
+last push. A fix made locally reaches the GPU as soon as you push it — no
+zipping, no uploading, and no stale copy of a script silently reintroducing a
+bug that was already fixed.
 
-1. **Already reachable from the kernel** — used in place.
-2. **A repo folder in Google Drive** — survives a disconnect; the best option
-   when driving Colab from VS Code.
-3. **A zip in Google Drive** — extracted automatically.
+The repository is public, so this needs no token, no credentials and no
+prompt.
 
-> **Note for VS Code users.** Colab's `files.upload()` renders a *browser*
-> widget. Driving a Colab kernel from VS Code means there is no browser session
-> to render it into, so it hangs forever with
-> *"Upload widget is only available when the cell has been executed in the
-> current browser session."* This cell therefore never calls it. Put the code
-> in Drive instead — either the folder or the zip — and it is picked up
-> automatically.
+1. **Already reachable from the kernel** — used in place, so re-running this
+   cell after a runtime restart costs nothing and never re-downloads.
+2. **`git clone`** — otherwise.
 
-To prepare the zip:
-
-```bash
-python scripts/package_for_colab.py     # ~420 KB
-```
-
-then upload it to My Drive via drive.google.com.
+> **Why nothing here prompts.** `files.upload()` and `getpass()` both render a
+> *browser* widget. Driving a Colab kernel from VS Code means there is no
+> browser session to render into, so they hang forever with *"Upload widget is
+> only available when the cell has been executed in the current browser
+> session."* This notebook never calls either.
 """),
     code("""
-import os, sys, zipfile
+import os, subprocess, sys
 from pathlib import Path
 
-REPO_NAME = "ml-engineer-challenge"
-ZIP_NAME = "ml-engineer-challenge-colab.zip"
+REPO_NAME = "ML-Engineer-Challenge"
+REPO_URL = "https://github.com/pankaj29/ML-Engineer-Challenge.git"
 IN_COLAB = "google.colab" in sys.modules or os.path.exists("/content")
 
 
@@ -143,71 +138,37 @@ def looks_like_repo(path):
 
 
 REPO = None
-tried = []
 
-# --- 1. Already here? (VS Code with a visible workspace, or a re-run) -------
+# --- 1. Already here? (a re-run, or a local checkout) ----------------------
 for candidate in [Path.cwd(), Path.cwd().parent, Path("/content") / REPO_NAME]:
-    tried.append(str(candidate))
     if looks_like_repo(candidate):
         REPO = candidate.resolve()
         print(f"found repo in place  : {REPO}")
         break
 
-# --- 2 & 3. Google Drive ----------------------------------------------------
-if REPO is None and IN_COLAB:
-    drive_root = Path("/content/drive/MyDrive")
-    if not drive_root.exists():
-        try:
-            from google.colab import drive as _drive
-
-            _drive.mount("/content/drive")
-        except Exception as exc:
-            print(f"could not mount Drive: {exc}")
-
-    if drive_root.exists():
-        # 2. An unpacked repo folder anywhere in Drive.
-        for candidate in drive_root.glob(f"**/{REPO_NAME}"):
-            if looks_like_repo(candidate):
-                REPO = candidate.resolve()
-                print(f"found repo in Drive  : {REPO}")
-                break
-
-        # 3. A zip anywhere in Drive - extract to local disk, which is much
-        #    faster to read from during training than Drive itself.
-        if REPO is None:
-            zips = sorted(drive_root.glob(f"**/{ZIP_NAME}")) or sorted(
-                drive_root.glob("**/ml-engineer-challenge*.zip")
-            )
-            if zips:
-                target = Path("/content") / REPO_NAME
-                target.mkdir(parents=True, exist_ok=True)
-                print(f"extracting           : {zips[0]}")
-                with zipfile.ZipFile(zips[0]) as zf:
-                    zf.extractall(target)
-                if not looks_like_repo(target):
-                    inner = next((d for d in target.iterdir() if looks_like_repo(d)), None)
-                    if inner:
-                        target = inner
-                if looks_like_repo(target):
-                    REPO = target.resolve()
-                    print(f"extracted to         : {REPO}")
-
-# --- Nothing found: say exactly what to do, rather than hanging -------------
+# --- 2. git clone ----------------------------------------------------------
 if REPO is None:
-    print("Could not find the repository. Looked in:")
-    for t in tried:
-        print(f"  - {t}")
-    print("  - /content/drive/MyDrive/**/" + REPO_NAME)
-    print("  - /content/drive/MyDrive/**/" + ZIP_NAME)
-    print()
-    print("FIX: on your local machine run")
-    print("    python scripts/package_for_colab.py")
-    print("then upload ml-engineer-challenge-colab.zip to My Drive via")
-    print("drive.google.com, and re-run this cell.")
-    print()
-    print("(The Colab upload widget is deliberately not used: it needs a live")
-    print(" browser session and hangs forever when Colab is driven from VS Code.)")
-    raise SystemExit("repository not found")
+    target = (Path("/content") if IN_COLAB else Path.cwd()) / REPO_NAME
+    print(f"cloning              : {REPO_URL}")
+    # --depth 1 because the GPU runtime needs the working tree, not the
+    # history; it turns a multi-megabyte fetch into a fast one.
+    done = subprocess.run(
+        ["git", "clone", "--depth", "1", REPO_URL, str(target)],
+        capture_output=True,
+        text=True,
+    )
+    if done.returncode == 0 and looks_like_repo(target):
+        REPO = target.resolve()
+        print(f"cloned to            : {REPO}")
+    else:
+        print(done.stderr.strip(), file=sys.stderr)
+        print()
+        print("Clone failed. The repository is public and needs no credentials,")
+        print("so this is almost always one of:")
+        print("  - this runtime has no network access to github.com")
+        print("  - the repository was moved, renamed, or made private again")
+        print(f"Check by opening {REPO_URL[:-4]} in a browser.")
+        raise SystemExit("repository not available")
 
 os.chdir(REPO)
 if str(REPO) not in sys.path:
