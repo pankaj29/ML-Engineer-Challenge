@@ -71,6 +71,13 @@ jobs:
       - name: Black (formatting)
         run: black --check --diff api/ models/ worker/ db/ scripts/ tests/
 
+      # The Colab notebook is generated from scripts/build_colab_notebook.py.
+      # Editors save execution outputs back into it, which silently overwrites
+      # generated content - so verify the committed copy still matches its
+      # source rather than discovering it mid-run on a GPU.
+      - name: Colab notebook is up to date
+        run: python scripts/build_colab_notebook.py --check
+
       - name: Mypy (types)
         # Type checking is advisory for now: the codebase is fully annotated,
         # but several third-party libraries ship no stubs, and failing the

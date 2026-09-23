@@ -20,6 +20,7 @@ prepares the environment, calls the real code, and collects the results.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -853,8 +854,8 @@ and fold the GPU numbers into `docs/TECHNICAL.md`.
 ]
 
 
-def build() -> Path:
-    notebook = {
+def _notebook() -> dict:
+    return {
         "cells": CELLS,
         "metadata": {
             "accelerator": "GPU",
@@ -865,12 +866,58 @@ def build() -> Path:
         "nbformat": 4,
         "nbformat_minor": 0,
     }
+
+
+def build() -> Path:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(notebook, indent=1), encoding="utf-8")
+    OUTPUT.write_text(json.dumps(_notebook(), indent=1), encoding="utf-8")
     return OUTPUT
 
 
+def check() -> int:
+    """Report whether the notebook on disk matches what this script produces.
+
+    The notebook is a BUILD ARTEFACT. Opening it in an editor and saving -
+    which Jupyter and VS Code do on their own, to record execution outputs -
+    silently overwrites generated content. That has happened repeatedly, and
+    each time the stale copy looked fine until something failed on a GPU
+    runtime minutes into a run.
+
+    Run with --check in CI so a stale notebook fails the build instead of
+    being discovered the expensive way.
+    """
+    if not OUTPUT.exists():
+        print(f"MISSING: {OUTPUT}", file=sys.stderr)
+        return 1
+
+    on_disk = json.loads(OUTPUT.read_text(encoding="utf-8"))
+    expected = json.loads(json.dumps(_notebook()))
+
+    # Compare only the source of each cell. Execution counts and outputs are
+    # expected to differ - that is what running the notebook does - and are
+    # not what this guard is protecting.
+    def sources(nb):
+        return [(c["cell_type"], "".join(c["source"])) for c in nb["cells"]]
+
+    if sources(on_disk) == sources(expected):
+        print(f"up to date: {OUTPUT}")
+        return 0
+
+    disk, exp = sources(on_disk), sources(expected)
+    print(f"STALE: {OUTPUT} does not match {Path(__file__).name}", file=sys.stderr)
+    if len(disk) != len(exp):
+        print(f"  cell count: on disk {len(disk)}, expected {len(exp)}", file=sys.stderr)
+    for i, (a, b) in enumerate(zip(disk, exp, strict=False), start=1):
+        if a != b:
+            print(f"  cell {i} ({a[0]}) differs", file=sys.stderr)
+    print("", file=sys.stderr)
+    print(f"Fix: python {Path(__file__).as_posix()}", file=sys.stderr)
+    return 1
+
+
 if __name__ == "__main__":
+    if "--check" in sys.argv:
+        raise SystemExit(check())
     path = build()
     n_code = sum(1 for c in CELLS if c["cell_type"] == "code")
     print(f"wrote {path}")
