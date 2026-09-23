@@ -402,10 +402,17 @@ jobs:
           cache: pip
 
       - name: Install training dependencies
+        # requirements-dev.txt, not a bare `pytest`. This job runs the test
+        # suite, and pytest.ini declares asyncio_mode plus
+        # asyncio_default_fixture_loop_scope. A bare install pulls the newest
+        # pytest WITHOUT pytest-asyncio, so --strict-config rejects those
+        # options and the job aborts with "Unknown config option" after
+        # collecting every test. Installing the pinned dev stack keeps this
+        # job's pytest identical to the one the test job uses.
         run: |
           python -m pip install --upgrade pip
           pip install --extra-index-url https://download.pytorch.org/whl/cpu \
-                      -r requirements-train.txt onnxscript pytest
+                      -r requirements-train.txt -r requirements-dev.txt onnxscript
 
       - name: Export and register the models
         # Quantization is skipped: static quantization needs the dataset, and
