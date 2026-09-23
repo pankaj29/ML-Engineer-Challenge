@@ -720,8 +720,22 @@ print()
 for r in sorted(results, key=lambda x: (x.name, x.batch_size)):
     print(r.summary())
 
+# Name the report after the device actually used, not the one requested.
+# ONNX Runtime falls back to CPU without error when the CUDA provider is
+# missing, and a file called BENCHMARKS_GPU.md full of CPU numbers is a
+# misleading artefact that outlives the session that produced it.
+devices = {r.device for r in results}
+if devices == {"cuda"}:
+    out = Path("benchmarks/reports/BENCHMARKS_GPU.md")
+else:
+    out = Path("benchmarks/reports/BENCHMARKS_GPU_CPU_FALLBACK.md")
+    print()
+    print("WARNING: ONNX Runtime ran on " + ", ".join(sorted(devices)) + ", not cuda.")
+    print("These are NOT GPU numbers. The TensorRT results above are the only")
+    print("true GPU figures in this run. Check that onnxruntime-gpu is installed")
+    print("and that plain onnxruntime is not shadowing it.")
+
 env = environment_info()
-out = Path("benchmarks/reports/BENCHMARKS_GPU.md")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(render_markdown(results, env), encoding="utf-8")
 print(f"\\nwrote {out}")

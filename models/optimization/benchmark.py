@@ -29,6 +29,7 @@ import platform
 import statistics
 import sys
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -71,7 +72,8 @@ class BenchmarkResult:
 
     def summary(self) -> str:
         return (
-            f"{self.name:<28} {self.runtime:<12} b={self.batch_size:<3} "
+            f"{self.name:<28} {self.runtime:<12} {self.device:<5} "
+            f"b={self.batch_size:<3} "
             f"p50={self.p50_ms:7.2f}ms  p95={self.p95_ms:7.2f}ms  "
             f"{self.throughput_ips:7.1f} img/s  {self.size_mb:6.1f}MB"
         )
@@ -165,6 +167,22 @@ def benchmark_onnx(
     session = ort.InferenceSession(str(path), opts, providers=providers)
 
     actual_device = "cuda" if "CUDAExecutionProvider" in session.get_providers() else "cpu"
+
+    # ONNX Runtime falls back to CPU without raising when the CUDA provider is
+    # missing. Benchmarks that silently measure the wrong device are worse
+    # than no benchmarks: they get written into a report, compared against
+    # other runtimes, and quoted. Say it plainly.
+    if device == "cuda" and actual_device == "cpu":
+        available = ort.get_available_providers()
+        warnings.warn(
+            "CUDA was requested but ONNX Runtime has no CUDAExecutionProvider, "
+            "so these numbers are CPU numbers. Available providers: "
+            f"{available}. Install onnxruntime-gpu matching this CUDA version, "
+            "and make sure plain onnxruntime is not also installed - whichever "
+            "imports first wins.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     input_name = session.get_inputs()[0].name
     output_names = [o.name for o in session.get_outputs()]
     size_mb = path.stat().st_size / 1_048_576
