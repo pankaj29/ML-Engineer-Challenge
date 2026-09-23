@@ -334,7 +334,16 @@ BATCH_SIZE = 256
 # ResNet-50 is intact, and 1e-3 erodes exactly the features 128px was chosen
 # to preserve: validation top-1 regressed 70.5% -> 64.8% while train loss
 # kept falling, with non-finite gradients appearing.
+#
+# PATIENCE 15, not the script default of 0 (off) and not the 8 that burned
+# three runs. A cosine schedule does most of its work in the final anneal, so
+# validation accuracy plateaus mid-run as a matter of course - 8 epochs of
+# flatness is normal there, not a signal. 15 is long enough to sit through
+# that and short enough to cut a genuinely dead run. It is still a judgement
+# call: if it fires before roughly epoch 45, suspect the plateau rather than
+# the model, and re-run with PATIENCE = 0 to disable it.
 LR = "3e-4"            # see the note below before changing this
+PATIENCE = 15          # stop after this many epochs with no val improvement
 
 # These names come from train_classifier.py (see best_path / last_path there).
 # Checkpoints live in models/artifacts/ alongside the ONNX exports - NOT in a
@@ -498,6 +507,7 @@ an extension of a shorter one.
     --warmup-ratio 0.05 \\
     --grad-clip 1.0 \\
     --label-smoothing 0.1 \\
+    --patience {PATIENCE} \\
     --no-stem-adapt \\
     --data-dir {DATA_DIR} \\
     --device cuda
