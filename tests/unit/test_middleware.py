@@ -262,6 +262,55 @@ class TestRateLimiter:
         assert headers["X-RateLimit-Tier"] == "pro"
 
 
+class TestRateLimiterWiring:
+    """The middleware must enforce limits with the limiter the lifespan connects.
+
+    Regression test for a silent production bug: create_app() built a limiter
+    and gave it to RateLimitMiddleware, while the lifespan built a SECOND one
+    and connected that. The middleware's instance never had connect() called,
+    so `_available` stayed False and every request fell through to the
+    per-process _LocalBucket. Nothing failed - limits were just quietly
+    multiplied by the number of replicas.
+
+    Asserting on object identity rather than behaviour is deliberate: the
+    fallback works correctly, so a behavioural test passes either way. Identity
+    is the only thing that distinguishes "shared across replicas" from "not".
+    """
+
+    def test_middleware_uses_the_singleton_limiter(self) -> None:
+        """Guards construction only.
+
+        create_app(testing=True) skips the lifespan, so this passes even with
+        the bug present - the divergence happens at startup, not construction.
+        The real guard is the test below; this one catches a different
+        regression, namely create_app forgetting to register its limiter.
+        """
+        from api.main import create_app
+        from api.middleware.rate_limit import RateLimitMiddleware, get_rate_limiter
+
+        app = create_app(testing=True)
+        held = next(
+            m.kwargs.get("limiter") for m in app.user_middleware if m.cls is RateLimitMiddleware
+        )
+        assert held is get_rate_limiter(), (
+            "RateLimitMiddleware holds a different RateLimiter than the module "
+            "singleton the lifespan connects. Rate limiting will silently "
+            "degrade to per-process buckets."
+        )
+
+    def test_lifespan_does_not_replace_the_limiter(self) -> None:
+        """The lifespan must reuse the instance, not construct a new one."""
+        import inspect
+
+        from api import main
+
+        source = inspect.getsource(main.lifespan)
+        assert "get_rate_limiter()" in source, (
+            "lifespan should call get_rate_limiter(), not RateLimiter(); "
+            "constructing a second limiter orphans the middleware's instance."
+        )
+
+
 class TestMetrics:
     def test_renders_prometheus_text(self) -> None:
         output = render_metrics().decode()

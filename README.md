@@ -36,18 +36,72 @@ Progress against every line of the brief is tracked in
 
 ## Quick start
 
-```bash
-# 1. Configuration
-cp .env.example .env
+Assumes **Git**, **Python 3.11 or 3.12** and **Docker Desktop** are installed.
+Git LFS is needed too, because the model files are stored there:
 
-# 2. Download and export the three models (one-off, ~5 minutes)
+```bash
+git lfs install          # once per machine; see https://git-lfs.com
+```
+
+### 1. Get the code
+
+```bash
+git clone https://github.com/pankaj29/ML-Engineer-Challenge.git
+cd ML-Engineer-Challenge
+git lfs pull             # fetches the model files (~460 MB)
+```
+
+Without `git lfs pull` the `.onnx` files are 130-byte placeholders and the API
+will fail to load a model.
+
+### 2. Create and activate a virtual environment
+
+**Do not skip this.** Installing into your system Python will fight with
+whatever else is already there.
+
+```powershell
+# Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+```bash
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Your prompt should now start with `(.venv)`. If PowerShell refuses with a
+script-execution error, allow it for this session:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+### 3. Configuration
+
+```bash
+cp .env.example .env     # PowerShell: copy .env.example .env
+```
+
+### 4. Export the models (one-off, ~5 minutes)
+
+```bash
+python -m pip install --upgrade pip
 pip install -r requirements-train.txt onnxscript
 python scripts/prepare_models.py
+```
 
-# 3. Start the stack
+### 5. Start the stack
+
+```bash
 docker compose up -d
+docker compose ps        # every service should reach "healthy"
+```
 
-# 4. Confirm
+### 6. Confirm
+
+```bash
 curl http://localhost/api/v1/health
 ```
 
@@ -71,6 +125,16 @@ curl -X POST http://localhost/api/v1/classify \
   "cached": false
 }
 ```
+
+### If something goes wrong
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `pip` reports conflicts with packages you have never heard of (`librosa`, `transformers`, `mcp`) | You are installing into your system Python. Go back to step 2 and activate the virtual environment. Those warnings are about *other* projects on your machine, not this one. |
+| `SERVICE_UNAVAILABLE` from `http://localhost/...` but `http://localhost:8000/...` works | The gateway cached the API's old IP address. `docker compose restart api-gateway`. Fixed in the nginx config, so this should only affect stacks started before that change. |
+| `ModelLoadError` / `503` on every request | The model files are LFS placeholders. Run `git lfs pull`. |
+| `docker compose ps` shows a service as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
+| Port 80 already in use | `GATEWAY_PORT=8080 docker compose up -d`, then use `http://localhost:8080`. |
 
 Interactive docs: **<http://localhost:8000/docs>**
 

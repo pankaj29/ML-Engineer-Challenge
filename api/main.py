@@ -43,7 +43,12 @@ from api.exceptions import register_exception_handlers
 from api.logging_config import configure_logging, get_logger
 from api.middleware.auth import AuthMiddleware
 from api.middleware.monitoring import MonitoringMiddleware, models_loaded, set_app_info
-from api.middleware.rate_limit import RateLimiter, RateLimitMiddleware, set_rate_limiter
+from api.middleware.rate_limit import (
+    RateLimiter,
+    RateLimitMiddleware,
+    get_rate_limiter,
+    set_rate_limiter,
+)
 from api.routers import (
     batch,
     classification,
@@ -88,7 +93,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # --- Cache, database and rate limiter, all connected concurrently ------
     cache_service = CacheService()
     db_service = DatabaseService()
-    rate_limiter = RateLimiter()
+    # get_rate_limiter(), NOT RateLimiter(). create_app() already built a
+    # limiter and handed that exact object to RateLimitMiddleware. Building a
+    # second one here and connecting *it* left the middleware holding an
+    # instance on which connect() was never called - so `_available` stayed
+    # False and every request silently used the per-process _LocalBucket
+    # fallback. Rate limits were therefore multiplied by the replica count,
+    # with nothing in the logs beyond a single degraded warning.
+    rate_limiter = get_rate_limiter()
     set_cache_service(cache_service)
     set_db_service(db_service)
     set_rate_limiter(rate_limiter)
