@@ -117,7 +117,7 @@ class TrainConfig:
     seed: int = 42
     device: str = "auto"
     # Stop early if validation accuracy has not improved for this many epochs.
-    early_stopping_patience: int = 8
+    early_stopping_patience: int = 0  # 0 disables it; see build_argparser
     # Accumulate gradients over N batches to simulate a larger batch than
     # fits in memory. 1 disables it.
     accumulation_steps: int = 1
@@ -859,7 +859,14 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
             flush=True,
         )
 
-        if epochs_without_improvement >= config.early_stopping_patience:
+        # Guarded by > 0: early stopping is OFF by default, because it is
+        # actively wrong for a fixed-length schedule. Cosine decay delivers
+        # most of its gain in the final anneal, so validation accuracy
+        # legitimately plateaus mid-run while the learning rate is still high.
+        # Stopping there discards the part of the schedule that pays.
+        if config.early_stopping_patience > 0 and (
+            epochs_without_improvement >= config.early_stopping_patience
+        ):
             print(f"early stopping: no improvement for {config.early_stopping_patience} epochs")
             history.stopped_early = True
             break
@@ -905,7 +912,20 @@ def main() -> int:
     )
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--accumulation-steps", type=int, default=1)
-    parser.add_argument("--patience", type=int, default=8, dest="early_stopping_patience")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=0,
+        dest="early_stopping_patience",
+        help=(
+            "Stop after this many epochs without validation improvement. "
+            "0 (the default) disables it. Leave it off with cosine or onecycle "
+            "scheduling: those are defined over the full epoch count and do "
+            "most of their work in the final anneal, so a mid-run plateau is "
+            "expected rather than a signal to stop. Useful with --scheduler "
+            "plateau or step."
+        ),
+    )
     parser.add_argument(
         "--no-resume",
         action="store_true",

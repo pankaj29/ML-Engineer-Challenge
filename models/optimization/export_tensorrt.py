@@ -193,7 +193,14 @@ def build_engine(
 
     logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
-    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+
+    # Explicit batch mode. TensorRT 8.x and 9.x require the EXPLICIT_BATCH
+    # creation flag; TensorRT 10 made explicit batch the only mode and REMOVED
+    # the flag, so referencing it there raises AttributeError. Probing for the
+    # attribute keeps one code path working across both.
+    explicit_batch = getattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH", None)
+    flags = 0 if explicit_batch is None else 1 << int(explicit_batch)
+    network = builder.create_network(flags)
     parser = trt.OnnxParser(network, logger)
 
     if not parser.parse(onnx_path.read_bytes()):
