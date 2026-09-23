@@ -326,7 +326,18 @@ def build_engine(
             "directly rather than passing precision='int8' here."
         )
 
-    if precision == "fp16":
+    if typed_network_era:
+        # Nothing to set. The network was created STRONGLY_TYPED and the graph
+        # itself is fp16 (convert_onnx_to_fp16 ran above), so precision is
+        # already decided. Touching trt.BuilderFlag.FP16 here would raise
+        # AttributeError, because that is exactly the attribute whose absence
+        # defines this era.
+        if precision == "fp16":
+            notes.append(
+                "fp16 from a converted fp16 ONNX graph; TensorRT "
+                f"{trt.__version__} has no FP16 builder flag"
+            )
+    elif precision == "fp16":
         if _platform_supports("platform_has_fast_fp16") is False:
             notes.append("this GPU has no fast fp16 support, so the engine will fall back to fp32")
         config.set_flag(trt.BuilderFlag.FP16)
