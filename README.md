@@ -164,6 +164,148 @@ curl.exe -X POST http://localhost/api/v1/classify `
 }
 ```
 
+### The other two tasks
+
+Classification answers *what is this?*. The service also answers *where is it?*
+and *what looks like it?*. Same auth, same error envelope, same response
+metadata - only the endpoint and a few parameters change.
+
+Every response below is real output from a running stack.
+
+#### Object detection - `POST /api/v1/detect`
+
+Returns a bounding box per object found, in pixel coordinates of the original
+image.
+
+```bash
+curl -X POST http://localhost/api/v1/detect \
+     -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
+     -d '{"image_base64": "...", "confidence_threshold": 0.25, "max_detections": 10}'
+```
+
+```json
+{
+  "count": 2,
+  "detections": [
+    {
+      "class_id": 16, "label": "dog", "confidence": 0.91, "rank": 1,
+      "box": {"x1": 84.2, "y1": 241.0, "x2": 259.7, "y2": 430.4,
+              "width": 175.5, "height": 189.4}
+    }
+  ],
+  "model": {"name": "yolov8n", "version": "1.0.0", "runtime": "onnx"},
+  "timing": {"preprocess_ms": 76.0, "inference_ms": 755.1, "total_ms": 924.8}
+}
+```
+
+| Parameter | Default | What it does |
+| --- | --- | --- |
+| `confidence_threshold` | 0.25 | Minimum score for a box to be reported |
+| `iou_threshold` | 0.45 | Overlap above which a duplicate box is suppressed |
+| `max_detections` | 100 | Hard cap, highest score first |
+| `class_filter` | none | Only return these labels, e.g. `["person", "car"]` |
+
+`count: 0` is a normal answer, not an error - it means nothing recognisable was
+found. The model knows the 80 COCO categories and nothing else.
+
+#### Image similarity - `POST /api/v1/similarity/*`
+
+Three endpoints, because search needs something to search *in*.
+
+**1. Add images to the index:**
+
+```bash
+curl -X POST http://localhost/api/v1/similarity/index \
+     -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
+     -d '{"image_base64": "...", "label": "red-jumper", "metadata": {"sku": "A-1"}}'
+```
+
+```json
+{"image_id": "983139cd23b24d19864f36b2cea9cd7d", "index_size": 3}
+```
+
+**2. Search with a query image:**
+
+```bash
+curl -X POST http://localhost/api/v1/similarity/search \
+     -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
+     -d '{"image_base64": "...", "top_k": 3, "min_similarity": 0.0}'
+```
+
+```json
+{
+  "count": 3,
+  "index_size": 3,
+  "results": [
+    {"id": "983139cd...", "score": 1.0,   "rank": 1, "label": "red-jumper",
+     "metadata": {"sku": "A-1"}},
+    {"id": "1a7c02be...", "score": 0.612, "rank": 2, "label": "blue-jumper",
+     "metadata": null}
+  ]
+}
+```
+
+`score` is **cosine similarity**: 1.0 is identical, 0.0 unrelated. Searching
+with an image already in the index returns it at rank 1 with a score of
+exactly 1.0 - a useful sanity check that the pipeline is wired correctly.
+
+**3. Get the raw vector, without searching:**
+
+```bash
+curl -X POST http://localhost/api/v1/similarity/embed \
+     -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
+     -d '{"image_base64": "..."}'
+```
+
+```json
+{"dimension": 2048, "embedding": [0.0055, 0.0, 0.0041, ...]}
+```
+
+2048 numbers describing the image's visual content, L2-normalised to length
+1.0 so cosine similarity is just a dot product. Use this to store vectors in
+your own database rather than the built-in index.
+
+**Index status:** `GET /api/v1/similarity/stats`
+
+```json
+{"size": 3, "dimension": 2048, "memory_mb": 0.02, "persisted": false}
+```
+
+> **`persisted: false` matters.** The index lives in the memory of one API
+> process. It is emptied on restart, and with several replicas each holds a
+> different index - so an image indexed through one replica is invisible to a
+> search that lands on another. Fine for a demo, not for production; see
+> *Known limitations*.
+
+#### PowerShell versions
+
+Same pattern as classification - only the URL and body change:
+
+```powershell
+$photo = (Resolve-Path "your-photo.jpg").Path
+$img   = [Convert]::ToBase64String([IO.File]::ReadAllBytes($photo))
+$H     = @{ "X-API-Key" = "dev-key-pro" }
+
+# detection
+$body = @{ image_base64 = $img; confidence_threshold = 0.25 } | ConvertTo-Json
+$d = Invoke-RestMethod -Uri "http://localhost/api/v1/detect" -Method Post `
+       -Headers $H -ContentType "application/json" -Body $body
+$d.detections | Format-Table rank, label, confidence -AutoSize
+
+# index, then search
+$body = @{ image_base64 = $img; label = "example" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost/api/v1/similarity/index" -Method Post `
+       -Headers $H -ContentType "application/json" -Body $body
+
+$body = @{ image_base64 = $img; top_k = 3 } | ConvertTo-Json
+$s = Invoke-RestMethod -Uri "http://localhost/api/v1/similarity/search" -Method Post `
+       -Headers $H -ContentType "application/json" -Body $body
+$s.results | Format-Table rank, label, score -AutoSize
+```
+
+Full parameter reference for every endpoint: [`docs/API.md`](docs/API.md), or
+the interactive docs at **<http://localhost:8000/docs>**.
+
 ### If something goes wrong
 
 | Symptom | Cause and fix |
