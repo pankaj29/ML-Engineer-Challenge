@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "updated_at": "2026-09-22T14:15:24.210168+00:00",
+  "models": [
+    {
+      "name": "resnet50",
+      "version": "1.0.0",
+      "task": "classification",
+      "artifacts": {
+        "onnx": "resnet50.onnx",
+        "onnx_int8": "resnet50_int8_static.onnx"
+      },
+      "preprocess": "imagenet_224",
+      "labels_file": "imagenet_labels.json",
+      "num_classes": 1000,
+      "input_shape": [
+        1,
+        3,
+        224,
+        224
+      ],
+      "metrics": {},
+      "limitations": [
+        "Trained on ImageNet-1k: only recognises those 1000 categories, and will confidently return a wrong label for anything outside them.",
+        "ImageNet is known to under-represent non-Western contexts, so accuracy is uneven across geographies and cultures.",
+        "Expects a single dominant subject; cluttered scenes with several objects are better served by the detection endpoint.",
+        "Confidence is not calibrated \u2014 a 0.9 score does not mean 90% correct."
+      ],
+      "description": "resnet50 pretrained on ImageNet-1k, exported to ONNX. Serves general-purpose image classification over 1000 categories.",
+      "is_default": true,
+      "registered_at": "2026-09-22T14:10:57.360210+00:00",
+      "status": "active"
+    },
+    {
+      "name": "resnet50-embed",
+      "version": "1.0.0",
+      "task": "similarity",
+      "artifacts": {
+        "onnx": "resnet50-embed.onnx",
+        "onnx_int8": "resnet50-embed_int8_static.onnx"
+      },
+      "preprocess": "imagenet_224",
+      "labels_file": null,
+      "num_classes": null,
+      "input_shape": [
+        1,
+        3,
+        224,
+        224
+      ],
+      "metrics": {},
+      "limitations": [
+        "Features come from an ImageNet classifier, so they encode 'what object is this' far better than style, colour or composition.",
+        "Not trained with a contrastive objective, so it is weaker at instance-level retrieval (finding the same specific object) than a purpose-built model such as CLIP or DINOv2.",
+        "Similarity scores are only comparable within one index built by one model version; re-embedding is required after a model change.",
+        "Search is exact brute force, which is linear in index size. Beyond ~1M vectors, switch to an approximate index."
+      ],
+      "description": "resnet50 backbone with the classification head removed, emitting 2048-dimensional L2-normalised embeddings for similarity search.",
+      "is_default": true,
+      "registered_at": "2026-09-22T14:13:10.658747+00:00",
+      "status": "active"
+    },
+    {
+      "name": "yolov8n",
+      "version": "1.0.0",
+      "task": "detection",
+      "artifacts": {
+        "onnx": "yolov8n.onnx",
+        "onnx_int8": "yolov8n_int8_static.onnx"
+      },
+      "preprocess": "yolo_640",
+      "labels_file": "coco_labels.json",
+      "num_classes": 80,
+      "input_shape": [
+        1,
+        3,
+        640,
+        640
+      ],
+      "metrics": {},
+      "limitations": [
+        "Trained on COCO's 80 categories only; anything else is either missed entirely or mislabelled as the nearest COCO class.",
+        "The nano variant trades accuracy for speed. Small, distant or heavily occluded objects are frequently missed.",
+        "Fixed 640x640 input: very wide or very tall images lose detail after letterboxing, which hurts recall on small objects.",
+        "Crowded scenes suffer from non-maximum suppression merging genuinely separate, overlapping objects into one box."
+      ],
+      "description": "yolov8n (YOLOv8 nano) trained on COCO, exported to ONNX. Detects 80 common object categories with bounding boxes.",
+      "is_default": true,
+      "registered_at": "2026-09-22T14:15:24.209631+00:00",
+      "status": "active"
+    }
+  ]
+}

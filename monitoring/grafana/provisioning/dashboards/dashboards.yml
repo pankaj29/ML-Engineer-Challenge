@@ -1,0 +1,16 @@
+# Tells Grafana where to find dashboard JSON files.
+apiVersion: 1
+
+providers:
+  - name: "mlcv"
+    orgId: 1
+    folder: "ML Computer Vision"
+    type: file
+    disableDeletion: false
+    # Re-read the directory periodically, so editing a dashboard file does not
+    # require restarting Grafana.
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

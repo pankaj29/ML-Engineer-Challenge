@@ -1,0 +1,26 @@
+{
+  "baselines": {
+    "resnet50:1.0.0": {
+      "metrics": {
+        "p50_latency_ms": 67.774,
+        "p95_latency_ms": 91.753,
+        "p99_latency_ms": 91.83,
+        "mean_latency_ms": 64.651,
+        "throughput_ips": 15.47,
+        "size_mb": 97.414
+      },
+      "recorded_at": "2026-09-22T13:48:14.073765+00:00",
+      "environment": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+        "python": "3.13.14",
+        "cpu_count": 22,
+        "torch": "2.9.0+cpu",
+        "gpu": null
+      },
+      "note": "initial baseline"
+    }
+  },
+  "updated_at": "2026-09-22T13:48:14.106183+00:00"
+}

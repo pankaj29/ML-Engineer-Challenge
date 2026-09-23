@@ -1,0 +1,402 @@
+{
+  "__comment": "ML API overview dashboard. Laid out as the four 'golden signals' of monitoring: traffic, errors, latency and saturation. Read top to bottom: the top row answers 'is it healthy right now?', the rest answers 'why not?'.",
+  "uid": "mlcv-overview",
+  "title": "ML CV API — Overview",
+  "tags": ["ml", "inference", "api"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "editable": true,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Service health",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Request rate",
+      "description": "Requests per second across all endpoints.",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "req/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "textMode": "auto" }
+    },
+    {
+      "type": "stat",
+      "title": "Error rate",
+      "description": "Share of requests returning 5xx. These are our bugs, not bad client input. Anything sustained above 1% deserves investigation.",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.0001)",
+          "legendFormat": "5xx",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "type": "stat",
+      "title": "p95 inference latency",
+      "description": "95th percentile model latency. The service requirement is under 1 second, so this panel turns red there.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(inference_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1.0 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "type": "stat",
+      "title": "Cache hit rate",
+      "description": "Share of lookups served from Redis. A collapse here means latency and CPU will both rise.",
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(cache_operations_total{result=\"hit\"}[5m])) / clamp_min(sum(rate(cache_operations_total{operation=\"get\"}[5m])), 0.0001)",
+          "legendFormat": "hit rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.2 },
+              { "color": "green", "value": 0.5 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "type": "stat",
+      "title": "Models loaded",
+      "description": "Models resident in memory. Zero means the service cannot serve any inference.",
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 1 },
+      "targets": [{ "expr": "models_loaded", "legendFormat": "loaded", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "type": "stat",
+      "title": "In-flight inferences",
+      "description": "Currently executing. Sitting at the concurrency limit means requests are being shed.",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 1 },
+      "targets": [{ "expr": "inference_in_progress", "legendFormat": "in flight", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 6 },
+              { "color": "red", "value": 8 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+
+    {
+      "type": "row",
+      "title": "Traffic and errors",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 6 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate by endpoint",
+      "description": "Which endpoints are actually being used, and how that changes over time.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (endpoint)",
+          "legendFormat": "{{endpoint}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Responses by status code",
+      "description": "Stacked view of outcomes. A rising red band is the first sign of trouble.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (status_code)",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "fillOpacity": 40, "lineWidth": 1, "stacking": { "mode": "normal" }, "showPoints": "never" }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors by code",
+      "description": "Application error codes, from the standard error envelope. Useful for spotting one client sending consistently bad input.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        {
+          "expr": "sum(rate(errors_total[5m])) by (code)",
+          "legendFormat": "{{code}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "showPoints": "never" } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate limit rejections by tier",
+      "description": "Sustained rejection on one tier usually means a customer has outgrown their plan.",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        {
+          "expr": "sum(rate(rate_limit_rejections_total[5m])) by (tier)",
+          "legendFormat": "{{tier}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "showPoints": "never" } } }
+    },
+
+    {
+      "type": "row",
+      "title": "Latency",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference latency percentiles",
+      "description": "p50 is the typical request; p95 and p99 are the slow tail users complain about. Watch the gap between them: a widening gap means inconsistency, which users notice more than a uniformly slower service.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(inference_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(inference_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(inference_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "fillOpacity": 5, "lineWidth": 2, "showPoints": "never" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1.0 }
+            ]
+          }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency by model",
+      "description": "Compares models against each other. Detection is expected to be slower than classification.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(inference_duration_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 5, "showPoints": "never" } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP vs inference latency",
+      "description": "The gap between these two lines is everything that is not the model: validation, serialisation, queueing, the database. If total latency rises while inference stays flat, the problem is not the model.",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 31 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "HTTP p95 (end to end)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(inference_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "inference p95 (model only)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 5, "showPoints": "never" } } }
+    },
+
+    {
+      "type": "row",
+      "title": "Models and batch jobs",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference rate by task",
+      "description": "Which of the three tasks the traffic is actually using.",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 39 },
+      "targets": [
+        {
+          "expr": "sum(rate(inference_total[5m])) by (task)",
+          "legendFormat": "{{task}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "showPoints": "never" } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference rate by runtime",
+      "description": "Confirms which compiled format is actually serving traffic — useful after changing PREFERRED_RUNTIME, or when graceful degradation has silently fallen back.",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 39 },
+      "targets": [
+        {
+          "expr": "sum(rate(inference_total[5m])) by (runtime)",
+          "legendFormat": "{{runtime}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "showPoints": "never" } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Batch job outcomes",
+      "description": "Completed versus failed background jobs.",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 39 },
+      "targets": [
+        {
+          "expr": "sum(rate(batch_jobs_total[15m])) by (status)",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 20, "showPoints": "never" } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cache operations",
+      "description": "Hits, misses and errors. A rising error line means Redis is struggling — the API keeps working but loses its speed-up.",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 46 },
+      "targets": [
+        {
+          "expr": "sum(rate(cache_operations_total[5m])) by (result)",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "fillOpacity": 20, "showPoints": "never" } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Upload size distribution (p50 / p95)",
+      "description": "How large the images people actually send are. A sudden jump explains a latency rise without any code change.",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 46 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_size_bytes_bucket[10m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_size_bytes_bucket[10m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "fillOpacity": 5, "showPoints": "never" } } }
+    }
+  ]
+}

@@ -1,0 +1,278 @@
+# =============================================================================
+# Production overlay.
+#
+# Plain English:
+#   This file does not replace docker-compose.yml — it is layered on top of
+#   it. Docker merges the two, with values here winning. That means the two
+#   files never drift apart: the service topology is defined once, and this
+#   file contains only the differences that production needs.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# What changes, and why:
+#
+#   1. NO DIRECT PORTS. In development the API and the databases are exposed
+#      on localhost for debugging. Here only the gateway is reachable, so
+#      Postgres and Redis cannot be reached from outside the host at all.
+#      This is the single most important difference.
+#
+#   2. REPLICAS. Multiple API and worker containers, so one crash does not
+#      mean an outage and load spreads across them.
+#
+#   3. SECRETS FROM THE ENVIRONMENT, WITH NO DEFAULTS. Note `${JWT_SECRET:?...}`
+#      below: the `:?` form makes Docker refuse to start if the variable is
+#      unset. A production deployment cannot silently fall back to a
+#      well-known development password.
+#
+#   4. READ-ONLY FILESYSTEMS. Containers cannot write to their own image.
+#      An attacker who achieves code execution cannot drop a persistent
+#      binary. Writable scratch space is provided explicitly via tmpfs.
+#
+#   5. TIGHTER LOGGING AND RESTART POLICY, plus rolling updates so a deploy
+#      does not drop requests.
+# =============================================================================
+
+services:
+  api-gateway:
+    ports:
+      # The only port open to the world. Terminate TLS here or at a load
+      # balancer in front.
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Mount real certificates in production.
+      - ./docker/nginx/certs:/etc/nginx/certs:ro
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64M
+      - /var/run:size=8M
+    security_opt:
+      # Prevents a process inside the container from gaining more privileges
+      # than it started with (e.g. through a setuid binary).
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  ml-api:
+    # No `ports` key: in the merged configuration the development port
+    # mapping is replaced by nothing, so the API is reachable only through
+    # the gateway on the internal network.
+    ports: !reset []
+    # A fixed container name cannot coexist with replicas - Docker would try
+    # to give three containers the same name. Development keeps the name for
+    # convenient `docker logs mlcv-api`; production drops it and lets Docker
+    # generate unique names per replica.
+    container_name: !reset null
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+
+      # `:?` means "fail to start if unset". This is deliberate: a missing
+      # secret must be a loud startup failure, never a silent default.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in production}
+      API_KEYS: ${API_KEYS:?API_KEYS must be set in production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}
+
+      AUTH_ENABLED: "true"
+      RATE_LIMIT_ENABLED: "true"
+      EAGER_MODEL_LOAD: "true"
+      MAX_CONCURRENT_INFERENCES: ${MAX_CONCURRENT_INFERENCES:-8}
+    deploy:
+      # Three replicas: one can fail or be restarted during a deploy while two
+      # continue serving.
+      replicas: ${API_REPLICAS:-3}
+      resources:
+        limits:
+          cpus: "${API_CPU_LIMIT:-4.0}"
+          memory: ${API_MEMORY_LIMIT:-8G}
+        reservations:
+          # Reservations guarantee capacity. Without them the scheduler can
+          # pack containers onto a node that cannot actually run them.
+          cpus: "1.0"
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        # Replace one replica at a time and wait for it to pass its health
+        # check before moving on, so a bad deploy stops after one container
+        # instead of taking down all three.
+        parallelism: 1
+        delay: 30s
+        order: start-first
+        failure_action: rollback
+        monitor: 60s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+    read_only: true
+    tmpfs:
+      # ONNX Runtime and PyTorch need writable scratch space; everything else
+      # stays read-only.
+      - /tmp:size=512M
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  worker:
+    # See the note on ml-api: a fixed name is incompatible with replicas.
+    container_name: !reset null
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}
+    deploy:
+      # Workers scale with queue depth, independently of the API.
+      replicas: ${WORKER_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "${WORKER_CPU_LIMIT:-4.0}"
+          memory: ${WORKER_MEMORY_LIMIT:-8G}
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+    read_only: true
+    tmpfs:
+      - /tmp:size=512M
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  redis:
+    # Not reachable from outside the Docker network.
+    ports: !reset []
+    command:
+      - redis-server
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-2gb}
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      # SECURITY: require a password. Without it, anything that reaches the
+      # network can read every cached result and manipulate the job queue.
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}
+      # Rename the commands that can wipe the instance, so a compromised
+      # client cannot issue them.
+      - --rename-command
+      - "FLUSHALL "
+      - --rename-command
+      - "FLUSHDB "
+      - --rename-command
+      - "CONFIG "
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: ${REDIS_MEMORY_LIMIT:-3G}
+      restart_policy:
+        condition: on-failure
+    security_opt:
+      - no-new-privileges:true
+
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}
+      # scram-sha-256 rather than the older md5.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --auth-host=scram-sha-256"
+    command:
+      - postgres
+      # Tuned for a write-heavy inference log. Adjust to the host's memory.
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${POSTGRES_CACHE_SIZE:-1536MB}
+      - -c
+      - work_mem=8MB
+      # Log slow queries so a missing index is visible before it is an outage.
+      - -c
+      - log_min_duration_statement=1000
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: ${POSTGRES_MEMORY_LIMIT:-4G}
+      restart_policy:
+        condition: on-failure
+    security_opt:
+      - no-new-privileges:true
+
+  prometheus:
+    ports: !reset []
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-20GB}
+      # Lifecycle API disabled: it allows an unauthenticated reload/shutdown.
+      - --web.enable-lifecycle=false
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    ports: !reset []
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?GRAFANA_PASSWORD must be set in production}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,103 @@
+# =============================================================================
+# Prometheus configuration.
+#
+# Plain English:
+#   Prometheus works by *pulling*. Every 15 seconds it calls the /metrics
+#   endpoint on each service listed below, reads whatever numbers it finds,
+#   and stores them with a timestamp. Nothing has to push anything.
+#
+#   That design is why a service crashing does not lose its metrics history,
+#   and why adding a new instance means nothing more than making it
+#   discoverable.
+#
+# The scrape interval is a trade-off: shorter means finer resolution and more
+# storage. 15 seconds is the usual default and is plenty for alerting on a
+# service whose requests take tens of milliseconds.
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  # How often alerting rules are re-evaluated. Matching the scrape interval
+  # avoids evaluating a rule against data that has not changed.
+  evaluation_interval: 15s
+  # If a scrape takes longer than this, it is recorded as a failure. It must
+  # stay below scrape_interval, or slow scrapes would queue up.
+  scrape_timeout: 10s
+
+  # Attached to every metric this server collects. Essential once metrics from
+  # several environments end up in one place: without it you cannot tell a
+  # staging spike from a production one.
+  external_labels:
+    environment: "local"
+    cluster: "mlcv"
+
+# Alerting rules, loaded from separate files so they can be reviewed and
+# changed without touching this configuration.
+rule_files:
+  - "alerts.yml"
+
+# Alertmanager would be wired in here. It is left commented out because the
+# brief does not require it, and an alerting pipeline with nowhere to send
+# alerts is worse than none.
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # The ML API
+  # ---------------------------------------------------------------------------
+  - job_name: "ml-api"
+    metrics_path: /api/v1/metrics
+    static_configs:
+      - targets: ["ml-api:8000"]
+        labels:
+          service: "ml-api"
+          component: "inference"
+
+    # When the API is scaled to several replicas, Docker's DNS returns one
+    # address per container. `dns_sd_configs` discovers them all, so scaling
+    # up does not require editing this file:
+    #
+    # dns_sd_configs:
+    #   - names: ["tasks.ml-api"]
+    #     type: A
+    #     port: 8000
+
+    relabel_configs:
+      # Record which container answered, so a problem can be traced to one
+      # replica rather than being averaged across all of them.
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------------------
+  # Prometheus itself
+  # ---------------------------------------------------------------------------
+  # Monitoring the monitoring matters: if Prometheus is failing to scrape or
+  # running out of disk, every other alert silently stops working.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: "prometheus"
+
+  # ---------------------------------------------------------------------------
+  # Optional exporters
+  # ---------------------------------------------------------------------------
+  # These are commented out rather than deleted, so enabling them later is a
+  # two-line change. Each needs its exporter container added to the compose
+  # file; a target that is configured but absent shows as a permanently down
+  # scrape, which trains people to ignore the target list.
+  #
+  # - job_name: "redis"
+  #   static_configs:
+  #     - targets: ["redis-exporter:9121"]
+  #
+  # - job_name: "postgres"
+  #   static_configs:
+  #     - targets: ["postgres-exporter:9187"]
+  #
+  # - job_name: "node"
+  #   static_configs:
+  #     - targets: ["node-exporter:9100"]

@@ -1,0 +1,59 @@
+# --- Datasets & model binaries (never committed; see docs/DATA.md) ----------
+data/
+!data/.gitkeep
+models/artifacts/
+!models/artifacts/.gitkeep
+*.pt
+*.pth
+*.onnx
+*.engine
+*.plan
+*.index
+*.faiss
+# ONNX external-data sidecars, written by torch's dynamo exporter
+*.data
+
+# --- Python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
+build/
+dist/
+
+# --- Test & tooling artefacts ---------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.benchmarks/
+
+# --- Secrets & local config ------------------------------------------------
+.env
+.env.*
+!.env.example
+secrets/
+
+# --- Runtime output --------------------------------------------------------
+logs/
+*.log
+runs/
+tensorboard/
+
+# --- OS / editor -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Build artifacts -------------------------------------------------------
+# Regenerate with: python scripts/package_for_colab.py
+ml-engineer-challenge-colab.zip
+gpu_results.zip

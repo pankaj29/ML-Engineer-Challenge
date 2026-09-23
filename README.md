@@ -1,0 +1,435 @@
+# Multi-Model Computer Vision API
+
+A production MLOps system serving **image classification**, **object
+detection** and **image similarity search** behind one API — with
+containerisation, per-tier rate limiting, background batch processing,
+monitoring, drift detection and a 370-test suite.
+
+Built for the Applied Computing ML Engineer challenge. The original brief is
+preserved at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
+
+---
+
+## Status
+
+| | |
+| --- | --- |
+| **Tests** | 370 passing (unit, integration, performance) |
+| **Coverage** | 83.5% overall; 85-100% on critical paths |
+| **Lint** | `ruff` and `black` clean |
+| **Stack** | 7 services, all verified healthy |
+| **Latency** | 43-121 ms p50 per image on CPU — the requirement is < 1 s |
+| **Load tested** | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
+
+Progress against every line of the brief is tracked in
+[`DELIVERABLES_CHECKLIST.xlsx`](DELIVERABLES_CHECKLIST.xlsx), regenerated from
+`scripts/checklist_data.py`.
+
+---
+
+## Quick start
+
+```bash
+# 1. Configuration
+cp .env.example .env
+
+# 2. Download and export the three models (one-off, ~5 minutes)
+pip install -r requirements-train.txt onnxscript
+python scripts/prepare_models.py
+
+# 3. Start the stack
+docker compose up -d
+
+# 4. Confirm
+curl http://localhost/api/v1/health
+```
+
+Then classify something:
+
+```bash
+curl -X POST http://localhost/api/v1/classify \
+     -H "X-API-Key: dev-key-pro" \
+     -H "Content-Type: application/json" \
+     -d "{\"image_base64\": \"$(base64 -w0 your-photo.jpg)\"}"
+```
+
+```json
+{
+  "predictions": [
+    { "class_id": 654, "label": "minibus", "confidence": 0.190, "rank": 1 }
+  ],
+  "model": { "name": "resnet50", "version": "1.0.0", "runtime": "onnx", "device": "cpu" },
+  "timing": { "preprocess_ms": 12.4, "inference_ms": 84.8, "total_ms": 97.5 },
+  "correlation_id": "3803dbb1d6274a2e...",
+  "cached": false
+}
+```
+
+Interactive docs: **<http://localhost:8000/docs>**
+
+---
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [**API.md**](docs/API.md) | Every endpoint, request/response examples, errors, authentication |
+| [**TECHNICAL.md**](docs/TECHNICAL.md) | Model selection, optimisation results, architecture, scalability |
+| [**ASSUMPTIONS.md**](docs/ASSUMPTIONS.md) | Decisions, gaps, and every bug found along the way |
+| [**DEPLOYMENT.md**](docs/DEPLOYMENT.md) | Production deployment, scaling, troubleshooting |
+| [**BENCHMARKS.md**](benchmarks/reports/BENCHMARKS.md) | Full latency numbers across formats |
+| [**Model cards**](models/cards/) | What each model does, how well, and where it fails |
+| [`docs/openapi.json`](docs/openapi.json) | OpenAPI 3.1 spec — import into Postman |
+
+---
+
+## Architecture
+
+```text
+                    ┌──────────────┐
+   client ─────────▶│  api-gateway │  Nginx: load balancing, edge rate
+                    └──────┬───────┘  limiting, body caps, internal /metrics
+                           │
+           ┌───────────────┴───────────────┐
+           ▼                               ▼
+   ┌───────────────┐               ┌───────────────┐
+   │    ml-api     │  × N          │    ml-api     │  FastAPI
+   │  Monitoring   │               │               │  · auth + per-tier limits
+   │  ↓ CORS       │               │               │  · validation
+   │  ↓ Auth       │               │               │  · ONNX inference
+   │  ↓ RateLimit  │               │               │  · concurrency cap
+   │  ↓ routes     │               │               │
+   └───┬───────┬───┘               └───────────────┘
+       │       │
+       ▼       ▼
+┌────────────┐  ┌────────────┐          ┌──────────────┐
+│   redis    │  │  postgres  │          │    worker    │ × M
+│ cache      │  │ inference  │◀─────────│ Celery       │
+│ broker     │─▶│ log + jobs │          │ batch jobs   │
+│ limiter    │  └────────────┘          └──────────────┘
+└─────┬──────┘
+      │ scrape
+┌─────┴────────┐   ┌────────────┐
+│  prometheus  │──▶│  grafana   │  22-panel dashboard, 11 alert rules
+└──────────────┘   └────────────┘
+```
+
+**Middleware order is deliberate.** Monitoring is outermost so it assigns the
+correlation ID before anything else runs and times *every* request — including
+ones rejected by authentication. Auth precedes rate limiting because the limit
+depends on the caller's tier. Rate limiting is innermost so a rejected request
+never touches a model.
+
+Full reasoning in [TECHNICAL.md](docs/TECHNICAL.md).
+
+---
+
+## The three models
+
+| Task | Model | p50 (CPU) | Size | Endpoint |
+| --- | --- | ---: | ---: | --- |
+| Classification | ResNet-50 (ImageNet-1k) | 84.8 ms | 97.4 MB | `POST /api/v1/classify` |
+| Detection | YOLOv8n (COCO) | 120.6 ms | 12.1 MB | `POST /api/v1/detect` |
+| Similarity | ResNet-50 embeddings | 43.4 ms | 89.6 MB | `POST /api/v1/similarity/*` |
+
+Each has a [model card](models/cards/) documenting its measured performance
+and — more importantly — its limitations.
+
+> The brief's overview names three tasks while its numbered list gives two.
+> The third model is similarity search, per the overview; confirmed before
+> building. See [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §1.1.
+
+---
+
+## The most interesting result
+
+The brief asks for INT8 quantization. It is applied to all three models — and
+measurement showed the obvious approach makes the system **dramatically
+worse**:
+
+| ResNet-50, batch 1 | p50 latency | Size |
+| --- | ---: | ---: |
+| ONNX float32 | **75.7 ms** | 97.4 MB |
+| INT8 **dynamic** | **1008.0 ms** | 24.5 MB |
+| INT8 **static QDQ** | **104.6 ms** | 24.9 MB |
+
+Dynamic quantization was **13x slower than float32**. It recomputes activation
+scales on every call and falls back to poorly-optimised integer convolution
+kernels — fine for a transformer, catastrophic for a convolutional network.
+
+Switching to **static QDQ** quantization, calibrated on 100 real images, made
+it ~10x faster than dynamic. Even so it remains ~1.4x slower than float32 on
+this CPU, while being 3.9x smaller.
+
+**So float32 is the serving default**, with INT8 registered alongside and
+selectable per request. Shipping a 13x-slower "optimisation" as the default,
+because the brief said to apply quantization, would have been the wrong call.
+
+Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked-and-what-did-not).
+
+---
+
+## Measured performance
+
+Intel Core Ultra 7 155H, 22 logical cores, **CPU only**. ONNX Runtime 1.26.0.
+
+### Single image — the requirement is sub-second
+
+| Model | p50 | p95 | p99 | Throughput |
+| --- | ---: | ---: | ---: | ---: |
+| resnet50 | 84.8 ms | 109.1 ms | 131.5 ms | 13.1/s |
+| yolov8n | 120.6 ms | 153.5 ms | 235.2 ms | 8.0/s |
+| resnet50-embed | 43.4 ms | 278.3 ms | 387.9 ms | 10.8/s |
+
+**All three meet the requirement at p99**, the slowest ~4x inside budget.
+
+### End-to-end, through the full Docker stack
+
+20 concurrent users, 45 seconds, mixed workload:
+
+| Metric | Result |
+| --- | --- |
+| Requests | 1,677 |
+| Failures | 4 (0.2%) |
+| p50 / p95 / p99 | 90 / 320 / 1,300 ms |
+| Throughput | 38.7 req/s |
+
+### Verified system properties
+
+| Property | Evidence |
+| --- | --- |
+| Concurrency ceiling honoured | Peak in-flight 4 against a limit of 4 |
+| No memory leak | Growth decelerates across 100 inferences |
+| No degradation under load | p50 8.3 ms → 7.0 ms over a sustained run |
+| Invalid input is cheap | 0.019 ms to reject a malformed image |
+| One bad image cannot fail a batch | Live run: 3 succeeded, 1 failed in isolation |
+
+Reproduce: `python -m models.optimization.benchmark`
+
+---
+
+## Features
+
+### Part 1 — Models and optimisation
+
+* Three models covering classification, detection and similarity
+* Tiny-ImageNet fine-tuning pipeline with **mixed precision** (AMP + GradScaler
+  on CUDA, bf16 on CPU), **gradient clipping** and **cosine LR scheduling with
+  warmup**
+* Custom augmentation written from scratch: RandAugment (13 operations),
+  RandomResizedCrop, RandomErasing, MixUp, CutMix
+* ONNX export with **numerical verification** against PyTorch (max diff < 4e-06)
+* INT8 quantization, static and dynamic, with measured accuracy cost
+* TensorRT export — implemented, GPU-gated, **not executed** (no GPU available;
+  see [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.1)
+* Validation pipeline: determinism, batch invariance, output sanity,
+  robustness, calibration (ECE), latency
+* A/B testing with a **paired McNemar test** and confidence intervals
+* Drift detection: KS test, chi-square, PSI — requiring *both* statistical
+  significance and a meaningful effect size
+* Performance regression testing with hardware fingerprinting
+
+### Part 2 — Production API
+
+* All six required endpoints, plus similarity and batch management
+* Per-tier rate limiting via a **Redis Lua token bucket** (atomic across
+  replicas), with a per-process fallback
+* Comprehensive image validation: size, format from magic bytes,
+  decompression-bomb guard, **SSRF protection** on `image_url`
+* Async batch processing through Celery
+* Model versioning with per-request pinning and hot reload
+* Graceful degradation with an explicit `degraded` flag
+* Structured JSON logging with **correlation IDs** end to end
+* One error envelope for every failure
+
+### Part 3 — Testing
+
+* 370 tests: 286 unit, 67 integration, 15 performance, 2 load-test classes
+* Runs with **no external services** — fakeredis, in-memory SQLite, fake runtimes
+* Real-artifact integration tests that skip cleanly when artifacts are absent
+* Memory-leak profiling and concurrency verification
+* Locust load testing against the live stack
+* CI with lint, type-check, test, coverage gate, Docker build and security scan
+
+### Part 4 — Containerisation
+
+* Multi-stage builds, non-root user (uid 10001), slim base images
+* Seven services, all with health checks, **all verified healthy**
+* Production overlay: replicas, no exposed ports, read-only root filesystems,
+  rolling updates, and **secrets that are required, not defaulted**
+* Three segmented networks; DNS service discovery, no hardcoded IPs
+* Prometheus with 11 alert rules; Grafana auto-provisioned with a 22-panel
+  dashboard
+
+---
+
+## Project layout
+
+```text
+├── api/                      FastAPI application
+│   ├── main.py               app factory, lifespan, middleware stack
+│   ├── config.py             12-factor settings; fails fast if insecure
+│   ├── exceptions.py         error hierarchy and handlers
+│   ├── logging_config.py     structured JSON logging + correlation IDs
+│   ├── dependencies.py       shared FastAPI dependencies
+│   ├── routers/              classification, detection, similarity, batch,
+│   │                         models, health, metrics
+│   ├── models/               request and response schemas
+│   ├── services/             model, cache, inference, database, index
+│   ├── middleware/           auth, rate_limit, monitoring
+│   └── utils/                image_processing, validators
+├── models/
+│   ├── training/             train_classifier, augmentation, dataset
+│   ├── optimization/         export_onnx, export_tensorrt, quantize, benchmark
+│   ├── validation/           validate, ab_test, drift, regression
+│   ├── cards/                one model card per model
+│   └── registry.py           model registry CLI
+├── worker/                   Celery app and batch tasks
+├── db/                       SQLAlchemy models
+├── tests/                    unit, integration, performance
+├── Dockerfile                main application container (the API)
+├── docker/                   Dockerfile.worker, nginx/
+├── monitoring/               prometheus config + alerts, grafana provisioning
+├── scripts/                  prepare_models, download_datasets, checklist
+├── benchmarks/               baselines and generated reports
+├── docs/                     API, TECHNICAL, ASSUMPTIONS, DEPLOYMENT, openapi
+└── .github/workflows/        CI pipeline
+```
+
+Two files extend the brief's prescribed structure: `api/config.py` (required
+by "environment-based configuration" and "no hardcoded secrets") and
+`api/dependencies.py` (so image extraction is defined once rather than per
+router). Extra routers exist because the brief requires those endpoints.
+
+---
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+
+pytest tests/ -v                          # everything except performance
+pytest tests/ --cov=api --cov-report=html # with a coverage report
+pytest tests/performance -m performance -s # timing and memory
+ruff check api/ models/ worker/ tests/    # lint
+black api/ models/ worker/ tests/         # format
+```
+
+### Working with models
+
+```bash
+python scripts/prepare_models.py                   # export and register all three
+python -m models.registry list                     # what is registered
+python -m models.registry validate                 # do the artifacts exist?
+python -m models.validation.validate               # full validation suite
+python -m models.optimization.benchmark            # latency across formats
+python -m models.validation.regression check --model resnet50:1.0.0
+```
+
+### Training
+
+**Training always runs on the complete dataset** — all 200 classes, all
+100,000 training and 10,000 validation images, every batch. There is no option
+to subset it. A startup guard (`verify_full_dataset`) counts what is on disk,
+compares it against what the dataloaders picked up, and refuses to train if
+anything is missing.
+
+```bash
+# The standard run. Uses CUDA automatically when a GPU is available.
+python -m models.training.train_classifier --epochs 30 --batch-size 256 --device auto
+
+# Faster on CPU at some accuracy cost — still all 200 classes, all images.
+python -m models.training.train_classifier --arch resnet18 --no-stem-adapt --epochs 10
+```
+
+Measured CPU cost on an Intel Core Ultra 7 155H (16 threads):
+
+| Config | img/s | 1 epoch | 30 epochs |
+| --- | ---: | ---: | ---: |
+| resnet50 + 64px stem (default) | 3.8 | 7.6 h | 9.4 days |
+| resnet50, original stem | 21.2 | 1.4 h | 1.7 days |
+| resnet18 + 64px stem | 9.2 | 3.1 h | 3.9 days |
+| resnet18, original stem | 75.0 | 23 min | 11.5 h |
+
+The 64px stem adaptation dominates the cost: it is correct for 64px input, but
+every layer after it then runs at 16x the spatial area. A GPU is roughly
+30-60x faster, putting the default config well under an hour.
+
+---
+
+## Security
+
+* **No hardcoded secrets.** Production refuses to start without them —
+  verified in CI.
+* **Fails closed on authentication.** No keys configured means every request
+  is rejected; there is no default credential.
+* **Constant-time key comparison**; keys never appear in logs, only a
+  non-reversible fingerprint.
+* **SSRF protection** on `image_url`: scheme and port allow-lists, redirects
+  disabled, and every resolved address checked against private, loopback and
+  link-local ranges.
+* **Decompression-bomb guard**: headers are parsed and pixel counts checked
+  *before* any pixel buffer is allocated.
+* **Content-based format detection** from magic bytes, never from a filename
+  or a client-declared content type.
+* **TorchScript, not pickle** — loading a pickled checkpoint would execute
+  arbitrary code from the artifact.
+* **JWT algorithm pinning**, so an `alg: none` forgery is rejected.
+* **Non-root containers**, read-only root filesystems in production,
+  `no-new-privileges`.
+* **No images stored** — only a SHA-256 hash.
+
+---
+
+## Known limitations
+
+Stated plainly; the full list with reasoning is in
+[ASSUMPTIONS.md](docs/ASSUMPTIONS.md).
+
+1. **TensorRT is written but never executed** — no NVIDIA GPU was available.
+2. **The classifier was not fully fine-tuned** — the pipeline is complete and
+   verified by a smoke run, but a full CPU run is 10+ hours. It is GPU-ready.
+3. **Accuracy figures are cited, not re-measured** — that needs the ImageNet
+   and COCO validation sets. Behavioural correctness *was* verified end to end.
+4. **The similarity index is per-process**, so it does not survive horizontal
+   scaling. Options are set out in TECHNICAL.md.
+5. **Confidence is not calibrated** — measured ECE of 0.22. Use the ranking,
+   not the absolute scores.
+6. **YOLOv8 is AGPL-3.0**, which has real implications for commercial use.
+
+### Next, in priority order
+
+1. Full Tiny-ImageNet fine-tune on a GPU
+2. Execute and benchmark the TensorRT path
+3. Move the similarity index to a shared store (pgvector or FAISS)
+4. Measure accuracy properly against the real validation sets
+5. Calibrate confidence with temperature scaling
+6. Add OpenTelemetry tracing
+
+---
+
+## A note on how this was built
+
+Several defects were found by the system's own checks rather than by review,
+and they are documented rather than quietly fixed — the
+[full list is in ASSUMPTIONS.md §4-5](docs/ASSUMPTIONS.md). A few worth
+knowing about:
+
+* **The provided starter dataloader mislabelled the entire validation set.**
+  `ImageFolder` cannot read Tiny-ImageNet's validation layout and silently
+  assigned label 0 to all 10,000 images. It does not crash — validation
+  accuracy just reads a meaningless 0.5%. Fixed in place; now verified to
+  produce 200 distinct labels with exactly 50 images each.
+* **ONNX export silently broke batching.** torch 2.9's default exporter
+  ignores `dynamic_axes`. Caught by the export script's own verification.
+* **A lint suppression corrupted the Redis Lua script.** A `# noqa` placed
+  after the opening triple-quote became the first line of the Lua source.
+  Redis would have rejected it — but only with a real Redis, which the unit
+  tests never use. The whole suite was blind to it.
+* **Three Prometheus metrics were defined but never incremented**, so a
+  dashboard panel and an alert would have been permanently blank. Found by
+  querying Prometheus after a live run rather than by trusting the code.
+
+The general principle applied throughout: **a claim is not done until there is
+evidence for it.** Every number in this README came from a command that was
+actually run, on the hardware described.

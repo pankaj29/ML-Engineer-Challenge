@@ -1,0 +1,22 @@
+# Grafana data source, provisioned automatically.
+#
+# Plain English:
+#   "Provisioning" means Grafana reads this file at startup and configures
+#   itself. Nobody has to click through the UI to connect it to Prometheus,
+#   and the configuration lives in git where it can be reviewed like any other
+#   code. A dashboard set up by hand is lost the moment the container is
+#   recreated.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy          # Grafana's backend queries Prometheus, not the browser
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false        # changed in git, not in the UI
+    jsonData:
+      # Must match the scrape_interval in prometheus.yml, or Grafana draws
+      # misleading gaps between points.
+      timeInterval: "15s"
+      httpMethod: POST     # POST allows longer queries than a URL can carry

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "resnet50",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50.onnx",
+    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
+    "original_mb": 97.41438102722168,
+    "quantized_mb": 24.872931480407715,
+    "compression_ratio": 3.9164817023660645,
+    "max_abs_diff": 1.9747489131987095,
+    "mean_abs_diff": 0.13065410126290955,
+    "top1_agreement": 0.71875,
+    "duration_seconds": 31.609714800011716,
+    "calibration_images": 100,
+    "notes": []
+  }
+]

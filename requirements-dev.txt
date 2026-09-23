@@ -1,0 +1,19 @@
+# Development & CI dependencies. Install on top of requirements.txt.
+-r requirements.txt
+
+pytest~=8.3.0
+pytest-asyncio~=0.24.0
+pytest-cov~=6.0.0
+pytest-mock~=3.14.0
+httpx~=0.28.0                   # ASGI transport for FastAPI TestClient
+fakeredis~=2.26.0               # in-memory Redis for tests, no server needed
+aiosqlite~=0.20.0               # in-memory async DB for tests, no Postgres needed
+locust~=2.32.0                  # load / stress testing
+memory-profiler~=0.61.0         # memory usage profiling
+psutil~=6.1.0
+
+# Linting / formatting / typing
+ruff~=0.8.0
+black~=24.10.0
+mypy~=1.13.0
+types-requests

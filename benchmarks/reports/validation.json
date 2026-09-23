@@ -1,0 +1,245 @@
+[
+  {
+    "model": "resnet50:1.0.0",
+    "validated_at": "2026-09-22T13:51:45.072357+00:00",
+    "passed": true,
+    "checks": [
+      {
+        "name": "artifact_integrity",
+        "passed": true,
+        "severity": "critical",
+        "message": "All 2 artifact(s) present.",
+        "detail": {
+          "sizes_mb": {
+            "onnx": 97.41,
+            "onnx_int8": 24.54
+          }
+        }
+      },
+      {
+        "name": "determinism",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
+        "detail": {
+          "runs": 3,
+          "max_diff": 0.0,
+          "tolerance": 1e-05
+        }
+      },
+      {
+        "name": "batch_invariance",
+        "passed": true,
+        "severity": "critical",
+        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
+        "detail": {
+          "batch_size": 8,
+          "max_diff": 0.0
+        }
+      },
+      {
+        "name": "output_sanity",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is well-formed: no NaN or infinite values.",
+        "detail": {
+          "shape": [
+            1,
+            1000
+          ],
+          "min": -1.424161434173584,
+          "max": 5.1418280601501465,
+          "probability_sum": 1.0,
+          "max_probability": 0.076493
+        }
+      },
+      {
+        "name": "robustness",
+        "passed": true,
+        "severity": "warning",
+        "message": "0.0% of predictions changed under imperceptible noise (sigma=0.01), within the 15% threshold.",
+        "detail": {
+          "samples": 20,
+          "flips": 0,
+          "flip_rate": 0.0,
+          "mean_confidence_drop": 0.0
+        }
+      },
+      {
+        "name": "accuracy",
+        "passed": true,
+        "severity": "warning",
+        "message": "Accuracy NOT measured: the model has 1000 classes but the evaluation set uses 200. Their class indices refer to different things, so any accuracy figure would be meaningless. Evaluate against a dataset matching the model's label space, or fine-tune the model on this one.",
+        "detail": {
+          "model_classes": 1000,
+          "dataset_classes": 200
+        }
+      },
+      {
+        "name": "latency",
+        "passed": true,
+        "severity": "critical",
+        "message": "p95 latency is 95.4 ms, within the 1000 ms budget.",
+        "detail": {
+          "p50_ms": 70.85,
+          "p95_ms": 95.43,
+          "min_ms": 25.71,
+          "max_ms": 115.77,
+          "iterations": 30
+        }
+      }
+    ],
+    "metrics": {
+      "p50_latency_ms": 70.85,
+      "p95_latency_ms": 95.43
+    },
+    "critical_failures": [],
+    "warnings": []
+  },
+  {
+    "model": "yolov8n:1.0.0",
+    "validated_at": "2026-09-22T13:51:51.750312+00:00",
+    "passed": true,
+    "checks": [
+      {
+        "name": "artifact_integrity",
+        "passed": true,
+        "severity": "critical",
+        "message": "All 1 artifact(s) present.",
+        "detail": {
+          "sizes_mb": {
+            "onnx": 12.09
+          }
+        }
+      },
+      {
+        "name": "determinism",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
+        "detail": {
+          "runs": 3,
+          "max_diff": 0.0,
+          "tolerance": 1e-05
+        }
+      },
+      {
+        "name": "batch_invariance",
+        "passed": true,
+        "severity": "critical",
+        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
+        "detail": {
+          "batch_size": 8,
+          "max_diff": 0.0
+        }
+      },
+      {
+        "name": "output_sanity",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is well-formed: no NaN or infinite values.",
+        "detail": {
+          "shape": [
+            1,
+            84,
+            8400
+          ],
+          "min": 0.0,
+          "max": 639.537109375
+        }
+      },
+      {
+        "name": "latency",
+        "passed": true,
+        "severity": "critical",
+        "message": "p95 latency is 177.2 ms, within the 1000 ms budget.",
+        "detail": {
+          "p50_ms": 130.13,
+          "p95_ms": 177.23,
+          "min_ms": 98.87,
+          "max_ms": 224.42,
+          "iterations": 30
+        }
+      }
+    ],
+    "metrics": {
+      "p50_latency_ms": 130.13,
+      "p95_latency_ms": 177.23
+    },
+    "critical_failures": [],
+    "warnings": []
+  },
+  {
+    "model": "resnet50-embed:1.0.0",
+    "validated_at": "2026-09-22T13:51:55.902603+00:00",
+    "passed": true,
+    "checks": [
+      {
+        "name": "artifact_integrity",
+        "passed": true,
+        "severity": "critical",
+        "message": "All 2 artifact(s) present.",
+        "detail": {
+          "sizes_mb": {
+            "onnx": 89.6,
+            "onnx_int8": 22.58
+          }
+        }
+      },
+      {
+        "name": "determinism",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
+        "detail": {
+          "runs": 3,
+          "max_diff": 0.0,
+          "tolerance": 1e-05
+        }
+      },
+      {
+        "name": "batch_invariance",
+        "passed": true,
+        "severity": "critical",
+        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
+        "detail": {
+          "batch_size": 8,
+          "max_diff": 0.0
+        }
+      },
+      {
+        "name": "output_sanity",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is well-formed: no NaN or infinite values.",
+        "detail": {
+          "shape": [
+            1,
+            2048
+          ],
+          "min": 0.0,
+          "max": 0.5492016077041626
+        }
+      },
+      {
+        "name": "latency",
+        "passed": true,
+        "severity": "critical",
+        "message": "p95 latency is 188.6 ms, within the 1000 ms budget.",
+        "detail": {
+          "p50_ms": 52.95,
+          "p95_ms": 188.6,
+          "min_ms": 22.3,
+          "max_ms": 199.34,
+          "iterations": 30
+        }
+      }
+    ],
+    "metrics": {
+      "p50_latency_ms": 52.95,
+      "p95_latency_ms": 188.6
+    },
+    "critical_failures": [],
+    "warnings": []
+  }
+]

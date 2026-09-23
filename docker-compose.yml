@@ -1,0 +1,348 @@
+# =============================================================================
+# Local development stack.
+#
+# Plain English:
+#   This file describes every service the system needs and how they connect.
+#   One command, `docker compose up`, starts all of them in the right order.
+#
+# Start here:
+#   cp .env.example .env
+#   python scripts/prepare_models.py     # one-off: download and export models
+#   docker compose up -d
+#   curl http://localhost/api/v1/health
+#
+# What each service is for:
+#   api-gateway  Nginx. The only port exposed to your machine. Load balances,
+#                rate limits, and keeps /metrics internal.
+#   ml-api       The FastAPI application. Scale it with --scale ml-api=3.
+#   worker       Celery. Processes batch jobs in the background.
+#   redis        Two jobs: result cache, and message broker for the worker.
+#   postgres     Inference logs and batch job state.
+#   prometheus   Scrapes and stores metrics.
+#   grafana      Dashboards over those metrics.
+#
+# This file favours developer convenience: ports are exposed for debugging,
+# code is bind-mounted for live reload, and resource limits are generous.
+# docker-compose.prod.yml overrides all of that.
+# =============================================================================
+
+name: mlcv
+
+services:
+  # ---------------------------------------------------------------------------
+  # API gateway
+  # ---------------------------------------------------------------------------
+  api-gateway:
+    build:
+      context: ./docker/nginx
+      dockerfile: Dockerfile
+    image: mlcv/gateway:latest
+    container_name: mlcv-gateway
+    ports:
+      - "${GATEWAY_PORT:-80}:80"
+    depends_on:
+      ml-api:
+        # Wait for the API to be *healthy*, not merely started. Without this,
+        # Nginx starts first, fails to resolve the upstream and exits.
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/api/v1/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: &default_logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # ML API
+  # ---------------------------------------------------------------------------
+  ml-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mlcv/api:latest
+    container_name: mlcv-api
+    # Exposed directly in development so you can hit the API without going
+    # through Nginx while debugging. The production overlay removes this.
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      DEBUG: ${DEBUG:-false}
+
+      # Service discovery: Docker resolves these names on the shared network,
+      # so no IP addresses are ever hardcoded.
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mluser}:${POSTGRES_PASSWORD:-mlpass}@postgres:5432/${POSTGRES_DB:-mldb}
+
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      API_KEYS: ${API_KEYS:-dev-key-free:free,dev-key-pro:pro}
+      JWT_SECRET: ${JWT_SECRET:-}
+
+      PREFERRED_RUNTIME: ${PREFERRED_RUNTIME:-onnx}
+      DEVICE: ${DEVICE:-auto}
+      EAGER_MODEL_LOAD: ${EAGER_MODEL_LOAD:-true}
+      MAX_CONCURRENT_INFERENCES: ${MAX_CONCURRENT_INFERENCES:-4}
+    volumes:
+      # Model artifacts live outside the image, so new weights can be shipped
+      # without rebuilding and redeploying the service. Read-only: the API
+      # should never modify them.
+      - ./models/artifacts:/app/models/artifacts:ro
+      - ./models/registry.json:/app/models/registry.json:ro
+      - api_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/api/v1/health/live"]
+      interval: 30s
+      timeout: 5s
+      # Generous: loading three ONNX models takes 10-20 seconds, and the
+      # container must not be killed mid-warmup.
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPU_LIMIT:-2.0}"
+          memory: ${API_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    # Give uvicorn time to finish in-flight requests before it is killed.
+    stop_grace_period: 30s
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Celery worker
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    image: mlcv/worker:latest
+    container_name: mlcv-worker
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-local}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mluser}:${POSTGRES_PASSWORD:-mlpass}@postgres:5432/${POSTGRES_DB:-mldb}
+      PREFERRED_RUNTIME: ${PREFERRED_RUNTIME:-onnx}
+      DEVICE: ${DEVICE:-auto}
+    volumes:
+      - ./models/artifacts:/app/models/artifacts:ro
+      - ./models/registry.json:/app/models/registry.json:ro
+      - worker_logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A worker.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 60s
+      timeout: 15s
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "${WORKER_CPU_LIMIT:-2.0}"
+          memory: ${WORKER_MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+    # Long: a worker must be allowed to finish the batch it is holding rather
+    # than losing it. It exceeds the Celery soft time limit on purpose.
+    stop_grace_period: 60s
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Redis: cache + message broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: mlcv-redis
+    command:
+      - redis-server
+      # An eviction policy is essential. Without one, Redis refuses writes
+      # when it fills up, which would break the cache AND the job queue.
+      # allkeys-lru discards the least recently used keys instead.
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - allkeys-lru
+      # appendonly persists the queue across restarts, so a container restart
+      # does not silently lose every queued batch job.
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-768M}
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: mlcv-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mluser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mlpass}
+      POSTGRES_DB: ${POSTGRES_DB:-mldb}
+      # Small speed-up for local development; not used in production.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Any .sql file here runs once, when the database is first created.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      # `pg_isready` with the real user and database, not just a port check:
+      # Postgres accepts connections briefly during startup before it can
+      # actually serve queries.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mluser} -d ${POSTGRES_DB:-mldb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-1G}
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Prometheus
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: mlcv-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    networks:
+      - backend
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      - ml-api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *default_logging
+
+  # ---------------------------------------------------------------------------
+  # Grafana (optional, per the brief)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: mlcv-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      # Anonymous sign-up disabled: even a local dashboard should not be
+      # world-writable by default.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default_logging
+
+# =============================================================================
+# Networks
+#
+# Split into three so that services can only reach what they need. The
+# database is on `backend` only, which means nothing on `frontend` can talk
+# to Postgres even if it is compromised.
+# =============================================================================
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+  monitoring:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+#
+# Named volumes rather than bind mounts: Docker manages them, they survive
+# `docker compose down`, and they perform better on Windows and macOS where
+# bind mounts cross a virtualisation boundary.
+# =============================================================================
+volumes:
+  redis_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  api_logs:
+  worker_logs:

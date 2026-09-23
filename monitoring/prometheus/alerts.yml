@@ -1,0 +1,237 @@
+# =============================================================================
+# Alerting rules.
+#
+# Plain English:
+#   An alert is a question asked of the metrics every 15 seconds. If the
+#   answer stays "yes" for the `for:` duration, the alert fires.
+#
+# Two principles shape every rule here:
+#
+#   1. **Alert on symptoms, not causes.** "Users are getting errors" is worth
+#      waking someone for. "CPU is at 80%" is not — a service can be perfectly
+#      healthy at 80% CPU, and unhealthy at 20%.
+#
+#   2. **Every alert must be actionable.** If the response to an alert is "huh,
+#      weird" and nothing else, it is noise. Noise trains people to ignore the
+#      alerts that matter. Each rule below carries a `summary` that says what
+#      is wrong and a `description` that says what to do about it.
+#
+# The `for:` duration is what keeps alerts from flapping. A single slow
+# request should not page anyone; five minutes of slow requests should.
+# =============================================================================
+
+groups:
+  # ---------------------------------------------------------------------------
+  # Availability
+  # ---------------------------------------------------------------------------
+  - name: availability
+    interval: 30s
+    rules:
+      - alert: MLAPIDown
+        expr: up{job="ml-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "The ML API is not responding to scrapes"
+          description: >-
+            Prometheus has been unable to reach {{ $labels.instance }} for over
+            a minute. Check `docker compose ps` and `docker logs mlcv-api`.
+            If several replicas are down at once, suspect a shared dependency
+            (Redis, Postgres) rather than the API itself.
+
+      - alert: NoModelsLoaded
+        expr: models_loaded == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: models
+        annotations:
+          summary: "No models are loaded — the API cannot serve inference"
+          description: >-
+            The service is running but has no model in memory, so every
+            inference request will fail. Check that the artifacts volume is
+            mounted and that models/registry.json points at files that exist.
+            Run `python -m models.registry validate` to confirm.
+
+  # ---------------------------------------------------------------------------
+  # Errors — the symptom users actually feel
+  # ---------------------------------------------------------------------------
+  - name: errors
+    interval: 30s
+    rules:
+      - alert: HighServerErrorRate
+        # Rate of 5xx responses as a fraction of all responses, over 5 minutes.
+        # `rate()` over a counter handles counter resets (a restart) correctly;
+        # subtracting raw counter values would not.
+        expr: |
+          (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Over 5% of requests are failing with server errors"
+          description: >-
+            The 5xx rate is {{ $value | humanizePercentage }} over the last 5
+            minutes. These are our bugs, not bad client input. Search the logs
+            for `unhandled_exception` and use the correlation id to trace an
+            affected request end to end.
+
+      - alert: InferenceFailures
+        expr: |
+          sum(rate(inference_total{status!="success"}[5m]))
+          /
+          sum(rate(inference_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: models
+        annotations:
+          summary: "Model inference is failing for more than 5% of requests"
+          description: >-
+            {{ $value | humanizePercentage }} of inferences are failing.
+            A sudden onset usually means a model artifact problem; a gradual
+            rise usually means resource exhaustion. Check
+            `inference_total{status="error"}` grouped by model.
+
+      - alert: ElevatedClientErrors
+        expr: |
+          sum(rate(http_requests_total{status_code=~"4.."}[10m]))
+          /
+          sum(rate(http_requests_total[10m])) > 0.30
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Unusually high rate of client errors (4xx)"
+          description: >-
+            {{ $value | humanizePercentage }} of requests are 4xx. This is
+            often a client integration that has broken, or an expired API key
+            — not necessarily our fault, but worth investigating before the
+            customer reports it. Break down by `endpoint` and `code`.
+
+  # ---------------------------------------------------------------------------
+  # Latency
+  # ---------------------------------------------------------------------------
+  - name: latency
+    interval: 30s
+    rules:
+      - alert: SlowInference
+        # histogram_quantile over the _bucket series gives the p95. Note this
+        # is an estimate interpolated from bucket boundaries, which is why the
+        # buckets in api/middleware/monitoring.py are dense around 1 second.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(inference_duration_seconds_bucket[5m])) by (le, model)
+          ) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: models
+        annotations:
+          summary: "p95 inference latency for {{ $labels.model }} exceeds 1 second"
+          description: >-
+            p95 is {{ $value | humanizeDuration }}, above the 1 second target
+            in the service's requirements. Check whether request volume rose,
+            whether a larger model was deployed, or whether the container is
+            CPU-throttled.
+
+      - alert: SlowRequests
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, endpoint)
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "p95 request latency on {{ $labels.endpoint }} exceeds 2 seconds"
+          description: >-
+            End-to-end p95 is {{ $value | humanizeDuration }}. Compare against
+            `inference_duration_seconds` for the same period: if inference is
+            fast but the request is slow, the time is going on validation,
+            queueing or the database rather than the model.
+
+  # ---------------------------------------------------------------------------
+  # Saturation
+  # ---------------------------------------------------------------------------
+  - name: saturation
+    interval: 30s
+    rules:
+      - alert: InferenceQueueSaturated
+        expr: inference_in_progress >= 8
+        for: 3m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Inference concurrency limit reached"
+          description: >-
+            The service has been at its concurrency ceiling for 3 minutes, so
+            requests are being shed with 503. Scale out
+            (`docker compose up --scale ml-api=N`) rather than raising the
+            limit: a higher limit on the same CPU makes every request slower.
+
+      - alert: HighRateLimitRejections
+        expr: sum(rate(rate_limit_rejections_total[5m])) by (tier) > 1
+        for: 10m
+        labels:
+          severity: info
+          component: api
+        annotations:
+          summary: "Sustained rate limiting on the {{ $labels.tier }} tier"
+          description: >-
+            Callers on the {{ $labels.tier }} tier are being throttled
+            steadily. This may be the system working as intended, or a
+            customer who has outgrown their plan. Worth a conversation, not a
+            page.
+
+  # ---------------------------------------------------------------------------
+  # Cache and dependencies
+  # ---------------------------------------------------------------------------
+  - name: dependencies
+    interval: 60s
+    rules:
+      - alert: CacheHitRateCollapsed
+        expr: |
+          (
+            sum(rate(cache_operations_total{result="hit"}[15m]))
+            /
+            sum(rate(cache_operations_total{operation="get"}[15m]))
+          ) < 0.1
+        for: 15m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Cache hit rate has collapsed below 10%"
+          description: >-
+            Nearly every request is recomputing its result, so latency and CPU
+            will both be higher than usual. Either Redis is unreachable (the
+            API degrades to cache-miss on purpose — check `/api/v1/health`), or
+            traffic genuinely changed to all-unique images.
+
+      - alert: ModelLoadFailures
+        expr: increase(model_load_total{status="failed"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: models
+        annotations:
+          summary: "A model failed to load"
+          description: >-
+            {{ $labels.model }} failed to load in the {{ $labels.runtime }}
+            runtime. The service falls back to another format where it can, so
+            this may not be user-visible yet — but the fallback is usually
+            slower or less accurate. Check the artifact file exists and is not
+            truncated.

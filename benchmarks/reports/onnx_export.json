@@ -1,0 +1,23 @@
+{
+  "name": "resnet18",
+  "onnx_path": "C:\\Users\\panka\\OneDrive\\Documents\\GitHub\\ML-Engineer-Challenge-main\\models\\artifacts\\resnet18.onnx",
+  "input_shape": [
+    1,
+    3,
+    224,
+    224
+  ],
+  "opset": 17,
+  "size_mb": 44.58,
+  "max_abs_diff": 3.814697265625e-06,
+  "mean_abs_diff": 5.395878106355668e-07,
+  "verified": true,
+  "export_seconds": 0.85,
+  "output_shapes": [
+    [
+      1,
+      1000
+    ]
+  ],
+  "notes": []
+}

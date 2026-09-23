@@ -1,0 +1,8 @@
+# GPU-only extras. Installed on NVIDIA hosts (or Google Colab) on top of
+# requirements.txt. These are intentionally separate because none of them can
+# be installed on a CPU-only machine.
+-r requirements.txt
+
+onnxruntime-gpu~=1.20.0
+tensorrt~=10.6.0
+pycuda~=2024.1

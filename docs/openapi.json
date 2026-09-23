@@ -1,0 +1,3582 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Multi-Model Computer Vision API",
+    "description": "Production multi-model computer vision API serving image classification, object detection and image similarity search.\n\n## Authentication\n\nEvery endpoint except `/health`, `/metrics` and the docs requires credentials, supplied either way:\n\n- `X-API-Key: <your-key>` header, or\n- `Authorization: Bearer <jwt>` header.\n\n## Rate limits\n\nLimits are applied per API key, per minute, using a token bucket that permits a short burst:\n\n| Tier | Requests/minute | Max batch size |\n| --- | ---: | ---: |\n| free | 10 | 5 |\n| basic | 60 | 16 |\n| pro | 300 | 32 |\n| enterprise | 3000 | 64 |\n\nEvery response carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`. A rejected request returns HTTP 429 with a `Retry-After` header.\n\n## Errors\n\nEvery error uses the same envelope:\n\n```json\n{\n  \"error\": {\n    \"code\": \"IMAGE_TOO_LARGE\",\n    \"message\": \"The uploaded image exceeds the maximum allowed size.\",\n    \"details\": {\"size_bytes\": 12582912, \"limit_bytes\": 10485760},\n    \"correlation_id\": \"0f6c1d...\",\n    \"timestamp\": \"2026-09-22T10:00:00Z\"\n  }\n}\n```\n\nBranch on `code`, never on `message`. Quote `correlation_id` in support requests: every log line for your request carries it.\n\n## Images\n\nMaximum 10 MB, formats BMP, JPEG, PNG, WEBP. Send one of `image_base64`, `image_url`, or a multipart upload to the `/upload` variant of each endpoint.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/classify": {
+      "post": {
+        "tags": [
+          "Classification"
+        ],
+        "summary": "Classify an image (JSON body)",
+        "description": "Classify a single image supplied as base64 or a URL.\n\nSend **either** ``image_base64`` **or** ``image_url``, never both.\n\nExample request::\n\n    {\n      \"image_base64\": \"iVBORw0KGgoAAA...\",\n      \"top_k\": 5,\n      \"confidence_threshold\": 0.1\n    }\n\nExample response::\n\n    {\n      \"predictions\": [\n        {\"class_id\": 207, \"label\": \"golden retriever\", \"confidence\": 0.93, \"rank\": 1}\n      ],\n      \"model\": {\"name\": \"resnet50\", \"version\": \"1.0.0\", \"runtime\": \"onnx\", \"device\": \"cpu\"},\n      \"timing\": {\"preprocess_ms\": 8.1, \"inference_ms\": 31.4, \"total_ms\": 41.9},\n      \"correlation_id\": \"0f6c...\",\n      \"cached\": false\n    }",
+        "operationId": "classify_api_v1_classify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassificationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request body failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The model is not ready to serve.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Inference exceeded its deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/classify/upload": {
+      "post": {
+        "tags": [
+          "Classification"
+        ],
+        "summary": "Classify an uploaded image file (multipart)",
+        "description": "Classify an image sent as a multipart file upload.\n\nThis is the endpoint to use from a browser form or with::\n\n    curl -X POST http://localhost:8000/api/v1/classify/upload \\\n         -H \"X-API-Key: your-key\" \\\n         -F \"file=@cat.jpg\" -F \"top_k=3\"",
+        "operationId": "classify_upload_api_v1_classify_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_classify_upload_api_v1_classify_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassificationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request body failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The model is not ready to serve.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Inference exceeded its deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/detect": {
+      "post": {
+        "tags": [
+          "Detection"
+        ],
+        "summary": "Detect objects in an image (JSON body)",
+        "description": "Detect objects in a single image supplied as base64 or a URL.\n\nTwo thresholds control the output:\n\n* ``confidence_threshold`` \u2014 drop boxes the model is unsure about. Raise\n  it to reduce false positives, lower it to catch more objects.\n* ``iou_threshold`` \u2014 how much two boxes may overlap before the lower\n  scoring one is treated as a duplicate of the same object.\n\nExample response::\n\n    {\n      \"detections\": [\n        {\n          \"class_id\": 0,\n          \"label\": \"person\",\n          \"confidence\": 0.91,\n          \"box\": {\"x1\": 34.0, \"y1\": 120.5, \"x2\": 210.2, \"y2\": 480.0}\n        }\n      ],\n      \"count\": 1,\n      \"image_width\": 640,\n      \"image_height\": 480\n    }\n\nBox coordinates are absolute pixels in the original uploaded image, with\n``x1,y1`` the top-left corner and ``x2,y2`` the bottom-right.",
+        "operationId": "detect_api_v1_detect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request body failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The model is not ready to serve.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Inference exceeded its deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/detect/upload": {
+      "post": {
+        "tags": [
+          "Detection"
+        ],
+        "summary": "Detect objects in an uploaded image file (multipart)",
+        "description": "Detect objects in an image sent as a multipart file upload.\n\nExample::\n\n    curl -X POST http://localhost:8000/api/v1/detect/upload \\\n         -H \"X-API-Key: your-key\" \\\n         -F \"file=@street.jpg\" -F \"confidence_threshold=0.4\"",
+        "operationId": "detect_upload_api_v1_detect_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_detect_upload_api_v1_detect_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request body failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The model is not ready to serve.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Inference exceeded its deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/similarity/embed": {
+      "post": {
+        "tags": [
+          "Similarity"
+        ],
+        "summary": "Compute an image embedding",
+        "description": "Turn an image into an embedding vector without storing anything.\n\nUse this when you keep your own vector store. The returned vector is\nnormalised to unit length, so the cosine similarity between two of them is\nsimply their dot product.",
+        "operationId": "embed_api_v1_similarity_embed_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmbeddingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The embedding model is not ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/similarity/index": {
+      "post": {
+        "tags": [
+          "Similarity"
+        ],
+        "summary": "Add an image to the similarity index",
+        "description": "Embed an image and store it so future searches can find it.\n\nAttach a ``label`` and arbitrary ``metadata``; both are returned with any\nsearch hit, so the caller does not need a second lookup to find out what\nwas matched.",
+        "operationId": "index_image_api_v1_similarity_index_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexImageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The embedding model is not ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/similarity/search": {
+      "post": {
+        "tags": [
+          "Similarity"
+        ],
+        "summary": "Find visually similar images",
+        "description": "Find the indexed images most similar to the supplied image.\n\nScores are cosine similarities: ``1.0`` is an identical direction, ``0.0``\nunrelated, ``-1.0`` opposite. In practice, near-duplicates score above\n0.95 and \"same kind of thing\" lands somewhere around 0.7-0.9 \u2014 the right\n``min_similarity`` depends on your images and is worth tuning on real data\nrather than guessing.\n\nAn empty ``results`` list with ``index_size: 0`` means nothing has been\nindexed yet, not that nothing matched.",
+        "operationId": "search_api_v1_similarity_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimilarityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The embedding model is not ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/similarity/upload": {
+      "post": {
+        "tags": [
+          "Similarity"
+        ],
+        "summary": "Find similar images for an uploaded file (multipart)",
+        "description": "Find similar images for a multipart file upload.",
+        "operationId": "search_upload_api_v1_similarity_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_search_upload_api_v1_similarity_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The image could not be decoded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The image exceeds the size limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported image format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The embedding model is not ready.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/similarity/stats": {
+      "get": {
+        "tags": [
+          "Similarity"
+        ],
+        "summary": "Similarity index statistics",
+        "description": "How many vectors are indexed, their dimensionality and memory use.",
+        "operationId": "index_stats_api_v1_similarity_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Index Stats Api V1 Similarity Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/batch": {
+      "post": {
+        "tags": [
+          "Batch"
+        ],
+        "summary": "Submit a batch of images for background processing",
+        "description": "Queue a batch of images and return a job id immediately.\n\nThe response is HTTP 202, meaning \"accepted for processing\" \u2014 not\n\"finished\". Poll ``status_url`` until ``status`` becomes ``completed`` or\n``failed``.\n\nPer-tier batch caps: free 5, basic 16, pro 32, enterprise 64.\n\nExample response::\n\n    {\n      \"job_id\": \"9f2c8a1e-...\",\n      \"status\": \"pending\",\n      \"total_items\": 20,\n      \"status_url\": \"/api/v1/batch/9f2c8a1e-...\",\n      \"estimated_seconds\": 2.4\n    }",
+        "operationId": "submit_batch_api_v1_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSubmitResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credentials.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Batch exceeds your tier's limit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request body failed validation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for your tier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The job queue is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/batch/{job_id}": {
+      "get": {
+        "tags": [
+          "Batch"
+        ],
+        "summary": "Get batch job status and results",
+        "description": "Check on a batch job.\n\n``status`` progresses ``pending`` -> ``running`` -> ``completed`` or\n``failed``. While running, ``progress_percent`` updates after every image.\n\nResults appear once the job reaches a terminal state. A job can be\n``completed`` while ``failed_items`` is greater than zero: individual\nimages may fail without failing the batch, and each carries its own error.",
+        "operationId": "get_batch_status_api_v1_batch__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Job id returned when the batch was submitted.",
+              "title": "Job Id"
+            },
+            "description": "Job id returned when the batch was submitted."
+          },
+          {
+            "name": "include_results",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include per-item results once the job has finished.",
+              "default": true,
+              "title": "Include Results"
+            },
+            "description": "Include per-item results once the job has finished."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No job with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Batch"
+        ],
+        "summary": "Cancel a queued or running batch job",
+        "description": "Cancel a batch job.\n\nA job that has not started is simply removed from the queue. A running job\nis terminated, so any images it had already finished are lost \u2014 the result\nis not partially retrievable after cancellation.",
+        "operationId": "cancel_batch_api_v1_batch__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Job id to cancel.",
+              "title": "Job Id"
+            },
+            "description": "Job id to cancel."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Cancel Batch Api V1 Batch  Job Id  Delete"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No job with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "List all registered models",
+        "description": "Returns every active model with its version, task, measured metrics and known limitations, plus which version currently serves each task.",
+        "operationId": "list_models_api_v1_models_get",
+        "parameters": [
+          {
+            "name": "task",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TaskType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to one task.",
+              "title": "Task"
+            },
+            "description": "Filter to one task."
+          },
+          {
+            "name": "loaded_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only models currently in memory.",
+              "default": false,
+              "title": "Loaded Only"
+            },
+            "description": "Only models currently in memory."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/{name}": {
+      "get": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Get one model's metadata",
+        "description": "Get metadata for one model version.",
+        "operationId": "get_model_api_v1_models__name__get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Registry model name.",
+              "title": "Name"
+            },
+            "description": "Registry model name."
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Version, or 'latest'.",
+              "default": "latest",
+              "title": "Version"
+            },
+            "description": "Version, or 'latest'."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDescriptor"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such model or version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/reload": {
+      "post": {
+        "tags": [
+          "Models"
+        ],
+        "summary": "Reload the model registry from disk",
+        "description": "Re-reads registry.json so a newly registered model version becomes available without restarting the service. Requires the 'admin' scope.",
+        "operationId": "reload_registry_api_v1_models_reload_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Reload Registry Api V1 Models Reload Post"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin scope required.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Full system health",
+        "description": "Reports the status of every dependency. Returns 200 for 'healthy' and 'degraded', 503 for 'unhealthy'.",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/live": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Liveness probe",
+        "description": "Returns 200 whenever the process is running. Deliberately checks no dependencies, so a database blip cannot trigger a restart storm.",
+        "operationId": "liveness_api_v1_health_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Liveness Api V1 Health Live Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Readiness probe",
+        "description": "Returns 200 when this instance can serve inference requests, 503 when it cannot. Used to add or remove the instance from the load balancer.",
+        "operationId": "readiness_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Readiness Api V1 Health Ready Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "tags": [
+          "Monitoring"
+        ],
+        "summary": "Prometheus metrics",
+        "description": "Exposes counters and histograms in Prometheus text format: request rates, latency histograms, inference counts, cache hit rates and error totals.",
+        "operationId": "metrics_api_v1_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Metrics in Prometheus exposition format.",
+            "content": {
+              "text/plain": {
+                "example": "http_requests_total{method=\"POST\"} 42.0"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchItem": {
+        "properties": {
+          "image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Base64",
+            "description": "Raw image bytes, base64-encoded. A `data:` URI prefix is accepted and stripped."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Publicly reachable HTTPS URL to fetch the image from."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Caller-supplied identifier echoed back in the response, useful for batches."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BatchItem",
+        "description": "One entry inside a batch request."
+      },
+      "BatchItemResult": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index",
+            "description": "Position of this item in the submitted list."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result",
+            "description": "Task-specific result payload; null when success is false."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Error code and message; null when success is true."
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "success"
+        ],
+        "title": "BatchItemResult",
+        "description": "Outcome for one image inside a batch.\n\nA per-item ``error`` field means one bad image does not fail the whole\nbatch \u2014 the other 63 images still return their results."
+      },
+      "BatchRequest": {
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9_\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name",
+            "description": "Registry model name. Defaults to the task's default model."
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^[a-zA-Z0-9_.\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Registry version, or 'latest'. Defaults to 'latest'."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Force a specific runtime format. Defaults to the server's preferred runtime."
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskType",
+            "description": "Which model task to run over every item."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchItem"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Items",
+            "description": "Images to process. The per-request cap depends on your tier."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 5
+          },
+          "confidence_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Threshold",
+            "default": 0.0
+          },
+          "iou_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Iou Threshold",
+            "default": 0.45
+          },
+          "max_detections": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Max Detections",
+            "default": 100
+          },
+          "callback_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Url",
+            "description": "Optional HTTPS URL to POST the finished result to."
+          },
+          "priority": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "description": "Queue priority; lower numbers run first.",
+            "default": 5
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task",
+          "items"
+        ],
+        "title": "BatchRequest",
+        "description": "Body for ``POST /api/v1/batch``.\n\nBatches are processed by a Celery worker in the background. The endpoint\nreturns a job id immediately (HTTP 202) rather than blocking, because a\n64-image batch can take far longer than a sensible HTTP timeout."
+      },
+      "BatchStatusResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "total_items": {
+            "type": "integer",
+            "title": "Total Items"
+          },
+          "completed_items": {
+            "type": "integer",
+            "title": "Completed Items"
+          },
+          "failed_items": {
+            "type": "integer",
+            "title": "Failed Items"
+          },
+          "progress_percent": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress Percent"
+          },
+          "results": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BatchItemResult"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Results",
+            "description": "Populated once the job reaches a terminal state."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error",
+            "description": "Set when the whole job failed."
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "task",
+          "total_items",
+          "completed_items",
+          "failed_items",
+          "progress_percent",
+          "submitted_at"
+        ],
+        "title": "BatchStatusResponse",
+        "description": "Response for ``GET /api/v1/batch/{job_id}``."
+      },
+      "BatchSubmitResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id",
+            "description": "Poll this id for status and results."
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus",
+            "description": "Always 'pending' at submission time."
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "total_items": {
+            "type": "integer",
+            "title": "Total Items",
+            "description": "How many images were accepted."
+          },
+          "status_url": {
+            "type": "string",
+            "title": "Status Url",
+            "description": "Ready-made URL to poll for this job."
+          },
+          "estimated_seconds": {
+            "type": "number",
+            "title": "Estimated Seconds",
+            "description": "Rough completion estimate based on measured per-image latency."
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submitted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "task",
+          "total_items",
+          "status_url",
+          "estimated_seconds",
+          "correlation_id",
+          "submitted_at"
+        ],
+        "title": "BatchSubmitResponse",
+        "description": "HTTP 202 response for ``POST /api/v1/batch``.\n\nWe return a job id rather than results because batch work is queued to a\nCelery worker. Poll ``GET /api/v1/batch/{job_id}`` for progress."
+      },
+      "Body_classify_upload_api_v1_classify_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File",
+            "description": "Image file to classify."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 5
+          },
+          "confidence_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Threshold",
+            "default": 0.0
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_classify_upload_api_v1_classify_upload_post"
+      },
+      "Body_detect_upload_api_v1_detect_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File",
+            "description": "Image file to run detection on."
+          },
+          "confidence_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Threshold",
+            "default": 0.25
+          },
+          "iou_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Iou Threshold",
+            "default": 0.45
+          },
+          "max_detections": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Max Detections",
+            "default": 100
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_detect_upload_api_v1_detect_upload_post"
+      },
+      "Body_search_upload_api_v1_similarity_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File",
+            "description": "Query image."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 10
+          },
+          "min_similarity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Min Similarity",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_search_upload_api_v1_similarity_upload_post"
+      },
+      "BoundingBox": {
+        "properties": {
+          "x1": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "X1",
+            "description": "Left edge, pixels."
+          },
+          "y1": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Y1",
+            "description": "Top edge, pixels."
+          },
+          "x2": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "X2",
+            "description": "Right edge, pixels."
+          },
+          "y2": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Y2",
+            "description": "Bottom edge, pixels."
+          }
+        },
+        "type": "object",
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "BoundingBox",
+        "description": "Axis-aligned box in absolute pixel coordinates of the original image.\n\nCoordinates are absolute (not normalised) so that a caller can draw them\ndirectly onto the image they uploaded without knowing our internal resize\nfactor. ``x1,y1`` is the top-left corner; ``x2,y2`` is bottom-right."
+      },
+      "ClassPrediction": {
+        "properties": {
+          "class_id": {
+            "type": "integer",
+            "title": "Class Id",
+            "description": "Zero-based index of the class in the model's label set."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Human-readable class name."
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "Softmax probability, 0 to 1."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Rank",
+            "description": "1 = highest scoring."
+          }
+        },
+        "type": "object",
+        "required": [
+          "class_id",
+          "label",
+          "confidence",
+          "rank"
+        ],
+        "title": "ClassPrediction",
+        "description": "A single predicted class."
+      },
+      "ClassificationRequest": {
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9_\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name",
+            "description": "Registry model name. Defaults to the task's default model."
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^[a-zA-Z0-9_.\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Registry version, or 'latest'. Defaults to 'latest'."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Force a specific runtime format. Defaults to the server's preferred runtime."
+          },
+          "image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Base64",
+            "description": "Raw image bytes, base64-encoded. A `data:` URI prefix is accepted and stripped."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Publicly reachable HTTPS URL to fetch the image from."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Caller-supplied identifier echoed back in the response, useful for batches."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "description": "How many of the highest-scoring classes to return.",
+            "default": 5
+          },
+          "confidence_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Threshold",
+            "description": "Drop predictions scoring below this probability.",
+            "default": 0.0
+          },
+          "include_probabilities": {
+            "type": "boolean",
+            "title": "Include Probabilities",
+            "description": "Include the full softmax probability for each class.",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ClassificationRequest",
+        "description": "Body for ``POST /api/v1/classify``.",
+        "examples": [
+          {
+            "confidence_threshold": 0.1,
+            "image_base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+            "top_k": 5
+          }
+        ]
+      },
+      "ClassificationResponse": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingInfo"
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id",
+            "description": "Quote this id in any support request."
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "True when this result was served from Redis instead of re-running the model.",
+            "default": false
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Echo of the caller-supplied image_id, if any."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True when the primary model was unavailable and a fallback model or runtime served the request instead.",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Non-fatal notes, e.g. 'image was resized' or 'fell back to torch runtime'."
+          },
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/ClassPrediction"
+            },
+            "type": "array",
+            "title": "Predictions",
+            "description": "Top-k predictions, highest confidence first."
+          },
+          "top_prediction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClassPrediction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Convenience copy of predictions[0]; null if the threshold filtered everything out."
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "timing",
+          "correlation_id",
+          "predictions"
+        ],
+        "title": "ClassificationResponse",
+        "description": "Response for ``POST /api/v1/classify``."
+      },
+      "ComponentHealth": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HealthStatus"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms",
+            "description": "How long the health probe took."
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Why it is not healthy, when it is not."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "ComponentHealth",
+        "description": "Health of one dependency (database, cache, a model, ...)."
+      },
+      "Detection": {
+        "properties": {
+          "class_id": {
+            "type": "integer",
+            "title": "Class Id",
+            "description": "Zero-based class index in the detector's label set."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Human-readable class name, e.g. 'person'."
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "Detection confidence, 0 to 1."
+          },
+          "box": {
+            "$ref": "#/components/schemas/BoundingBox"
+          }
+        },
+        "type": "object",
+        "required": [
+          "class_id",
+          "label",
+          "confidence",
+          "box"
+        ],
+        "title": "Detection",
+        "description": "One detected object."
+      },
+      "DetectionRequest": {
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9_\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name",
+            "description": "Registry model name. Defaults to the task's default model."
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^[a-zA-Z0-9_.\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Registry version, or 'latest'. Defaults to 'latest'."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Force a specific runtime format. Defaults to the server's preferred runtime."
+          },
+          "image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Base64",
+            "description": "Raw image bytes, base64-encoded. A `data:` URI prefix is accepted and stripped."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Publicly reachable HTTPS URL to fetch the image from."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Caller-supplied identifier echoed back in the response, useful for batches."
+          },
+          "confidence_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Threshold",
+            "description": "Minimum objectness score for a box to be reported.",
+            "default": 0.25
+          },
+          "iou_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Iou Threshold",
+            "description": "Non-maximum-suppression overlap threshold. Boxes overlapping more than this with a higher-scoring box are removed as duplicates.",
+            "default": 0.45
+          },
+          "max_detections": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Max Detections",
+            "description": "Hard cap on boxes returned, highest score first.",
+            "default": 100
+          },
+          "class_filter": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Class Filter",
+            "description": "Only return objects whose class name is in this list."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DetectionRequest",
+        "description": "Body for ``POST /api/v1/detect``."
+      },
+      "DetectionResponse": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingInfo"
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id",
+            "description": "Quote this id in any support request."
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "True when this result was served from Redis instead of re-running the model.",
+            "default": false
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Echo of the caller-supplied image_id, if any."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True when the primary model was unavailable and a fallback model or runtime served the request instead.",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Non-fatal notes, e.g. 'image was resized' or 'fell back to torch runtime'."
+          },
+          "detections": {
+            "items": {
+              "$ref": "#/components/schemas/Detection"
+            },
+            "type": "array",
+            "title": "Detections",
+            "description": "Objects found, highest confidence first."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "description": "Number of detections returned after filtering."
+          },
+          "image_width": {
+            "type": "integer",
+            "title": "Image Width",
+            "description": "Width of the original image in pixels."
+          },
+          "image_height": {
+            "type": "integer",
+            "title": "Image Height",
+            "description": "Height of the original image in pixels."
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "timing",
+          "correlation_id",
+          "detections",
+          "count",
+          "image_width",
+          "image_height"
+        ],
+        "title": "DetectionResponse",
+        "description": "Response for ``POST /api/v1/detect``."
+      },
+      "EmbeddingRequest": {
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9_\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name",
+            "description": "Registry model name. Defaults to the task's default model."
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^[a-zA-Z0-9_.\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Registry version, or 'latest'. Defaults to 'latest'."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Force a specific runtime format. Defaults to the server's preferred runtime."
+          },
+          "image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Base64",
+            "description": "Raw image bytes, base64-encoded. A `data:` URI prefix is accepted and stripped."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Publicly reachable HTTPS URL to fetch the image from."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Caller-supplied identifier echoed back in the response, useful for batches."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "EmbeddingRequest",
+        "description": "Body for ``POST /api/v1/similarity/embed`` (vector only, no search)."
+      },
+      "EmbeddingResponse": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingInfo"
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id",
+            "description": "Quote this id in any support request."
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "True when this result was served from Redis instead of re-running the model.",
+            "default": false
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Echo of the caller-supplied image_id, if any."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True when the primary model was unavailable and a fallback model or runtime served the request instead.",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Non-fatal notes, e.g. 'image was resized' or 'fell back to torch runtime'."
+          },
+          "embedding": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Embedding",
+            "description": "L2-normalised embedding vector."
+          },
+          "dimension": {
+            "type": "integer",
+            "title": "Dimension",
+            "description": "Length of the embedding vector."
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "timing",
+          "correlation_id",
+          "embedding",
+          "dimension"
+        ],
+        "title": "EmbeddingResponse",
+        "description": "Response for ``POST /api/v1/similarity/embed``."
+      },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable machine-readable code, e.g. 'IMAGE_TOO_LARGE'."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Friendly, user-facing explanation."
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail",
+        "description": "Inner object of the standard error envelope."
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "description": "The single error shape every failing endpoint returns."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/HealthStatus"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "title": "Uptime Seconds"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentHealth"
+            },
+            "type": "array",
+            "title": "Components"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "environment",
+          "uptime_seconds",
+          "components",
+          "timestamp"
+        ],
+        "title": "HealthResponse",
+        "description": "Response for ``GET /api/v1/health``.\n\nThe endpoint returns HTTP 200 for healthy *and* degraded, and 503 only for\nunhealthy. That distinction matters to a load balancer: a degraded\ninstance can still serve traffic and should stay in the pool."
+      },
+      "HealthStatus": {
+        "type": "string",
+        "enum": [
+          "healthy",
+          "degraded",
+          "unhealthy"
+        ],
+        "title": "HealthStatus",
+        "description": "Overall service health, following the usual traffic-light convention."
+      },
+      "IndexImageRequest": {
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9_\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name",
+            "description": "Registry model name. Defaults to the task's default model."
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^[a-zA-Z0-9_.\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Registry version, or 'latest'. Defaults to 'latest'."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Force a specific runtime format. Defaults to the server's preferred runtime."
+          },
+          "image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Base64",
+            "description": "Raw image bytes, base64-encoded. A `data:` URI prefix is accepted and stripped."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Publicly reachable HTTPS URL to fetch the image from."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Caller-supplied identifier echoed back in the response, useful for batches."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "Human-readable label stored alongside the vector."
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Arbitrary JSON metadata returned with search hits."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "IndexImageRequest",
+        "description": "Body for ``POST /api/v1/similarity/index`` \u2014 add an image to the index."
+      },
+      "IndexResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Identifier assigned to the newly indexed image."
+          },
+          "index_size": {
+            "type": "integer",
+            "title": "Index Size",
+            "description": "Index size after the insert."
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "index_size",
+          "correlation_id"
+        ],
+        "title": "IndexResponse",
+        "description": "Response for ``POST /api/v1/similarity/index``."
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "JobStatus",
+        "description": "Lifecycle of an asynchronous batch job."
+      },
+      "ModelDescriptor": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskType"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeFormat"
+          },
+          "device": {
+            "type": "string",
+            "title": "Device"
+          },
+          "loaded": {
+            "type": "boolean",
+            "title": "Loaded",
+            "description": "True when the model is resident in memory and ready."
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default",
+            "description": "True when this serves requests that do not pin a version."
+          },
+          "num_classes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Classes"
+          },
+          "input_shape": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Shape",
+            "description": "Expected input tensor shape, e.g. [1, 3, 224, 224]."
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations",
+            "description": "Known failure modes, copied from the model card."
+          },
+          "registered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registered At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "task",
+          "runtime",
+          "device",
+          "loaded",
+          "is_default"
+        ],
+        "title": "ModelDescriptor",
+        "description": "One entry in ``GET /api/v1/models``."
+      },
+      "ModelInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Registry model name, e.g. 'resnet50-tiny-imagenet'."
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "Registry version, e.g. '1.0.0'."
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskType",
+            "description": "The task this model performs."
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeFormat",
+            "description": "Which compiled format actually executed."
+          },
+          "device": {
+            "type": "string",
+            "title": "Device",
+            "description": "'cpu' or 'cuda'."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "version",
+          "task",
+          "runtime",
+          "device"
+        ],
+        "title": "ModelInfo",
+        "description": "Which model produced a result. Present on every inference response."
+      },
+      "ModelMetrics": {
+        "properties": {
+          "accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy",
+            "description": "Top-1 accuracy, 0 to 1."
+          },
+          "top5_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top5 Accuracy",
+            "description": "Top-5 accuracy, 0 to 1."
+          },
+          "map50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map50",
+            "description": "Detection mAP at IoU 0.50."
+          },
+          "map50_95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Map50 95",
+            "description": "Detection mAP averaged over IoU .50-.95."
+          },
+          "recall_at_1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall At 1",
+            "description": "Similarity retrieval Recall@1."
+          },
+          "p50_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Latency Ms",
+            "description": "Median measured latency."
+          },
+          "p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency Ms",
+            "description": "95th percentile measured latency."
+          },
+          "throughput_rps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Throughput Rps",
+            "description": "Measured requests per second."
+          },
+          "size_mb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Mb",
+            "description": "On-disk artifact size."
+          }
+        },
+        "type": "object",
+        "title": "ModelMetrics",
+        "description": "Evaluation and runtime metrics for a registered model."
+      },
+      "ModelsResponse": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelDescriptor"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "defaults": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Defaults",
+            "description": "Default 'name:version' chosen for each task when none is pinned."
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "models",
+          "count",
+          "defaults",
+          "correlation_id"
+        ],
+        "title": "ModelsResponse",
+        "description": "Response for ``GET /api/v1/models``."
+      },
+      "RuntimeFormat": {
+        "type": "string",
+        "enum": [
+          "torch",
+          "torch_int8",
+          "onnx",
+          "onnx_int8",
+          "tensorrt"
+        ],
+        "title": "RuntimeFormat",
+        "description": "Which compiled form of a model is executing."
+      },
+      "SimilarHit": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Identifier of the indexed image."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "Cosine similarity, -1 to 1. Higher is more similar."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Rank",
+            "description": "1 = most similar."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "Label stored when the image was indexed."
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Metadata stored when the image was indexed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "score",
+          "rank"
+        ],
+        "title": "SimilarHit",
+        "description": "One neighbour returned by a similarity search."
+      },
+      "SimilarityRequest": {
+        "properties": {
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[a-zA-Z0-9_\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name",
+            "description": "Registry model name. Defaults to the task's default model."
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32,
+                "pattern": "^[a-zA-Z0-9_.\\-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Registry version, or 'latest'. Defaults to 'latest'."
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeFormat"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Force a specific runtime format. Defaults to the server's preferred runtime."
+          },
+          "image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Base64",
+            "description": "Raw image bytes, base64-encoded. A `data:` URI prefix is accepted and stripped."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Publicly reachable HTTPS URL to fetch the image from."
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Caller-supplied identifier echoed back in the response, useful for batches."
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "description": "How many nearest neighbours to return.",
+            "default": 10
+          },
+          "min_similarity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Min Similarity",
+            "description": "Drop neighbours scoring below this cosine similarity.",
+            "default": 0.0
+          },
+          "include_embedding": {
+            "type": "boolean",
+            "title": "Include Embedding",
+            "description": "Also return the query image's raw embedding vector (large).",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SimilarityRequest",
+        "description": "Body for ``POST /api/v1/similarity/search``."
+      },
+      "SimilarityResponse": {
+        "properties": {
+          "model": {
+            "$ref": "#/components/schemas/ModelInfo"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingInfo"
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id",
+            "description": "Quote this id in any support request."
+          },
+          "cached": {
+            "type": "boolean",
+            "title": "Cached",
+            "description": "True when this result was served from Redis instead of re-running the model.",
+            "default": false
+          },
+          "image_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id",
+            "description": "Echo of the caller-supplied image_id, if any."
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "True when the primary model was unavailable and a fallback model or runtime served the request instead.",
+            "default": false
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Non-fatal notes, e.g. 'image was resized' or 'fell back to torch runtime'."
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarHit"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "Nearest neighbours, most similar first."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "description": "Number of neighbours returned after filtering."
+          },
+          "index_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Index Size",
+            "description": "How many vectors the index currently holds."
+          },
+          "embedding": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding",
+            "description": "Query embedding; present only when requested."
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "timing",
+          "correlation_id",
+          "results",
+          "count",
+          "index_size"
+        ],
+        "title": "SimilarityResponse",
+        "description": "Response for ``POST /api/v1/similarity/search``."
+      },
+      "TaskType": {
+        "type": "string",
+        "enum": [
+          "classification",
+          "detection",
+          "similarity"
+        ],
+        "title": "TaskType",
+        "description": "The three computer-vision tasks this system serves."
+      },
+      "TimingInfo": {
+        "properties": {
+          "preprocess_ms": {
+            "type": "number",
+            "title": "Preprocess Ms",
+            "description": "Decode, validate, resize and normalise."
+          },
+          "inference_ms": {
+            "type": "number",
+            "title": "Inference Ms",
+            "description": "Time inside the model's forward pass."
+          },
+          "postprocess_ms": {
+            "type": "number",
+            "title": "Postprocess Ms",
+            "description": "Turning raw tensors into JSON-ready results."
+          },
+          "total_ms": {
+            "type": "number",
+            "title": "Total Ms",
+            "description": "End-to-end time spent inside the handler."
+          }
+        },
+        "type": "object",
+        "required": [
+          "preprocess_ms",
+          "inference_ms",
+          "postprocess_ms",
+          "total_ms"
+        ],
+        "title": "TimingInfo",
+        "description": "Latency breakdown in milliseconds, for performance debugging.\n\nSplitting preprocessing from inference matters: if total latency rises,\nthese numbers say immediately whether the model got slower or whether the\nsystem is spending its time decoding and resizing images."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API key issued to your account. Determines your tier."
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Short-lived JWT access token."
+      }
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": []
+    },
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Classification",
+      "description": "Identify what an image contains."
+    },
+    {
+      "name": "Detection",
+      "description": "Locate objects within an image."
+    },
+    {
+      "name": "Similarity",
+      "description": "Embed images and search for visually similar ones."
+    },
+    {
+      "name": "Batch",
+      "description": "Submit many images for background processing."
+    },
+    {
+      "name": "Models",
+      "description": "Discover available models, versions and metrics."
+    },
+    {
+      "name": "Health",
+      "description": "Liveness, readiness and dependency status."
+    },
+    {
+      "name": "Monitoring",
+      "description": "Prometheus metrics."
+    }
+  ]
+}

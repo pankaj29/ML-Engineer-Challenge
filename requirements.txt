@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Runtime dependencies for the ML serving stack.
+#
+# Versions are pinned with `~=` (compatible release) so that patch-level
+# security fixes are picked up automatically while minor/major upgrades stay
+# an explicit, reviewed decision.
+#
+# The GPU-only extras (TensorRT, pycuda) are deliberately NOT here: they are
+# installed separately on GPU hosts. See requirements-gpu.txt.
+# ---------------------------------------------------------------------------
+
+# --- Web layer -------------------------------------------------------------
+fastapi~=0.115.0
+uvicorn[standard]~=0.32.0
+python-multipart~=0.0.12        # required by FastAPI for multipart/form-data uploads
+pydantic~=2.9.0
+pydantic-settings~=2.6.0        # 12-factor style config loaded from env vars
+
+# --- Inference runtimes ----------------------------------------------------
+torch~=2.9.0
+torchvision~=0.24.0
+# Floor is 1.18, not 1.17: 1.17 predates Python 3.13 and ships no cp313
+# wheel. On a 3.13 runtime pip would backtrack to it and try to build from
+# source, which needs a CMake/protobuf toolchain and fails.
+onnx>=1.18,<2
+onnxruntime~=1.20.0
+# protobuf is how ONNX serialises a model file. It is a transitive dependency
+# of onnx, but it is declared explicitly because the acceptable window is
+# narrow and environment-dependent:
+#
+#   onnx >= 1.23 REQUIRES protobuf >= 6.31.1
+#   several packages on a hosted runtime (Colab ships ydf, grpcio-status,
+#   google-ai-generativelanguage) cap it BELOW 6 or 7
+#
+# 6.31.1 to <7 is the only range that satisfies onnx while upsetting the
+# fewest of those. Leaving it undeclared let pip resolve to protobuf 7, which
+# onnx accepted but which broke more of the host image than necessary - and a
+# naive "pin it lower" fix then broke onnx itself.
+protobuf>=6.31.1,<7
+pillow~=11.0.0
+numpy~=2.1.0
+
+# --- Storage / messaging ---------------------------------------------------
+redis[hiredis]~=5.2.0
+celery~=5.4.0
+sqlalchemy[asyncio]~=2.0.36
+asyncpg~=0.30.0                 # async driver used by the API
+psycopg[binary]~=3.2.3          # sync driver used by the Celery worker + Alembic
+alembic~=1.14.0
+
+# --- Observability ---------------------------------------------------------
+prometheus-client~=0.21.0
+structlog~=24.4.0
+python-json-logger~=2.0.7
+
+# --- Security --------------------------------------------------------------
+pyjwt~=2.10.0
+passlib[bcrypt]~=1.7.4
+
+# --- Science / validation --------------------------------------------------
+scipy~=1.14.0                   # KS-test + chi-square for drift detection

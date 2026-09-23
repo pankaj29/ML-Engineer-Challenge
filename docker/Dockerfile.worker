@@ -1,0 +1,90 @@
+# =============================================================================
+# Celery worker image.
+#
+# Built separately from the API even though the code overlaps, for two
+# practical reasons:
+#
+#   1. Different entrypoint and different scaling. The API scales with the
+#      number of concurrent connections; the worker scales with queue depth.
+#      Separate images let you run 2 of one and 10 of the other.
+#   2. Different failure modes. A worker OOM must not take down the API that
+#      is serving live traffic.
+#
+# The build stage is identical to the API's, so Docker reuses its cached
+# layers — building both images costs barely more than building one.
+# =============================================================================
+
+FROM python:3.12-slim-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+COPY requirements.txt .
+
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --extra-index-url ${TORCH_INDEX} -r requirements.txt
+
+# -----------------------------------------------------------------------------
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PATH="/opt/venv/bin:$PATH" \
+    # Celery already runs several worker processes. Letting each spawn a
+    # thread per core causes massive oversubscription: the CPU spends its
+    # time context-switching rather than computing.
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1
+
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+RUN groupadd --gid 10001 appuser \
+    && useradd --uid 10001 --gid appuser --create-home --shell /usr/sbin/nologin appuser
+
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+
+WORKDIR /app
+
+COPY --chown=appuser:appuser api/ ./api/
+COPY --chown=appuser:appuser db/ ./db/
+COPY --chown=appuser:appuser worker/ ./worker/
+COPY --chown=appuser:appuser models/registry.py ./models/registry.py
+COPY --chown=appuser:appuser models/__init__.py ./models/__init__.py
+
+RUN mkdir -p /app/models/artifacts /app/data /app/logs \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+# `celery inspect ping` asks this specific worker to answer over the broker,
+# which proves the whole path works: the process is alive, connected, and
+# able to accept a task. A plain process check would pass even if the worker
+# had lost its broker connection and was silently doing nothing.
+HEALTHCHECK --interval=60s --timeout=15s --start-period=90s --retries=3 \
+    CMD celery -A worker.celery_app inspect ping -d celery@$HOSTNAME || exit 1
+
+# --concurrency is set by the compose file so it can be tuned per deployment.
+# --max-tasks-per-child recycles a worker process periodically, which caps
+# the damage from the slow memory growth ML libraries are prone to.
+CMD ["celery", "-A", "worker.celery_app", "worker", \
+     "--loglevel=info", \
+     "--concurrency=2", \
+     "--max-tasks-per-child=50", \
+     "--queues=inference", \
+     "--without-gossip", "--without-mingle"]
