@@ -270,24 +270,30 @@ STEM_ADAPTED = False      # False = keep ResNet's original pretrained stem
 BATCH_SIZE = 256
 LR = "1e-3"
 
-CKPT_DIR = Path.cwd() / "models" / "checkpoints"
-CKPT_NAME = "last.pth"
+# These names come from train_classifier.py (see best_path / last_path there).
+# Checkpoints live in models/artifacts/ alongside the ONNX exports - NOT in a
+# checkpoints/ directory - so anything that moves them must name the files
+# individually rather than move the folder.
+ART_DIR = Path.cwd() / "models" / "artifacts"
+LAST_NAME = ARCH + "_tiny_imagenet_last.pt"
+BEST_NAME = ARCH + "_tiny_imagenet_best.pt"
+HIST_NAME = ARCH + "_training_history.json"
+CKPT_FILES = [LAST_NAME, BEST_NAME, HIST_NAME]
 
-# Anywhere a previous session may have left a checkpoint: an earlier checkout
-# under a different directory name, or a copy saved to Drive.
+mine = ART_DIR / LAST_NAME
+
+# --- Adopt a checkpoint from a previous session, if there is one -----------
 search_roots = [Path("/content"), Path("/content/drive/MyDrive")]
-
-mine = CKPT_DIR / CKPT_NAME
 candidates = []
 for root in search_roots:
     if not root.exists():
         continue
-    for found in root.glob("**/models/checkpoints/" + CKPT_NAME):
+    for found in root.glob("**/models/artifacts/" + LAST_NAME):
         if found.resolve() != mine.resolve() and found.is_file():
             candidates.append(found)
 
 if not candidates:
-    print("no previous checkpoint found elsewhere")
+    print("no checkpoint found in another directory")
 else:
     newest = max(candidates, key=lambda f: f.stat().st_mtime)
     for found in sorted(candidates, key=lambda f: f.stat().st_mtime, reverse=True):
@@ -295,31 +301,33 @@ else:
         print("found: " + str(found) + marker)
 
     if mine.exists() and mine.stat().st_mtime >= newest.stat().st_mtime:
-        # Never trade a newer checkpoint for an older one just because the
-        # older one was found somewhere else.
         print()
         print("keeping the checkpoint already in place: " + str(mine))
     else:
-        CKPT_DIR.mkdir(parents=True, exist_ok=True)
-        # Copy the whole directory: history and best.pth belong with last.pth,
-        # and resuming without the history loses the training curves.
-        for sibling in newest.parent.iterdir():
-            if sibling.is_file():
-                shutil.copy2(sibling, CKPT_DIR / sibling.name)
+        ART_DIR.mkdir(parents=True, exist_ok=True)
+        # best.pt and the history belong with last.pt: resuming without the
+        # history loses the training curves.
+        for name in CKPT_FILES:
+            src = newest.parent / name
+            if src.is_file():
+                shutil.copy2(src, ART_DIR / name)
         print()
         print("adopted: " + str(newest))
-        print("     -> " + str(CKPT_DIR))
+        print("     -> " + str(ART_DIR))
 
-# --- Is the checkpoint actually resumable into THIS config? ----------------
+# --- Is that checkpoint resumable into THIS config? ------------------------
 #
-# Resuming only works if the architecture matches. A checkpoint trained at
-# 64px with the adapted stem has a different conv1 shape from a 128px
-# original-stem model, so load_state_dict would fail - or worse, a partial
-# load could succeed and train something subtly wrong.
+# Resuming only works if the architecture matches. A 64px adapted-stem
+# checkpoint has a different conv1 shape from a 128px original-stem model, so
+# load_state_dict would fail - or worse, a partial load could succeed and
+# train something subtly wrong.
 #
-# Incompatible checkpoints are MOVED ASIDE, never deleted: a training run is
-# expensive and "superseded" is not the same as "worthless".
-if mine.exists():
+# Incompatible checkpoints are MOVED ASIDE, never deleted: a finished run is
+# expensive, and "superseded" is not "worthless".
+if not mine.exists():
+    print()
+    print("no checkpoint in place; the next cell will train from epoch 1")
+else:
     import torch
 
     state = torch.load(mine, map_location="cpu", weights_only=False)
@@ -332,9 +340,13 @@ if mine.exists():
     if ckpt_arch is not None and ckpt_arch != ARCH:
         mismatches.append("arch: checkpoint " + str(ckpt_arch) + ", wanted " + ARCH)
     if ckpt_size is not None and ckpt_size != IMAGE_SIZE:
-        mismatches.append("image_size: checkpoint " + str(ckpt_size) + ", wanted " + str(IMAGE_SIZE))
+        mismatches.append(
+            "image_size: checkpoint " + str(ckpt_size) + ", wanted " + str(IMAGE_SIZE)
+        )
     if ckpt_stem is not None and bool(ckpt_stem) != STEM_ADAPTED:
-        mismatches.append("stem_adapted: checkpoint " + str(bool(ckpt_stem)) + ", wanted " + str(STEM_ADAPTED))
+        mismatches.append(
+            "stem_adapted: checkpoint " + str(bool(ckpt_stem)) + ", wanted " + str(STEM_ADAPTED)
+        )
 
     epoch = state.get("epoch", "?")
     best = state.get("best_top1")
@@ -343,21 +355,27 @@ if mine.exists():
     print("checkpoint: epoch " + str(epoch) + ", best top-1 " + best_str)
 
     if mismatches:
-        stash = CKPT_DIR.parent / ("checkpoints-superseded-" + time.strftime("%Y%m%d-%H%M%S"))
+        stash = ART_DIR / ("superseded-" + time.strftime("%Y%m%d-%H%M%S"))
+        stash.mkdir(parents=True, exist_ok=True)
         print()
         print("INCOMPATIBLE with the config above:")
         for line in mismatches:
             print("  - " + line)
-        shutil.move(str(CKPT_DIR), str(stash))
-        CKPT_DIR.mkdir(parents=True, exist_ok=True)
+        # Move the checkpoint files only. models/artifacts/ also holds the
+        # ONNX exports, which must stay where they are.
+        for name in CKPT_FILES:
+            src = ART_DIR / name
+            if src.is_file():
+                shutil.move(str(src), str(stash / name))
         print()
         print("moved aside (not deleted): " + str(stash))
         print("the next cell will train from epoch 1")
     else:
         print("compatible - the next cell will resume from here")
-else:
-    print()
-    print("no checkpoint in place; the next cell will train from epoch 1")
+        print()
+        print("NOTE: resuming also restores the no-improvement counter. If a")
+        print("previous run stopped early, re-running may stop again straight")
+        print("away. Set EPOCHS above and rerun with a fresh start if so.")
 """),
     md("""
 ## 6. Train on the full dataset
