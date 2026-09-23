@@ -277,6 +277,109 @@ your own database rather than the built-in index.
 > search that lands on another. Fine for a demo, not for production; see
 > *Known limitations*.
 
+#### Batch processing - `POST /api/v1/batch`
+
+Everything above handles **one** image and answers immediately. A batch of 64
+would take far longer than an HTTP request should live, so batches are handed
+to a background worker: you get a job id straight away and poll for the result.
+
+Works for all three tasks - set `task` to `classification`, `detection` or
+`similarity`.
+
+**1. Submit** - returns `202 Accepted` in milliseconds:
+
+```bash
+curl -X POST http://localhost/api/v1/batch \
+     -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
+     -d '{
+           "task": "classification",
+           "top_k": 3,
+           "items": [
+             {"image_base64": "...", "image_id": "img-a"},
+             {"image_base64": "...", "image_id": "img-b"}
+           ]
+         }'
+```
+
+```json
+{"job_id": "0ae654e8-f909-47e0-99c8-7feea10b9be8", "status": "pending", "total_items": 3}
+```
+
+**2. Poll** - `GET /api/v1/batch/{job_id}`:
+
+```bash
+curl http://localhost/api/v1/batch/0ae654e8-... -H "X-API-Key: dev-key-pro"
+```
+
+```json
+{
+  "job_id": "0ae654e8-...", "status": "completed", "task": "classification",
+  "total_items": 3, "completed_items": 2, "failed_items": 1,
+  "progress_percent": 100.0,
+  "duration_seconds": 0.89,
+  "results": [
+    {"index": 0, "image_id": "img-a", "success": true,  "duration_ms": 493.3,
+     "result": { "predictions": [...], "timing": {...} }, "error": null},
+    {"index": 2, "image_id": "img-broken", "success": false, "duration_ms": 0.19,
+     "result": null,
+     "error": {"code": "INVALID_IMAGE",
+               "message": "The items[2] does not look like an image file.",
+               "details": {"field": "items[2]", "size_bytes": 12}}}
+  ]
+}
+```
+
+> **Look at that response carefully.** Three items in, one of them deliberately
+> corrupt. Two succeeded, one failed, and the job status is **`completed`**,
+> not `failed`. One bad image never fails the batch - the failure is recorded
+> against its own item, with its index, and everything else is processed. That
+> rule is the whole point of the batch worker.
+
+**3. Cancel** - `DELETE /api/v1/batch/{job_id}`:
+
+```json
+{"job_id": "0ae654e8-...", "cancelled": false,
+ "reason": "The job has already finished with status success."}
+```
+
+Cancelling is best-effort: a job already running to completion cannot be
+un-run, and the response says so rather than pretending.
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `task` | required | `classification`, `detection` or `similarity` |
+| `items` | required | Per-request cap depends on your tier |
+| `top_k` / `confidence_threshold` / `iou_threshold` / `max_detections` | per task | Same meanings as the single-image endpoints |
+| `callback_url` | none | Optional **https** URL to POST the finished result to |
+| `priority` | 5 | 0-9, lower runs first |
+
+Job records expire after **24 hours**; an unknown or expired id returns `404`
+with `JOB_NOT_FOUND`.
+
+**PowerShell - submit and poll:**
+
+```powershell
+$H     = @{ "X-API-Key" = "dev-key-pro" }
+$photo = (Resolve-Path "your-photo.jpg").Path
+$img   = [Convert]::ToBase64String([IO.File]::ReadAllBytes($photo))
+
+$body = @{
+  task  = "classification"
+  top_k = 3
+  items = @(@{ image_base64 = $img; image_id = "img-a" })
+} | ConvertTo-Json -Depth 5
+
+$job = Invoke-RestMethod -Uri "http://localhost/api/v1/batch" -Method Post `
+         -Headers $H -ContentType "application/json" -Body $body
+"job: $($job.job_id)"
+
+do {
+  Start-Sleep -Seconds 2
+  $s = Invoke-RestMethod -Uri "http://localhost/api/v1/batch/$($job.job_id)" -Headers $H
+  "$($s.status)  $($s.completed_items)/$($s.total_items)  failed=$($s.failed_items)"
+} while ($s.status -notin @("completed","failed","cancelled"))
+```
+
 #### PowerShell versions
 
 Same pattern as classification - only the URL and body change:
@@ -302,6 +405,58 @@ $s = Invoke-RestMethod -Uri "http://localhost/api/v1/similarity/search" -Method 
        -Headers $H -ContentType "application/json" -Body $body
 $s.results | Format-Table rank, label, score -AutoSize
 ```
+
+#### Sending a file instead of base64
+
+Base64 inflates an image by about a third and has to be built in memory. Every
+inference endpoint also accepts a normal multipart upload at `/upload`, which
+avoids both:
+
+```bash
+curl -X POST http://localhost/api/v1/classify/upload \
+     -H "X-API-Key: dev-key-pro" \
+     -F "file=@your-photo.jpg" -F "top_k=5"
+```
+
+```powershell
+curl.exe -X POST http://localhost/api/v1/classify/upload `
+         -H "X-API-Key: dev-key-pro" `
+         -F "file=@your-photo.jpg" -F "top_k=5"
+```
+
+The same exists for `/api/v1/detect/upload` and
+`/api/v1/similarity/upload`. Prefer these for anything large: the size limit is
+enforced *while streaming*, so an oversized file is rejected without being read
+into memory first.
+
+#### Every endpoint
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/v1/classify` | POST | Classify one image (JSON body) |
+| `/api/v1/classify/upload` | POST | Same, multipart file upload |
+| `/api/v1/detect` | POST | Detect objects, returns boxes |
+| `/api/v1/detect/upload` | POST | Same, multipart |
+| `/api/v1/similarity/embed` | POST | Return the 2048-dim vector only |
+| `/api/v1/similarity/index` | POST | Add an image to the search index |
+| `/api/v1/similarity/search` | POST | Find nearest neighbours |
+| `/api/v1/similarity/upload` | POST | Search by multipart upload |
+| `/api/v1/similarity/stats` | GET | Index size, dimension, memory |
+| `/api/v1/batch` | POST | Submit a background job, returns a job id |
+| `/api/v1/batch/{job_id}` | GET | Job status, progress and results |
+| `/api/v1/batch/{job_id}` | DELETE | Attempt to cancel a job |
+| `/api/v1/models` | GET | List registered models; filter with `?task=` |
+| `/api/v1/models/{name}` | GET | One model's metadata and metrics |
+| `/api/v1/models/reload` | POST | Re-read `registry.json` without restarting |
+| `/api/v1/health` | GET | Full check: models, cache, database |
+| `/api/v1/health/live` | GET | Is the process alive? Checks no dependencies |
+| `/api/v1/health/ready` | GET | Is it ready for traffic? Checks dependencies |
+| `/api/v1/metrics` | GET | Prometheus metrics (private networks only) |
+
+The two health probes differ deliberately. `live` checks nothing external, so a
+Redis hiccup cannot cause the orchestrator to restart healthy containers;
+`ready` checks dependencies, so a degraded instance is taken out of the load
+balancer without being killed.
 
 Full parameter reference for every endpoint: [`docs/API.md`](docs/API.md), or
 the interactive docs at **<http://localhost:8000/docs>**.
