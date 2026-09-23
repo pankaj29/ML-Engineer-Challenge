@@ -15,11 +15,21 @@ Plain English:
     usually as part of the container's first start rather than at image build
     time.
 
-**Status in this project: implemented but not executed.** The development
-machine has no NVIDIA GPU, so this code has never run. It is written against
-the TensorRT 10.x Python API and gated behind an explicit availability check
-so that importing it on a CPU-only host is harmless. Treat it as untested
-until it has been run on real hardware — see docs/ASSUMPTIONS.md.
+**Status: executed on an NVIDIA A100 (TensorRT 11.3).** An fp32 engine for
+the fine-tuned Tiny-ImageNet classifier builds and verifies against ONNX.
+
+The API has moved twice, and this module handles all three eras by probing
+for attributes rather than parsing version strings:
+
+* **8.x / 9.x** - ``EXPLICIT_BATCH`` network flag required; ``BuilderFlag.FP16``
+  and ``.INT8`` select precision.
+* **10.x** - explicit batch became the only mode and its flag was removed;
+  the precision flags remain.
+* **11.x** - the precision flags are gone too. Networks are STRONGLY_TYPED and
+  precision comes from the dtypes in the ONNX graph, so a reduced-precision
+  engine needs an ONNX file already in that precision. Requesting fp16 or INT8
+  here raises :class:`UnsupportedPrecisionError` rather than silently building
+  fp32 and labelling it fp16.
 
 Usage (on a GPU host)::
 
@@ -42,6 +52,17 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+
+class UnsupportedPrecisionError(RuntimeError):
+    """The installed TensorRT cannot build this precision from this ONNX file.
+
+    Distinct from a build failure: nothing is wrong with the model or the GPU.
+    TensorRT 11 removed the FP16/INT8 builder flags in favour of
+    strongly-typed networks, so a reduced-precision engine now requires an
+    ONNX file already in that precision. Callers catch this to record a skip
+    rather than an error.
+    """
 
 
 @dataclass
@@ -200,6 +221,16 @@ def build_engine(
     # attribute keeps one code path working across both.
     explicit_batch = getattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH", None)
     flags = 0 if explicit_batch is None else 1 << int(explicit_batch)
+
+    # TensorRT 11 removed the precision BuilderFlags (FP16, INT8) and moved to
+    # STRONGLY_TYPED networks, where precision comes from the dtypes in the
+    # ONNX graph rather than from a builder switch. Detect that era by the
+    # absence of BuilderFlag.FP16 rather than by parsing a version string.
+    strongly_typed = getattr(trt.NetworkDefinitionCreationFlag, "STRONGLY_TYPED", None)
+    typed_network_era = not hasattr(trt.BuilderFlag, "FP16")
+    if typed_network_era and strongly_typed is not None and precision != "int8":
+        flags |= 1 << int(strongly_typed)
+
     network = builder.create_network(flags)
     parser = trt.OnnxParser(network, logger)
 
@@ -220,6 +251,24 @@ def build_engine(
     def _platform_supports(attr: str) -> bool | None:
         value = getattr(builder, attr, None)
         return None if value is None else bool(value)
+
+    if typed_network_era and precision in {"fp16", "int8"}:
+        # Strongly-typed era: there is no flag to set. The engine's precision
+        # is whatever the ONNX graph declares, so asking for fp16 here without
+        # an fp16 ONNX would silently build an fp32 engine and report it as
+        # fp16 - the kind of quiet wrong answer this project has been bitten
+        # by before. Refuse instead, and say what to do.
+        raise UnsupportedPrecisionError(
+            f"TensorRT {trt.__version__} uses strongly-typed networks: "
+            f"BuilderFlag.{precision.upper()} no longer exists, and precision is "
+            "taken from the ONNX graph rather than set on the builder. "
+            "To build a "
+            + precision
+            + " engine on this version, convert the ONNX to "
+            + precision
+            + " first, then build from that file. An fp32 engine builds "
+            "unchanged and is what the pipeline falls back to."
+        )
 
     if precision == "fp16":
         if _platform_supports("platform_has_fast_fp16") is False:

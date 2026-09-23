@@ -229,7 +229,33 @@ print("working directory    : " + str(Path.cwd()))
 # the working tree gets deleted with it every time.
 DATA_DIR = Path("/content/data") if Path("/content").exists() else Path.cwd() / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-print("data directory       : " + str(DATA_DIR))"""),
+print("data directory       : " + str(DATA_DIR))
+
+# --- The training config, in one place -------------------------------------
+# The next cell reads these, so there is exactly one definition of what is
+# being trained. Change it here, not in the command below.
+ARCH = "resnet50"
+EPOCHS = 60
+IMAGE_SIZE = 128
+STEM_ADAPTED = False      # False = keep ResNet's original pretrained stem
+BATCH_SIZE = 256
+# LR 3e-4, not 1e-3. AdamW at 1e-3 suits a network with a randomly
+# initialised stem (the 64px adapted-stem config), where part of the model
+# trains from scratch. With STEM_ADAPTED = False the whole pretrained
+# ResNet-50 is intact, and 1e-3 erodes exactly the features 128px was chosen
+# to preserve: validation top-1 regressed 70.5% -> 64.8% while train loss
+# kept falling, with non-finite gradients appearing.
+#
+# PATIENCE 15, not the script default of 0 (off) and not the 8 that burned
+# three runs. A cosine schedule does most of its work in the final anneal, so
+# validation accuracy plateaus mid-run as a matter of course - 8 epochs of
+# flatness is normal there, not a signal. 15 is long enough to sit through
+# that and short enough to cut a genuinely dead run. It is still a judgement
+# call: if it fires before roughly epoch 45, suspect the plateau rather than
+# the model, and re-run with PATIENCE = 0 to disable it.
+LR = "3e-4"            # see the note below before changing this
+PATIENCE = 15          # stop after this many epochs with no val improvement
+"""),
     md("""
 ## 3. Install dependencies
 
@@ -319,31 +345,6 @@ scratch.
     code("""
 import shutil, time
 from pathlib import Path
-
-# --- The training config, in one place -------------------------------------
-# The next cell reads these, so there is exactly one definition of what is
-# being trained. Change it here, not in the command below.
-ARCH = "resnet50"
-EPOCHS = 60
-IMAGE_SIZE = 128
-STEM_ADAPTED = False      # False = keep ResNet's original pretrained stem
-BATCH_SIZE = 256
-# LR 3e-4, not 1e-3. AdamW at 1e-3 suits a network with a randomly
-# initialised stem (the 64px adapted-stem config), where part of the model
-# trains from scratch. With STEM_ADAPTED = False the whole pretrained
-# ResNet-50 is intact, and 1e-3 erodes exactly the features 128px was chosen
-# to preserve: validation top-1 regressed 70.5% -> 64.8% while train loss
-# kept falling, with non-finite gradients appearing.
-#
-# PATIENCE 15, not the script default of 0 (off) and not the 8 that burned
-# three runs. A cosine schedule does most of its work in the final anneal, so
-# validation accuracy plateaus mid-run as a matter of course - 8 epochs of
-# flatness is normal there, not a signal. 15 is long enough to sit through
-# that and short enough to cut a genuinely dead run. It is still a judgement
-# call: if it fires before roughly epoch 45, suspect the plateau rather than
-# the model, and re-run with PATIENCE = 0 to disable it.
-LR = "3e-4"            # see the note below before changing this
-PATIENCE = 15          # stop after this many epochs with no val improvement
 
 # These names come from train_classifier.py (see best_path / last_path there).
 # Checkpoints live in models/artifacts/ alongside the ONNX exports - NOT in a
@@ -627,7 +628,12 @@ if not available and "tensorrt package" in reason:
     code("""
 from pathlib import Path
 
-from models.optimization.export_tensorrt import benchmark_engine, build_engine, tensorrt_available
+from models.optimization.export_tensorrt import (
+    UnsupportedPrecisionError,
+    benchmark_engine,
+    build_engine,
+    tensorrt_available,
+)
 
 available, reason = tensorrt_available()
 if not available:
@@ -654,6 +660,11 @@ else:
             )
             print(f"  latency: p50 {bench['p50_ms']:.3f} ms | p95 {bench['p95_ms']:.3f} ms "
                   f"| {bench['throughput_ips']:.0f} img/s")
+        except UnsupportedPrecisionError as exc:
+            # Not a failure: this TensorRT build cannot express the precision
+            # without an ONNX file already in it. Recorded as a skip so the
+            # run reads honestly.
+            print("  SKIPPED: " + str(exc))
         except Exception as exc:
             print(f"  FAILED: {type(exc).__name__}: {exc}")
 """),
