@@ -168,6 +168,8 @@ def _purge_stale_modules():
         del sys.modules[name]
     if stale:
         print("reloaded modules     : " + str(len(stale)) + " (kernel had cached the old code)")
+    else:
+        print("reloaded modules     : none cached yet")
 
 
 def is_our_checkout(path):
@@ -211,7 +213,12 @@ for candidate in [Path.cwd(), Path.cwd().parent, Path("/content") / REPO_NAME]:
         print("repo up to date      : " + str(REPO) + " @ " + after)
     else:
         print("repo UPDATED         : " + str(REPO) + "  " + before + " -> " + after)
-        _purge_stale_modules()
+    # Unconditional, NOT only when the commit moved. "Already at the right
+    # commit" does not mean the kernel is running that code: an earlier run of
+    # this cell may have updated the files while the kernel had already
+    # imported the previous version. Purging is cheap and touches only this
+    # project's modules, so there is no reason to make it conditional.
+    _purge_stale_modules()
     break
 
 # --- 2. No checkout yet: clone -------------------------------------------
