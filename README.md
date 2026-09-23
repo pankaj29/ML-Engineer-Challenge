@@ -169,6 +169,38 @@ Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked
 
 ---
 
+## The fine-tuned classifier
+
+ResNet-50 on Tiny-ImageNet — 200 classes, all 100,000 training images, 60
+epochs on an NVIDIA A100-SXM4-40GB. **77.66% top-1, 91.52% top-5** against a
+0.5% random baseline, in 33.9 minutes.
+
+![Training curves: loss, validation accuracy, and the warmup + cosine learning rate schedule](docs/images/training-curves.png)
+
+Produced by the training run itself, not redrawn — the three panels are loss,
+validation accuracy, and the learning-rate schedule, showing all three
+techniques the brief asks for: mixed precision (fp16 AMP + `GradScaler`),
+gradient clipping (`clip_grad_norm_` at 1.0) and LR scheduling (5% linear
+warmup into cosine decay).
+
+**The honest reading of the middle panel:** top-1 reaches 76.5% by epoch 2 and
+the remaining 58 epochs add about a point. Transfer learning from ImageNet-1k
+does nearly all the work immediately; the long cosine tail is worth ~1.1
+points. Around 25-30 epochs would have captured most of it.
+
+Full detail, including two counter-intuitive findings about resolution and
+learning rate, is in
+[`models/cards/resnet50-tiny-imagenet.md`](models/cards/resnet50-tiny-imagenet.md).
+
+### Against TensorRT on the same GPU
+
+| Runtime | Precision | p50 | Throughput | Size |
+| --- | --- | ---: | ---: | ---: |
+| TensorRT | fp16 | **0.729 ms** | **1369 img/s** | 46.0 MB |
+| TensorRT | fp32 | 1.059 ms | 972 img/s | 91.5 MB |
+
+---
+
 ## Measured performance
 
 Intel Core Ultra 7 155H, 22 logical cores, **CPU only**. ONNX Runtime 1.26.0.
@@ -402,12 +434,14 @@ Stated plainly; the full list with reasoning is in
 
 ### Next, in priority order
 
-1. Full Tiny-ImageNet fine-tune on a GPU
-2. Execute and benchmark the TensorRT path
-3. Move the similarity index to a shared store (pgvector or FAISS)
-4. Measure accuracy properly against the real validation sets
-5. Calibrate confidence with temperature scaling
-6. Add OpenTelemetry tracing
+1. Build a TensorRT INT8 engine from the existing QDQ graph
+2. Move the similarity index to a shared store (pgvector or FAISS)
+3. Measure accuracy properly against the real ImageNet and COCO validation sets
+4. Calibrate confidence with temperature scaling
+5. Add OpenTelemetry tracing
+
+*Done since the first draft: the full Tiny-ImageNet fine-tune (77.66% top-1)
+and the TensorRT fp32/fp16 path (0.729 ms p50).*
 
 ---
 

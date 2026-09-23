@@ -1,12 +1,18 @@
-# --- Datasets & model binaries (never committed; see docs/DATA.md) ----------
+# --- Datasets --------------------------------------------------------------
+# The dataset stays out: 100k files and ~240 MB that download_datasets.py can
+# reproduce exactly. Model artifacts DO go in, via Git LFS (.gitattributes),
+# because they cannot be reproduced without a GPU session.
 data/
 !data/.gitkeep
-models/artifacts/
-!models/artifacts/.gitkeep
-*.pt
-*.pth
-*.onnx
-*.engine
+
+# --- Model binaries --------------------------------------------------------
+# models/artifacts/ is tracked through Git LFS. These patterns still exclude
+# binaries written ANYWHERE ELSE - checkpoints dropped in the repo root during
+# an experiment, say - which is what they were guarding against.
+/*.pt
+/*.pth
+/*.onnx
+/*.engine
 *.plan
 *.index
 *.faiss

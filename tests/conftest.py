@@ -182,6 +182,11 @@ def not_an_image() -> bytes:
 # ---------------------------------------------------------------------------
 # Fake model runtime
 # ---------------------------------------------------------------------------
+# Highest class score a fake detector will emit. Must stay below any threshold
+# a test uses to assert "no detections survive". See FakeRuntime.infer.
+MAX_FAKE_SCORE = 0.99
+
+
 class FakeRuntime:
     """A stand-in for a real model.
 
@@ -228,11 +233,21 @@ class FakeRuntime:
 
         # A detector-shaped output (batch, 4 + classes, anchors) must look like
         # the real thing: rows 0-3 are box geometry in pixels, and the class
-        # scores that follow are probabilities in [0, 1]. Returning raw normal
-        # values there would not exercise the real postprocessing path.
+        # scores that follow are probabilities. Returning raw normal values
+        # there would not exercise the real postprocessing path.
+        #
+        # Scores are capped at MAX_FAKE_SCORE rather than 1.0. A detector
+        # output is 80 classes x 8400 anchors = 672,000 samples, so with a
+        # uniform [0, 1) draw the chance that at least one exceeds a
+        # "nothing should survive this" threshold of 0.999999 is about 49%
+        # (expected count 0.67). That made test_high_threshold_returns_nothing
+        # a coin flip that depended on the seed, which is derived from the
+        # input sum and so differs between machines. Capping the draw makes
+        # the assertion deterministic without weakening it: every other
+        # detection test uses thresholds well below this.
         if len(shape) == 3 and shape[1] > 4:
             output[:, :4, :] = rng.uniform(10.0, 600.0, (batch, 4, shape[2]))
-            output[:, 4:, :] = rng.uniform(0.0, 1.0, (batch, shape[1] - 4, shape[2]))
+            output[:, 4:, :] = rng.uniform(0.0, MAX_FAKE_SCORE, (batch, shape[1] - 4, shape[2]))
         return [output]
 
     def close(self) -> None:
