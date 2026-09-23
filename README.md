@@ -220,8 +220,8 @@ Reproduce: `python -m models.optimization.benchmark`
   RandomResizedCrop, RandomErasing, MixUp, CutMix
 * ONNX export with **numerical verification** against PyTorch (max diff < 4e-06)
 * INT8 quantization, static and dynamic, with measured accuracy cost
-* TensorRT export — implemented, GPU-gated, **not executed** (no GPU available;
-  see [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.1)
+* TensorRT export — **executed on an A100 (TensorRT 11.3)**: fp16 at 0.729 ms
+  p50 / 1369 img/s, 1.45x faster and half the size of fp32
 * Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration (ECE), latency
 * A/B testing with a **paired McNemar test** and confidence intervals
@@ -386,16 +386,19 @@ every layer after it then runs at 16x the spatial area. A GPU is roughly
 Stated plainly; the full list with reasoning is in
 [ASSUMPTIONS.md](docs/ASSUMPTIONS.md).
 
-1. **TensorRT is written but never executed** — no NVIDIA GPU was available.
-2. **The classifier was not fully fine-tuned** — the pipeline is complete and
-   verified by a smoke run, but a full CPU run is 10+ hours. It is GPU-ready.
-3. **Accuracy figures are cited, not re-measured** — that needs the ImageNet
+1. **TensorRT INT8 is not built** — fp32 and fp16 both are. In TensorRT 11 an
+   INT8 engine needs a QDQ graph; `quantize.py` produces one, but it has not
+   been run, so `precision="int8"` refuses rather than silently building fp32
+   and labelling it INT8.
+2. **Accuracy figures for the ImageNet-1k and COCO models are cited, not
+   re-measured** — that needs the ImageNet
    and COCO validation sets. Behavioural correctness *was* verified end to end.
-4. **The similarity index is per-process**, so it does not survive horizontal
+3. **The similarity index is per-process**, so it does not survive horizontal
    scaling. Options are set out in TECHNICAL.md.
-5. **Confidence is not calibrated** — measured ECE of 0.22. Use the ranking,
-   not the absolute scores.
-6. **YOLOv8 is AGPL-3.0**, which has real implications for commercial use.
+4. **Confidence calibration varies by model** — the fine-tuned Tiny-ImageNet
+   classifier measures ECE 0.063, but the ImageNet-1k model measures 0.22. Use
+   the ranking, not the absolute scores, unless you have measured otherwise.
+5. **YOLOv8 is AGPL-3.0**, which has real implications for commercial use.
 
 ### Next, in priority order
 

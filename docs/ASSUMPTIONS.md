@@ -199,7 +199,7 @@ clipping and LR scheduling.
 | Optimiser | AdamW, lr 3e-4, weight decay 5e-2 |
 | Time per epoch | ~38 s |
 | **Top-1** | **77.66%** |
-| **Top-5** | **90.18%** |
+| **Top-5** | **91.52%** |
 | Random baseline | 0.5% top-1 |
 
 All three required techniques were active: `torch.autocast` fp16 with
@@ -240,7 +240,11 @@ to the original stem made validation accuracy **regress** - 70.5% to 64.8%
 while training loss kept falling, with non-finite gradients appearing. 1e-3
 suits a partly randomly-initialised network; with the whole pretrained model
 intact it erodes the features the resolution change was meant to preserve.
-3e-4 fixed it.
+3e-4 fixed the regression. It did **not** eliminate the non-finite gradients:
+they still occur in 8 of the 60 epochs, and that is fine - `GradScaler` detects
+them, skips that optimiser step and halves the loss scale, which is exactly
+what mixed-precision training is supposed to do. The pathology at 1e-3 was the
+accuracy regression, not the infinities.
 
 **Early stopping is off by default** (`--patience 0`), and that is deliberate.
 It was set to 8 and terminated three runs at epoch 9. A cosine schedule does

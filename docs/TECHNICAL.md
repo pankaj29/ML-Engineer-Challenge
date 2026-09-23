@@ -86,6 +86,23 @@ than the same building in different light.
 
 ## 2. Optimisation: what worked and what did not
 
+```mermaid
+flowchart LR
+    T["PyTorch<br/>checkpoint"] --> O["ONNX fp32<br/>91.2 MB"]
+    O -->|"static QDQ<br/>200 real images"| Q["ONNX INT8<br/>23.3 MB"]
+    O -->|"convert_onnx_to_fp16<br/>keep_io_types"| H["ONNX fp16<br/>45.6 MB"]
+    O -->|"TensorRT build"| E32["TRT fp32 engine<br/>1.059 ms"]
+    H -->|"TensorRT build<br/>STRONGLY_TYPED"| E16["TRT fp16 engine<br/>0.729 ms"]
+    Q -.->|"not built:<br/>needs QDQ path"| EI["TRT INT8"]
+
+    style E16 stroke-width:3px
+    style EI stroke-dasharray: 5 5
+```
+
+Solid arrows are paths that were built and measured. The dashed one is not
+done, and is refused rather than faked — see the TensorRT subsection.
+
+
 ### ONNX export: a clear win, with a trap
 
 Converting from PyTorch to ONNX removes the Python interpreter from the hot
@@ -152,21 +169,85 @@ are near-ties, but do not switch on size alone without evaluating on your data.
 
 ### TensorRT
 
-Implemented, GPU-gated, **never executed** — no NVIDIA GPU on the build
-machine. Stated plainly in [`ASSUMPTIONS.md`](ASSUMPTIONS.md) rather than
-presented as done.
+**Executed on an NVIDIA A100-SXM4-40GB (TensorRT 11.3)**, on the fine-tuned
+Tiny-ImageNet classifier at 128x128:
+
+| Precision | ONNX | Engine | Build | p50 | p95 | Throughput |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fp32 | 91.2 MB | 91.5 MB | 24 s | 1.059 ms | 1.105 ms | 972 img/s |
+| fp16 | 45.6 MB | 46.0 MB | 31 s | **0.729 ms** | 0.749 ms | **1369 img/s** |
+
+fp16 is 1.45x faster than fp32 and half the size. For context, the same model
+through ONNX Runtime on the CPU build machine runs at roughly 11 ms - TensorRT
+on an A100 is about **15x faster**, which is the gap that justifies a
+compiled, hardware-specific runtime existing in the codebase at all.
+
+**The API had moved two generations under this code.** It was written against
+TensorRT 10.x; the GPU had 11.3. Three calls had been removed in between, each
+surfacing only after the previous was fixed:
+
+| Removed | Gone in | What replaced it |
+| --- | --- | --- |
+| `NetworkDefinitionCreationFlag.EXPLICIT_BATCH` | 10 | explicit batch is the only mode; pass no flag |
+| `Builder.platform_has_fast_fp16` / `_int8` | 10 | advisory only; skip when absent |
+| `BuilderFlag.FP16` / `.INT8` | 11 | networks are `STRONGLY_TYPED`; precision comes from the graph |
+
+`export_tensorrt.py` now selects behaviour by **probing for attributes, not
+parsing `trt.__version__`**. A version comparison encodes a guess about which
+release dropped what - which is exactly the assumption that was wrong three
+times running.
+
+**fp16 requires an fp16 graph.** Since TensorRT 11 reads precision from ONNX
+dtypes, `convert_onnx_to_fp16()` rewrites the model first, with
+`keep_io_types=True` so inputs and outputs stay fp32 and no caller needs to
+change. It uses `onnxruntime.transformers.float16` rather than the more
+obvious `onnxconverter-common`, which hard-pins `protobuf==3.20.2` and would
+drag protobuf below the `>=6.31.1` that onnx requires.
+
+**A caveat kept visible rather than tuned away.** The fp16 engine measures
+`max diff 1.41e-02` against the fp32 ONNX, above the 1e-2 verification
+tolerance, so it is reported as `verified=False`. That tolerance is a weak
+test for fp16: it bounds absolute logit distance, and half precision carries
+about three decimal digits, so 1e-2 on logits of order 10 is rounding rather
+than a defect. The meaningful evidence is behavioural - 76.40% top-1 and 0.0%
+of predictions flipping under noise far larger than this. The honest fix is to
+verify by top-1 agreement instead of logit distance; until that exists the
+flag stays red rather than being relaxed to look green.
+
+**INT8 through TensorRT is not done.** In the strongly-typed era it needs a QDQ
+graph, which `quantize.py` already produces; the path is short but untested, so
+`precision="int8"` raises `UnsupportedPrecisionError` and names the file to
+build from. Setting no flag and labelling the output INT8 would have produced
+an engine, a populated benchmark row, and entirely wrong numbers.
 
 ---
 
 ## 3. Benchmark results
 
-**Environment:** Intel Core Ultra 7 155H, 22 logical cores, 64 GB RAM,
+Two environments, kept separate because mixing them produces meaningless
+comparisons. The CPU numbers are the ones the serving budget is judged
+against; the GPU numbers exist because the brief asks for TensorRT.
+
+**CPU environment:** Intel Core Ultra 7 155H, 22 logical cores, 64 GB RAM,
 CPU only. ONNX Runtime 1.26.0, PyTorch 2.9.0+cpu, Python 3.13.
 40 iterations after 8 warmup runs.
 
 Reproduce: `python -m models.optimization.benchmark --iterations 40 --warmup 8 --batch-sizes 1,4`
 
 ### Single-image latency (the requirement)
+
+```mermaid
+xychart-beta
+    title "CPU p50 latency, batch 1 (ms, lower is better)"
+    x-axis ["resnet50 fp32", "resnet50 INT8", "yolov8n fp32", "yolov8n INT8", "embed fp32", "embed INT8"]
+    y-axis "milliseconds" 0 --> 300
+    bar [84.8, 120.3, 120.6, 283.3, 43.4, 110.6]
+```
+
+Every bar for INT8 is **taller** than its fp32 counterpart. That is the
+headline finding of section 2, visible at a glance: on this CPU, quantisation
+costs latency and buys only size.
+
 
 | Model | Runtime | p50 | p95 | p99 | Throughput | Size |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -192,6 +273,80 @@ Batching improves *per-image* cost (resnet50: 84.8 → 66.7 ms) but worsens tail
 latency — yolov8n at batch 4 exceeds one second at p99. This is precisely why
 the batch endpoint is **asynchronous**: batching is a throughput optimisation,
 and forcing it into a synchronous request would blow the latency budget.
+
+### GPU: the fine-tuned classifier
+
+**Environment:** NVIDIA A100-SXM4-40GB, TensorRT 11.3, ONNX Runtime 1.20.2,
+Python 3.13. ResNet-50 fine-tuned on Tiny-ImageNet, 128x128 input.
+200 iterations after 50 warmup runs.
+
+```mermaid
+xychart-beta
+    title "Throughput by runtime (images/second, higher is better)"
+    x-axis ["TensorRT fp16", "TensorRT fp32", "ONNX Runtime (CPU)"]
+    y-axis "img/s" 0 --> 1500
+    bar [1369, 972, 87]
+```
+
+| Runtime | Precision | p50 | p95 | Throughput | Size |
+| --- | --- | ---: | ---: | ---: | ---: |
+| TensorRT | fp16 | **0.729 ms** | 0.749 ms | **1369 img/s** | 46.0 MB |
+| TensorRT | fp32 | 1.059 ms | 1.105 ms | 972 img/s | 91.5 MB |
+| ONNX Runtime | fp32 | 11.50 ms | 11.64 ms | 86.9 img/s | 91.2 MB |
+| ONNX Runtime | INT8 static | 17.09 ms | 17.51 ms | 58.5 img/s | 23.3 MB |
+
+**Read the two ONNX Runtime rows with care: they are CPU numbers.** The run
+requested CUDA, but `onnxruntime-gpu` had no usable CUDAExecutionProvider on
+that runtime, and ONNX Runtime falls back to CPU **without raising**. The
+giveaway is INT8 being *slower* than fp32, which is the CPU signature
+documented in section 2 and the opposite of what INT8 does on a GPU.
+
+That fallback is now impossible to miss: `benchmark_onnx` emits a
+`RuntimeWarning` when the requested device is not the device used,
+`BenchmarkResult.summary()` prints the device, and the report is written to
+`BENCHMARKS_GPU_CPU_FALLBACK.md` unless every result genuinely ran on CUDA. A
+file named for a device it did not use is exactly the sort of artefact that
+gets quoted months later.
+
+So the only true GPU figures here are the TensorRT rows. Against the same
+model on CPU ONNX Runtime, TensorRT fp16 is roughly **16x faster**.
+
+### Fine-tuned classifier accuracy
+
+ResNet-50 on Tiny-ImageNet, 200 classes, all 100,000 training images, 60
+epochs at 128x128 with the original ImageNet stem:
+
+| Metric | Value |
+| --- | ---: |
+| Top-1 (full 10k val set) | **77.66%** |
+| Top-5 | 91.52% |
+| Top-1 (2000-sample validation run) | 76.40% |
+| Top-5 (same) | 90.70% |
+| Expected Calibration Error | 0.0632 |
+| Random baseline | 0.5% |
+
+Validated independently of the training loop via
+`models/validation/validate.py` against the exported ONNX: 8 of 8 checks pass,
+including determinism (max diff 0.00e+00 across three runs), batch invariance,
+and 0.0% of predictions changing under sigma=0.01 noise.
+
+The 1.26-point gap between the two top-1 figures is the 2000-sample subset
+versus the full validation set - ordinary sampling variance.
+
+Two results worth recording from getting there, both counter-intuitive:
+
+* **Upsampling 64x64 images to 128x128 was both more accurate and cheaper.**
+  Tiny-ImageNet is natively 64x64, but ResNet-50's stem downsamples 4x, so at
+  64px the stem must be replaced - discarding pretrained weights - and
+  `layer1` then runs at 64x64. Feeding 128px through the original stem gives
+  `layer1` a 32x32 map: a quarter the area, 38 s per epoch instead of 82 s,
+  and +3.68 points of top-1.
+* **The learning rate had to move with the stem.** Keeping lr 1e-3 after
+  restoring the pretrained stem made validation accuracy regress from 70.5% to
+  64.8% while training loss kept falling, with non-finite gradients appearing.
+  3e-4 fixed the regression - though not the infinities, which still appear in
+  8 of 60 epochs and are absorbed by `GradScaler` as designed. A rate that
+  suits a partly-random network destroys a fully pretrained one.
 
 ### End-to-end load test
 

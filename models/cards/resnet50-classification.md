@@ -69,10 +69,16 @@ The served weights are torchvision's `IMAGENET1K_V2` checkpoint, trained on
 **ImageNet-1k**: ~1.28 M training images across 1,000 categories, scraped
 from the web and labelled via crowdsourcing.
 
-This project also ships a **fine-tuning pipeline** for Tiny-ImageNet
-(`models/training/train_classifier.py`), a 200-class, 64x64 subset. That
-pipeline is complete and verified, but its output is **not** the model served
-here — see `docs/ASSUMPTIONS.md`.
+This project also fine-tunes ResNet-50 on **Tiny-ImageNet** (200 classes),
+which the brief requires. That model has been trained in full — 77.66% top-1,
+91.52% top-5 on an A100 — and is registered as `resnet50-tiny-imagenet`. It is
+a separate model with its own card:
+[`resnet50-tiny-imagenet.md`](resnet50-tiny-imagenet.md).
+
+It is deliberately **not** the default here. A 200-class model built from 64x64
+thumbnails is a poor general-purpose classification API next to ImageNet-1k at
+224px — see `docs/ASSUMPTIONS.md` §1.4. Swapping the default is a one-line
+registry change.
 
 ### Preprocessing (must match exactly)
 
