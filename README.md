@@ -372,12 +372,25 @@ $job = Invoke-Api batch @{
     top_k = 3
     items = @(@{ image_base64 = $img; image_id = "img-a" })
 }
-"job: $($job.job_id)"
+$job | Format-List job_id, status, total_items, estimated_seconds
 ```
 
 ```json
-{"job_id": "0ae654e8-f909-47e0-99c8-7feea10b9be8", "status": "pending", "total_items": 3}
+{
+  "job_id": "0ae654e8-f909-47e0-99c8-7feea10b9be8",
+  "status": "pending",
+  "task": "classification",
+  "total_items": 3,
+  "status_url": "/api/v1/batch/0ae654e8-f909-47e0-99c8-7feea10b9be8",
+  "estimated_seconds": 0.3,
+  "correlation_id": "dfab814d11bf4c2f973a67aee57433e3",
+  "submitted_at": "2026-09-23T14:35:08.411385Z"
+}
 ```
+
+`status` is `pending` until a worker picks the job up - the submit call does
+not wait. `status_url` is the path to poll, and `estimated_seconds` is a rough
+guide based on the item count.
 
 **Poll:**
 
