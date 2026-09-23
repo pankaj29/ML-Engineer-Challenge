@@ -165,6 +165,54 @@ class _EntropyCalibrator:
         self._cache_file.write_bytes(cache)
 
 
+def convert_onnx_to_fp16(src: Path, dst: Path | None = None) -> Path:
+    """Rewrite an ONNX graph's weights and compute in half precision.
+
+    Why this exists: TensorRT 11 removed ``BuilderFlag.FP16``. Networks are
+    strongly typed, so an fp16 engine can only come from an fp16 graph. This
+    produces that graph.
+
+    ``keep_io_types=True`` leaves the model's inputs and outputs as fp32 and
+    inserts casts at the boundary. That matters for two reasons: every caller
+    (benchmark, verification, the serving runtime) keeps feeding fp32 arrays
+    with no special-casing, and the numerical comparison against the original
+    fp32 model stays like-for-like. The interior - where all the compute time
+    goes - runs in fp16.
+
+    Returns:
+        Path to the fp16 model. Written next to the source as
+        ``<name>.fp16.onnx`` unless ``dst`` says otherwise.
+    """
+    # onnxruntime ships this converter, so fp16 needs no extra dependency.
+    #
+    # The obvious package for this job, onnxconverter-common, is deliberately
+    # NOT used: it hard-pins protobuf==3.20.2, which drags protobuf below the
+    # >=6.31.1 that onnx requires and sends pip back to building onnx from
+    # source - a failure that already cost this project hours.
+    # onnxruntime.transformers.float16 is the same algorithm with the same
+    # keep_io_types option and no dependency cost.
+    try:
+        import onnx
+        from onnxruntime.transformers import float16
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise UnsupportedPrecisionError(
+            "fp16 conversion needs onnx and onnxruntime, both already in "
+            "requirements.txt. Install them and retry."
+        ) from exc
+
+    src = Path(src)
+    dst = Path(dst) if dst else src.with_suffix(".fp16.onnx")
+    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+        # Converting is not free, and the result is deterministic.
+        return dst
+
+    model = onnx.load(str(src))
+    converted = float16.convert_float_to_float16(model, keep_io_types=True)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    onnx.save(converted, str(dst))
+    return dst
+
+
 def build_engine(
     onnx_path: Path,
     engine_path: Path | None = None,
@@ -215,6 +263,15 @@ def build_engine(
     logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
 
+    # On TensorRT 11 the precision lives in the graph, so an fp16 engine is
+    # built from an fp16 ONNX. Do that conversion here rather than making
+    # every caller know about it. The ORIGINAL fp32 model is still what the
+    # engine is verified against below - comparing an fp16 engine to an fp16
+    # graph would hide exactly the error we want to measure.
+    source_onnx = onnx_path
+    if not hasattr(trt.BuilderFlag, "FP16") and precision == "fp16":
+        source_onnx = convert_onnx_to_fp16(onnx_path)
+
     # Explicit batch mode. TensorRT 8.x and 9.x require the EXPLICIT_BATCH
     # creation flag; TensorRT 10 made explicit batch the only mode and REMOVED
     # the flag, so referencing it there raises AttributeError. Probing for the
@@ -234,7 +291,7 @@ def build_engine(
     network = builder.create_network(flags)
     parser = trt.OnnxParser(network, logger)
 
-    if not parser.parse(onnx_path.read_bytes()):
+    if not parser.parse(source_onnx.read_bytes()):
         errors = [str(parser.get_error(i)) for i in range(parser.num_errors)]
         raise RuntimeError("TensorRT could not parse the ONNX model:\n  " + "\n  ".join(errors))
 
@@ -252,7 +309,7 @@ def build_engine(
         value = getattr(builder, attr, None)
         return None if value is None else bool(value)
 
-    if typed_network_era and precision in {"fp16", "int8"}:
+    if typed_network_era and precision == "int8":
         # Strongly-typed era: there is no flag to set. The engine's precision
         # is whatever the ONNX graph declares, so asking for fp16 here without
         # an fp16 ONNX would silently build an fp32 engine and report it as
@@ -262,12 +319,11 @@ def build_engine(
             f"TensorRT {trt.__version__} uses strongly-typed networks: "
             f"BuilderFlag.{precision.upper()} no longer exists, and precision is "
             "taken from the ONNX graph rather than set on the builder. "
-            "To build a "
-            + precision
-            + " engine on this version, convert the ONNX to "
-            + precision
-            + " first, then build from that file. An fp32 engine builds "
-            "unchanged and is what the pipeline falls back to."
+            "fp16 is handled automatically by converting the graph first "
+            "(see convert_onnx_to_fp16). INT8 is not: it needs a QDQ graph, "
+            "which models/optimization/quantize.py already produces as "
+            "<name>_int8_static.onnx. Build the engine from that file "
+            "directly rather than passing precision='int8' here."
         )
 
     if precision == "fp16":
@@ -318,7 +374,7 @@ def build_engine(
         name=onnx_path.stem,
         engine_path=str(engine_path),
         precision=precision,
-        onnx_mb=onnx_path.stat().st_size / 1_048_576,
+        onnx_mb=source_onnx.stat().st_size / 1_048_576,
         engine_mb=engine_path.stat().st_size / 1_048_576,
         build_seconds=build_seconds,
         max_batch_size=max_batch_size,
