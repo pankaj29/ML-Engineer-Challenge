@@ -37,7 +37,15 @@ class TestRegistry:
         defaults = model_service.default_keys()
         assert set(defaults) == {"classification", "detection", "similarity"}
 
+    @pytest.mark.usefixtures("require_real_models")
     def test_all_artifacts_exist(self) -> None:
+        """Every registered artifact is actually on disk.
+
+        Guards the mismatch where registry.json names a file nobody exported -
+        which surfaces at request time as a 503, not at startup. Skipped when
+        artifacts are absent (a fresh clone, or CI), because there the failure
+        would say nothing about the registry.
+        """
         from models.registry import Registry
 
         assert Registry().validate() == []

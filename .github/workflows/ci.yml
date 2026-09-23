@@ -121,10 +121,10 @@ jobs:
         # Performance tests are excluded: timing assertions on shared CI
         # hardware are flaky, and a flaky gate is worse than no gate. They run
         # on demand instead.
-        env:
-          ENVIRONMENT: test
-          JWT_SECRET: ci-test-secret-long-enough-to-pass-validation-check
-          API_KEYS: ci-key:pro
+        # No env block here on purpose. tests/conftest.py sets ENVIRONMENT,
+        # AUTH_ENABLED, API_KEYS and JWT_SECRET itself, and the tests hard-code
+        # the key names. Exporting a different API_KEYS here made every
+        # authenticated request 401 and turned the whole suite red.
         run: |
           pytest tests/ \
             -m "not performance" \

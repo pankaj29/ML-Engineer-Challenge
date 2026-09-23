@@ -42,10 +42,22 @@ if str(REPO_ROOT) not in sys.path:
 
 # Environment must be set BEFORE any api.* import, because api.config builds
 # its settings singleton at import time.
-os.environ.setdefault("ENVIRONMENT", "test")
-os.environ.setdefault("AUTH_ENABLED", "true")
-os.environ.setdefault("API_KEYS", "test-free-key:free,test-pro-key:pro,test-ent-key:enterprise")
-os.environ.setdefault("JWT_SECRET", "test-secret-key-that-is-long-enough-for-validation-32")
+#
+# The identity settings below are ASSIGNED, not setdefault-ed. Tests hard-code
+# "test-pro-key" and friends, so if an ambient API_KEYS exists the fixtures
+# authenticate against a key set the app has never heard of and every
+# authenticated request returns 401 - which reads as 50+ unrelated assertion
+# failures rather than "your key is wrong".
+#
+# That is not hypothetical: CI exported `API_KEYS=ci-key:pro`, setdefault
+# silently kept it, and the pipeline failed from its first run.
+os.environ["ENVIRONMENT"] = "test"
+os.environ["AUTH_ENABLED"] = "true"
+os.environ["API_KEYS"] = "test-free-key:free,test-pro-key:pro,test-ent-key:enterprise"
+os.environ["JWT_SECRET"] = "test-secret-key-that-is-long-enough-for-validation-32"
+
+# The rest stay setdefault: they are tunables a developer may legitimately
+# override for one run, and nothing asserts on their exact value.
 os.environ.setdefault("CACHE_ENABLED", "false")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("EAGER_MODEL_LOAD", "false")

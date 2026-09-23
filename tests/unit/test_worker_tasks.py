@@ -44,7 +44,16 @@ def b64(data: bytes) -> str:
     return base64.b64encode(data).decode()
 
 
+@pytest.mark.requires_models
+@pytest.mark.usefixtures("require_real_models")
 class TestBatchProcessing:
+    """These run real inference end to end, so they need real artifacts.
+
+    models/artifacts/ is gitignored deliberately - a 95 MB ONNX file does not
+    belong in git - so on a fresh clone or in CI these skip rather than fail.
+    Prepare them with: python scripts/prepare_models.py
+    """
+
     def test_processes_every_item(self, worker_task, sample_image: bytes) -> None:
         items = [{"image_base64": b64(sample_image), "image_id": f"img-{i}"} for i in range(4)]
         summary = worker_task.run(
