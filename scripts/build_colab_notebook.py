@@ -216,7 +216,20 @@ if REPO is None:
 os.chdir(REPO)
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
-print("working directory    : " + str(Path.cwd()))"""),
+print("working directory    : " + str(Path.cwd()))
+
+# The dataset lives OUTSIDE the repository, and DATA_DIR is defined here
+# rather than in the download cell because later cells (quantisation
+# calibration, validation) need it too. Defining it at the point the working
+# directory is settled means any cell can be run after a kernel restart
+# without a NameError.
+#
+# Why outside the repo: on a hosted runtime the checkout is disposable -
+# re-cloning is the normal way to pick up a fix - and a 240 MB dataset inside
+# the working tree gets deleted with it every time.
+DATA_DIR = Path("/content/data") if Path("/content").exists() else Path.cwd() / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+print("data directory       : " + str(DATA_DIR))"""),
     md("""
 ## 3. Install dependencies
 
@@ -258,21 +271,9 @@ Preview the plan without installing anything:
 (for example when the repo lives on Drive).
 """),
     code("""
-import os
 from pathlib import Path
 
-# The dataset lives OUTSIDE the repository.
-#
-# On a hosted runtime the repo is disposable - re-cloning it is the normal way
-# to pick up a fix. If the 240 MB dataset sits inside the working tree, every
-# re-clone deletes it and costs another download. Keeping it at /content/data
-# makes the two independent.
-#
-# DATA_DIR is exported so the training cell and the validation cell both point
-# at the same place.
-DATA_DIR = Path("/content/data") if Path("/content").exists() else Path.cwd() / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-os.environ["TINY_IMAGENET_DATA_DIR"] = str(DATA_DIR)
+# DATA_DIR comes from the "Get the code" cell above.
 print("data directory    : " + str(DATA_DIR))
 
 if (DATA_DIR / "tiny-imagenet-200").exists():
@@ -584,7 +585,7 @@ from models.optimization.quantize import quantize_onnx_static
 # SLOWER than fp32 on CPU - see docs/TECHNICAL.md.
 q = quantize_onnx_static(
     Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
-    Path("data/tiny-imagenet-200/tiny-imagenet-200/val/images"),
+    DATA_DIR / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images",
     PreprocessConfig(size=(64, 64)),
     num_calibration=200,
 )
@@ -700,7 +701,7 @@ Registry().register(
 
 # NOW accuracy is measurable: the model and the evaluation set share a label
 # space (200 classes), which was not true of the ImageNet-1k model.
-samples = load_eval_samples(Path("data"), limit=2000)
+samples = load_eval_samples(DATA_DIR, limit=2000)
 report = validate_model("resnet50-tiny-imagenet:1.0.0", eval_samples=samples, max_p95_ms=1000)
 
 print(report.summary())
