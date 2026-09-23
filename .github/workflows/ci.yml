@@ -54,6 +54,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # Model artifacts are stored in Git LFS. Without this, checkout
+        # writes ~130-byte pointer TEXT files in their place - which exist
+        # on disk, so any 'is the artifact present?' check passes, and the
+        # failure only surfaces later as an unparseable ONNX file.
+        with:
+          lfs: true
 
       - uses: actions/setup-python@v5
         with:
@@ -103,6 +109,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # Model artifacts are stored in Git LFS. Without this, checkout
+        # writes ~130-byte pointer TEXT files in their place - which exist
+        # on disk, so any 'is the artifact present?' check passes, and the
+        # failure only surfaces later as an unparseable ONNX file.
+        with:
+          lfs: true
 
       - uses: actions/setup-python@v5
         with:
@@ -116,6 +128,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install --extra-index-url https://download.pytorch.org/whl/cpu \
                       -r requirements-dev.txt
+
+      # Tiny-ImageNet is 240 MB / 100k files and is NOT in the repo - it is
+      # reproducible from this script, so committing it would be waste. The 14
+      # dataset tests skip without it, so CI fetches it once and caches it.
+      - name: Cache Tiny-ImageNet
+        id: cache-tiny-imagenet
+        uses: actions/cache@v4
+        with:
+          path: data/tiny-imagenet-200
+          key: tiny-imagenet-200-v1
+
+      - name: Download Tiny-ImageNet
+        if: steps.cache-tiny-imagenet.outputs.cache-hit != 'true'
+        # continue-on-error on purpose: this reaches out to an external host
+        # (cs231n.stanford.edu). If it is slow or down, the dataset tests skip
+        # with a clear reason - which is what they did before this step
+        # existed. A third party's uptime must not decide whether our build is
+        # green.
+        continue-on-error: true
+        run: python scripts/download_datasets.py --dataset tiny_imagenet --data-dir data
 
       - name: Run tests with coverage
         # Performance tests are excluded: timing assertions on shared CI
@@ -168,6 +200,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # Model artifacts are stored in Git LFS. Without this, checkout
+        # writes ~130-byte pointer TEXT files in their place - which exist
+        # on disk, so any 'is the artifact present?' check passes, and the
+        # failure only surfaces later as an unparseable ONNX file.
+        with:
+          lfs: true
 
       - uses: actions/setup-python@v5
         with:
@@ -225,6 +263,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # Model artifacts are stored in Git LFS. Without this, checkout
+        # writes ~130-byte pointer TEXT files in their place - which exist
+        # on disk, so any 'is the artifact present?' check passes, and the
+        # failure only surfaces later as an unparseable ONNX file.
+        with:
+          lfs: true
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -345,6 +389,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        # Model artifacts are stored in Git LFS. Without this, checkout
+        # writes ~130-byte pointer TEXT files in their place - which exist
+        # on disk, so any 'is the artifact present?' check passes, and the
+        # failure only surfaces later as an unparseable ONNX file.
+        with:
+          lfs: true
 
       - uses: actions/setup-python@v5
         with:

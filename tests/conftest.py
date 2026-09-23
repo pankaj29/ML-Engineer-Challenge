@@ -563,9 +563,35 @@ def free_tier_headers() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Real-artifact gating
 # ---------------------------------------------------------------------------
+# First bytes of a Git LFS pointer file, per the LFS spec.
+_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+
+
+def is_usable_artifact(path: Path) -> bool:
+    """True if `path` is a real model file rather than an LFS pointer.
+
+    Model artifacts are stored in Git LFS. A clone made without git-lfs - or a
+    CI checkout missing `lfs: true` - leaves a ~130-byte TEXT file at each
+    artifact path containing an oid, not the model.
+
+    Checking only `.exists()` passes those, and the failure then surfaces much
+    later as `ModelLoadError: could not be loaded in any available format`,
+    repeated across every test that touches a model. Detecting the pointer
+    here turns 24 cryptic errors into a skip that names the cause.
+    """
+    if not path.is_file():
+        return False
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(len(_LFS_POINTER_PREFIX))
+    except OSError:
+        return False
+    return head != _LFS_POINTER_PREFIX
+
+
 @pytest.fixture(scope="session")
 def real_models_available() -> bool:
-    """True when real model artifacts have been prepared."""
+    """True when real model artifacts are present AND are not LFS pointers."""
     registry = REPO_ROOT / "models" / "registry.json"
     if not registry.exists():
         return False
@@ -578,7 +604,7 @@ def real_models_available() -> bool:
         return False
     artifacts_dir = REPO_ROOT / "models" / "artifacts"
     return any(
-        (artifacts_dir / rel).exists()
+        is_usable_artifact(artifacts_dir / rel)
         for entry in models
         for rel in entry.get("artifacts", {}).values()
     )
@@ -586,9 +612,23 @@ def real_models_available() -> bool:
 
 @pytest.fixture
 def require_real_models(real_models_available: bool) -> None:
-    """Skip a test unless real artifacts are present."""
-    if not real_models_available:
-        pytest.skip("real model artifacts are not prepared; run: python scripts/prepare_models.py")
+    """Skip a test unless real artifacts are present and usable."""
+    if real_models_available:
+        return
+    # Name the likely cause. The two reasons differ, and the wrong advice
+    # sends someone re-exporting models when all they needed was a pull.
+    artifacts = REPO_ROOT / "models" / "artifacts"
+    pointers = [
+        f.name
+        for f in artifacts.glob("*")
+        if f.suffix in {".onnx", ".pt", ".engine"} and not is_usable_artifact(f)
+    ]
+    if pointers:
+        pytest.skip(
+            f"model artifacts are Git LFS pointers, not real files "
+            f"({len(pointers)} of them). Fetch with: git lfs pull"
+        )
+    pytest.skip("real model artifacts are not prepared; run: python scripts/prepare_models.py")
 
 
 def pytest_configure(config: Any) -> None:
