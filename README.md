@@ -105,13 +105,42 @@ docker compose ps        # every service should reach "healthy"
 curl http://localhost/api/v1/health
 ```
 
-Then classify something:
+Then classify something.
+
+**macOS / Linux:**
 
 ```bash
 curl -X POST http://localhost/api/v1/classify \
      -H "X-API-Key: dev-key-pro" \
      -H "Content-Type: application/json" \
      -d "{\"image_base64\": \"$(base64 -w0 your-photo.jpg)\"}"
+```
+
+**Windows PowerShell** - the line above does *not* work here, for two reasons
+covered under "If something goes wrong" below:
+
+```powershell
+$img  = [Convert]::ToBase64String([IO.File]::ReadAllBytes("your-photo.jpg"))
+$body = @{ image_base64 = $img; top_k = 5 } | ConvertTo-Json
+
+$r = Invoke-RestMethod -Uri "http://localhost/api/v1/classify" -Method Post `
+       -Headers @{ "X-API-Key" = "dev-key-pro" } `
+       -ContentType "application/json" -Body $body
+
+$r.predictions | Format-Table rank, label, confidence -AutoSize
+"cached: $($r.cached)   total_ms: $($r.timing.total_ms)"
+```
+
+Prefer real curl on Windows? Use `curl.exe`, not `curl`, and pass the body as
+a **file** - a base64 image is far longer than the command line allows:
+
+```powershell
+$img = [Convert]::ToBase64String([IO.File]::ReadAllBytes("your-photo.jpg"))
+@{ image_base64 = $img; top_k = 5 } | ConvertTo-Json | Set-Content payload.json -Encoding utf8
+
+curl.exe -X POST http://localhost/api/v1/classify `
+         -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" `
+         -d "@payload.json"
 ```
 
 ```json
@@ -135,6 +164,8 @@ curl -X POST http://localhost/api/v1/classify \
 | `ModelLoadError` / `503` on every request | The model files are LFS placeholders. Run `git lfs pull`. |
 | `docker compose ps` shows a service as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
 | Port 80 already in use | `GATEWAY_PORT=8080 docker compose up -d`, then use `http://localhost:8080`. |
+| PowerShell: *"The term 'base64' is not recognized"* | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("photo.jpg"))`. |
+| PowerShell: *"Cannot bind parameter 'Headers'"* | In PowerShell, `curl` is an **alias for `Invoke-WebRequest`**, which takes a dictionary, not `-H` strings. Use `curl.exe` for real curl, or `Invoke-RestMethod` with `-Headers @{...}` as shown above. |
 
 Interactive docs: **<http://localhost:8000/docs>**
 
