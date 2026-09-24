@@ -37,17 +37,32 @@ def _describe(entry, models: Models, defaults: dict[str, str]) -> ModelDescripto
     report = models.health()
     loaded = any(k.startswith(f"{entry.key}:") for k in report["loaded_keys"])
 
-    # The registry stores metrics as a flat dict; only surface the keys the
-    # response schema knows about, so an experimental metric cannot leak out.
-    metrics = ModelMetrics(
-        **{k: v for k, v in entry.metrics.items() if k in ModelMetrics.model_fields}
-    )
+    # The registry stores metrics as a flat dict. Only keys the response
+    # schema declares are surfaced, so an experimental metric cannot leak out
+    # of the registry into the public API. Anything dropped is logged rather
+    # than discarded quietly: a metric that vanishes because of a name
+    # mismatch looks identical to a metric nobody measured.
+    known = {k: v for k, v in entry.metrics.items() if k in ModelMetrics.model_fields}
+    dropped = sorted(set(entry.metrics) - set(known))
+    if dropped:
+        logger.warning(
+            "model_metrics_not_in_schema",
+            extra={"model": entry.key, "dropped": dropped},
+        )
+    metrics = ModelMetrics(**known)
 
     runtime = RuntimeFormat.ONNX
     for candidate in ("onnx", "torch", "tensorrt", "onnx_int8", "torch_int8"):
         if candidate in entry.artifacts:
             runtime = RuntimeFormat(candidate)
             break
+
+    # Every format with an artifact on disk is selectable per request.
+    available = [
+        fmt
+        for fmt in ("onnx", "onnx_int8", "torch", "torch_int8", "tensorrt")
+        if fmt in entry.artifacts
+    ]
 
     return ModelDescriptor(
         name=entry.name,
@@ -59,6 +74,7 @@ def _describe(entry, models: Models, defaults: dict[str, str]) -> ModelDescripto
         is_default=defaults.get(entry.task.value) == entry.key,
         num_classes=entry.num_classes,
         input_shape=entry.input_shape,
+        available_runtimes=available,
         metrics=metrics,
         description=entry.description,
         limitations=entry.limitations,

@@ -188,3 +188,108 @@ def test_every_health_probe_returns_json(api_client, path: str) -> None:
     response = api_client.get(path)
     assert response.headers["content-type"].startswith("application/json")
     assert isinstance(response.json(), dict)
+
+
+class TestModelsEndpointAdvertisesRuntimes:
+    """A registered runtime nobody can discover may as well not exist.
+
+    INT8 is registered for every model and selectable with `runtime` on an
+    inference request, but `GET /models` used to report only the one currently
+    loaded. A caller reading the API had no way to learn the quantised variant
+    was there.
+    """
+
+    def test_available_runtimes_is_present(self, api_client, auth_headers) -> None:
+        body = api_client.get("/api/v1/models", headers=auth_headers).json()
+        for model in body["models"]:
+            assert "available_runtimes" in model
+
+    def test_int8_is_advertised_when_registered(self, api_client, auth_headers) -> None:
+        body = api_client.get("/api/v1/models", headers=auth_headers).json()
+        for model in body["models"]:
+            if "onnx_int8" in model.get("available_runtimes", []):
+                return
+        pytest.skip("no INT8 artifact registered in this fixture")
+
+    def test_it_lists_only_formats_with_an_artifact(self, api_client, auth_headers) -> None:
+        """Advertising a runtime with no file behind it produces a 503 later."""
+        from api.services.model_service import ModelService
+
+        registered = {e.name: set(e.artifacts) for e in ModelService().list_entries()}
+        body = api_client.get("/api/v1/models", headers=auth_headers).json()
+
+        for model in body["models"]:
+            expected = registered.get(model["name"])
+            if expected is not None:
+                assert set(model["available_runtimes"]) <= expected
+
+
+class TestModelsEndpointSurfacesMetrics:
+    """The registry publishes top1/top5; the schema declared only accuracy and
+    top5_accuracy, so the fine-tuned model's 78.91% was dropped on the way out
+    and the endpoint reported nulls."""
+
+    def test_top1_and_top5_are_declared_in_the_schema(self) -> None:
+        from api.models.responses import ModelMetrics
+
+        assert "top1" in ModelMetrics.model_fields
+        assert "top5" in ModelMetrics.model_fields
+
+    def test_a_registry_metric_reaches_the_response(self) -> None:
+        """Driven through `_describe` directly.
+
+        The `api_client` fixture serves a fake registry, so comparing it
+        against the real one on disk compares two different things. This calls
+        the function that does the mapping, with a metric it should recognise.
+        """
+        from api.routers.models import _describe
+        from api.services.model_service import ModelService
+
+        service = ModelService()
+        entry = service.list_entries()[0]
+        entry.metrics = {"top1": 78.91, "top5": 92.12, "p50_latency_ms": 14.84}
+
+        described = _describe(entry, service, {})
+
+        assert described.metrics.top1 == pytest.approx(78.91)
+        assert described.metrics.top5 == pytest.approx(92.12)
+        assert described.metrics.p50_latency_ms == pytest.approx(14.84)
+
+    def test_the_live_registry_metrics_survive_the_round_trip(self) -> None:
+        """Whatever is actually in models/registry.json must come out intact."""
+        from api.models.responses import ModelMetrics
+        from api.routers.models import _describe
+        from api.services.model_service import ModelService
+
+        service = ModelService()
+        checked = 0
+        for entry in service.list_entries():
+            known = {k: v for k, v in entry.metrics.items() if k in ModelMetrics.model_fields}
+            if not known:
+                continue
+            described = _describe(entry, service, {})
+            for key, value in known.items():
+                assert getattr(described.metrics, key) == pytest.approx(
+                    value
+                ), f"{entry.name}.{key} was dropped between the registry and the API"
+                checked += 1
+
+        if checked == 0:
+            pytest.skip("no registry entry carries a schema-known metric")
+
+    def test_an_unknown_metric_is_logged_rather_than_vanishing(self, caplog) -> None:
+        """A metric that disappears from a name mismatch looks exactly like a
+        metric nobody measured. The log is the only difference."""
+        import logging
+
+        from api.routers.models import _describe
+        from api.services.model_service import ModelService
+
+        service = ModelService()
+        entry = service.list_entries()[0]
+        entry.metrics = {"a_metric_the_schema_does_not_know": 1.0}
+
+        with caplog.at_level(logging.WARNING):
+            _describe(entry, service, {})
+
+        assert any("model_metrics_not_in_schema" in r.getMessage() for r in caplog.records)

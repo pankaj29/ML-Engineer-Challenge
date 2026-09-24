@@ -262,6 +262,12 @@ class ModelMetrics(BaseModel):
 
     accuracy: float | None = Field(default=None, description="Top-1 accuracy, 0 to 1.")
     top5_accuracy: float | None = Field(default=None, description="Top-5 accuracy, 0 to 1.")
+    # The same two numbers on a percentage scale. Both spellings exist because
+    # the training pipeline and the regression baselines record percentages,
+    # and silently rescaling one into the other is how a 78.91 becomes a
+    # 7891% somewhere downstream.
+    top1: float | None = Field(default=None, description="Top-1 accuracy as a percentage.")
+    top5: float | None = Field(default=None, description="Top-5 accuracy as a percentage.")
     map50: float | None = Field(default=None, description="Detection mAP at IoU 0.50.")
     map50_95: float | None = Field(
         default=None, description="Detection mAP averaged over IoU .50-.95."
@@ -292,6 +298,15 @@ class ModelDescriptor(BaseModel):
     num_classes: int | None = None
     input_shape: list[int] | None = Field(
         default=None, description="Expected input tensor shape, e.g. [1, 3, 224, 224]."
+    )
+    available_runtimes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every runtime this model can be served with, e.g. "
+            "['onnx', 'onnx_int8']. Pass one as `runtime` on an inference "
+            "request to select it. Without this a caller has no way to "
+            "discover that a quantised variant exists."
+        ),
     )
     metrics: ModelMetrics | None = None
     description: str | None = None
