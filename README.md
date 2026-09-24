@@ -1,12 +1,11 @@
 # Multi-Model Computer Vision API
 
-A production MLOps system serving **image classification**, **object
-detection** and **image similarity search** behind one API — with
-containerisation, per-tier rate limiting, background batch processing,
-monitoring, drift detection and a 370-test suite.
+One API serving image classification, object detection and image similarity
+search, with containerisation, per-tier rate limiting, background batch
+processing, monitoring and drift detection.
 
 Built for the Applied Computing ML Engineer challenge. The original brief is
-preserved at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
+at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 ---
 
@@ -14,30 +13,29 @@ preserved at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| **CI** | All 7 jobs green on Python 3.11 and 3.12 |
-| **Tests** | 1,010 tests: 865 unit, 130 integration, 15 performance |
-| **Coverage** | 95.8% on `api/`; cache, database and rate limiting at 100% |
-| **Lint** | `ruff` and `black` clean |
-| **Stack** | 7 services, all verified healthy |
-| **Classifier** | 78.91% top-1 on Tiny-ImageNet (200 classes), validated 9/9 |
-| **Latency** | 0.86 ms p50 on A100 via TensorRT fp16; 43-121 ms on CPU |
-| **Load tested** | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
+| CI | 6 jobs green on Python 3.11 and 3.12 |
+| Tests | 1,010: 865 unit, 130 integration, 15 performance |
+| Coverage | 95.8% on `api/`; cache, database and rate limiting at 100% |
+| Lint | `ruff` and `black` clean, `mypy` clean |
+| Stack | 7 services, all healthy |
+| Classifier | 78.91% top-1 on Tiny-ImageNet, 9 of 9 validation checks pass |
+| Latency | 0.86 ms p50 on A100 via TensorRT fp16; 43-121 ms on CPU |
+| Load tested | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
 
-The 14 CI skips are the Tiny-ImageNet dataset tests. The dataset is 519 MB
-across 120,203 files and is not committed — CI downloads and caches it, and
-that step is deliberately non-fatal so an external host being down cannot turn
-the build red.
+CI skips the Tiny-ImageNet dataset tests. The dataset is 519 MB across 120,203
+files and is not committed. CI downloads and caches it, and that step is
+non-fatal so an external host being down cannot turn the build red.
 
-Progress against every line of the brief is tracked in
-[`DELIVERABLES_CHECKLIST.xlsx`](DELIVERABLES_CHECKLIST.xlsx), regenerated from
+Progress against the brief is tracked in
+[`DELIVERABLES_CHECKLIST.xlsx`](DELIVERABLES_CHECKLIST.xlsx), generated from
 `scripts/checklist_data.py`.
 
 ---
 
 ## Quick start
 
-Assumes **Git**, **Python 3.11 or 3.12** and **Docker Desktop** are installed.
-Git LFS is needed too, because the model files are stored there:
+You need Git, Python 3.11 or 3.12, and Docker Desktop. Git LFS too, because
+the model files live there:
 
 ```bash
 git lfs install          # once per machine; see https://git-lfs.com
@@ -48,16 +46,16 @@ git lfs install          # once per machine; see https://git-lfs.com
 ```bash
 git clone https://github.com/pankaj29/ML-Engineer-Challenge.git
 cd ML-Engineer-Challenge
-git lfs pull             # fetches the model files (~460 MB)
+git lfs pull             # fetches the model files, about 460 MB
 ```
 
 Without `git lfs pull` the `.onnx` files are 130-byte placeholders and the API
-will fail to load a model.
+cannot load a model.
 
-### 2. Create and activate a virtual environment
+### 2. Create a virtual environment
 
-**Do not skip this.** Installing into your system Python will fight with
-whatever else is already there.
+Do not skip this. Installing into your system Python will fight with whatever
+else is already there.
 
 ```powershell
 # Windows PowerShell
@@ -84,7 +82,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 cp .env.example .env     # PowerShell: copy .env.example .env
 ```
 
-### 4. Export the models (one-off, ~5 minutes)
+### 4. Export the models
+
+One-off, about five minutes.
 
 ```bash
 python -m pip install --upgrade pip
@@ -99,34 +99,33 @@ docker compose up -d
 docker compose ps        # every service should reach "healthy"
 ```
 
-### 6. Confirm
+### 6. Check it works
 
 ```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
+# bash. Will not work in PowerShell.
 curl http://localhost/api/v1/health
 ```
 
-Expect `{"status": "healthy", ...}`. If you get `SERVICE_UNAVAILABLE`, see
-*If something goes wrong* below.
+You should get `{"status": "healthy", ...}`. If you get `SERVICE_UNAVAILABLE`,
+see [If something goes wrong](#if-something-goes-wrong).
 
 ---
 
 ## Using the API
 
-One worked example here; the complete reference for all 18 endpoints - both
-shells, every parameter, every response shape - is in
-[`docs/API.md`](docs/API.md).
+One worked example below. The full reference for all 18 endpoints, in both
+shells, is in [`docs/API.md`](docs/API.md).
 
-> **On Windows**, the `curl` examples in this repo are bash and will not run in
-> PowerShell: `curl` is an alias for `Invoke-WebRequest`, `\` is not a line
-> continuation, and there is no `base64` command. Use the PowerShell block
-> below, or the helpers in [`docs/API.md`](docs/API.md#before-you-start-bash-or-powershell)
-> which reduce every call to one line.
+> On Windows the `curl` examples here are bash and will not run in PowerShell:
+> `curl` is an alias for `Invoke-WebRequest`, `\` is not a line continuation,
+> and there is no `base64` command. Use the PowerShell block below, or the
+> helpers in [`docs/API.md`](docs/API.md#before-you-start-bash-or-powershell)
+> that reduce every call to one line.
 
 ### Classify an image
 
 ```bash
-# bash - macOS / Linux. Will NOT work in PowerShell.
+# bash. Will not work in PowerShell.
 curl -X POST http://localhost/api/v1/classify \
      -H "X-API-Key: dev-key-pro" \
      -H "Content-Type: application/json" \
@@ -158,52 +157,51 @@ $r.predictions | Format-Table rank, label, confidence -AutoSize
 }
 ```
 
-Note what comes back besides the answer: which model version produced it, a
-per-stage timing breakdown, a `correlation_id` for finding this exact request
-in the logs, and whether it was served from cache.
+Besides the answer you get which model version produced it, a per-stage timing
+breakdown, a `correlation_id` for finding this request in the logs, and
+whether it came from cache.
 
 ### The rest of the API
 
 | | |
 | --- | --- |
-| **Object detection** | `POST /api/v1/detect` - bounding boxes, in pixels of the original image |
-| **Image similarity** | `POST /api/v1/similarity/{embed,index,search}` - 2048-dim vectors and nearest-neighbour search |
-| **Batch** | `POST /api/v1/batch` - background jobs for many images, returns a job id to poll |
-| **File upload** | Add `/upload` to any inference endpoint for multipart instead of base64 |
-| **Models** | `GET /api/v1/models` - what is registered and which is default |
-| **Health** | `/health`, `/health/live`, `/health/ready` - full, liveness, readiness |
+| Object detection | `POST /api/v1/detect`, bounding boxes in pixels of the original image |
+| Image similarity | `POST /api/v1/similarity/{embed,index,search}`, 2048-dim vectors and nearest-neighbour search |
+| Batch | `POST /api/v1/batch`, background jobs returning an id to poll |
+| File upload | Add `/upload` to any inference endpoint for multipart instead of base64 |
+| Models | `GET /api/v1/models`, what is registered and which is default |
+| Health | `/health`, `/health/live`, `/health/ready` |
 
-Full reference: **[`docs/API.md`](docs/API.md)**. Interactive docs, generated
-from the code: **<http://localhost:8000/docs>**.
+Full reference: [`docs/API.md`](docs/API.md). Interactive docs generated from
+the code: <http://localhost:8000/docs>.
 
 ### If something goes wrong
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `pip` reports conflicts with packages you have never heard of (`librosa`, `transformers`, `mcp`) | You are installing into your system Python. Go back to step 2 and activate the virtual environment. Those warnings are about *other* projects on your machine, not this one. |
-| `SERVICE_UNAVAILABLE` from `http://localhost/...` but `http://localhost:8000/...` works | The gateway cached the API's old IP address. `docker compose restart api-gateway`. Fixed in the nginx config, so this should only affect stacks started before that change. |
-| `ModelLoadError` / `503` on every request | The model files are LFS placeholders. Run `git lfs pull`. |
-| `docker compose ps` shows a service as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
+| `pip` reports conflicts with packages you have never heard of (`librosa`, `transformers`, `mcp`) | You are installing into your system Python. Go back to step 2 and activate the virtual environment. Those warnings are about other projects on your machine. |
+| `SERVICE_UNAVAILABLE` from `http://localhost/...` but `http://localhost:8000/...` works | The gateway cached the API's old IP. `docker compose restart api-gateway`. The nginx config now resolves per request, so this only affects stacks started before that change. |
+| `ModelLoadError` or `503` on every request | The model files are LFS placeholders. Run `git lfs pull`. |
+| A service shows as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
 | Port 80 already in use | `GATEWAY_PORT=8080 docker compose up -d`, then use `http://localhost:8080`. |
-| PowerShell: *"The term 'base64' is not recognized"* | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("photo.jpg"))`. |
-| PowerShell: *"Could not find file"* naming the **wrong folder** | `[IO.File]` resolves relative paths against .NET's current directory, which `cd` does not change. Wrap the path: `(Resolve-Path "photo.jpg").Path`. |
-| PowerShell: *"Cannot bind parameter 'Headers'"* | In PowerShell, `curl` is an **alias for `Invoke-WebRequest`**, which takes a dictionary, not `-H` strings. Use `curl.exe` for real curl, or `Invoke-RestMethod` with `-Headers @{...}` as shown above. |
-
-Interactive docs: **<http://localhost:8000/docs>**
+| The container serves an old model after you replace a file | Docker Desktop on Windows does not always propagate a bind-mounted file that was replaced rather than edited. Compare `docker compose exec ml-api md5sum models/artifacts/<file>` against the host, and rebuild if they differ. |
+| PowerShell: "The term 'base64' is not recognized" | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("photo.jpg"))`. |
+| PowerShell: "Could not find file" naming the wrong folder | `[IO.File]` resolves relative paths against .NET's current directory, which `cd` does not change. Wrap the path: `(Resolve-Path "photo.jpg").Path`. |
+| PowerShell: "Cannot bind parameter 'Headers'" | `curl` is an alias for `Invoke-WebRequest`, which takes a dictionary rather than `-H` strings. Use `curl.exe`, or `Invoke-RestMethod` with `-Headers @{...}` as above. |
 
 ---
 
 ## Documentation
 
-| Document | What it covers |
+| Document | Covers |
 | --- | --- |
-| [**API.md**](docs/API.md) | Every endpoint, request/response examples, errors, authentication |
-| [**TECHNICAL.md**](docs/TECHNICAL.md) | Model selection, optimisation results, architecture, scalability |
-| [**ASSUMPTIONS.md**](docs/ASSUMPTIONS.md) | Decisions, gaps, and every bug found along the way |
-| [**DEPLOYMENT.md**](docs/DEPLOYMENT.md) | Production deployment, scaling, troubleshooting |
-| [**BENCHMARKS.md**](benchmarks/reports/BENCHMARKS.md) | Full latency numbers across formats |
-| [**Model cards**](models/cards/) | What each model does, how well, and where it fails |
-| [`docs/openapi.json`](docs/openapi.json) | OpenAPI 3.1 spec — import into Postman |
+| [API.md](docs/API.md) | Every endpoint, request and response examples, errors, authentication |
+| [TECHNICAL.md](docs/TECHNICAL.md) | Model selection, optimisation results, architecture, scalability |
+| [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Decisions, known limits, deviations from the brief's scaffolding |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment, scaling, troubleshooting |
+| [BENCHMARKS.md](benchmarks/reports/BENCHMARKS.md) | Latency across formats |
+| [Model cards](models/cards/) | What each model does, how well, and where it fails |
+| [openapi.json](docs/openapi.json) | OpenAPI 3.1 spec, importable into Postman |
 
 ---
 
@@ -238,55 +236,57 @@ Interactive docs: **<http://localhost:8000/docs>**
 └──────────────┘   └────────────┘
 ```
 
-**Middleware order is deliberate.** Monitoring is outermost so it assigns the
-correlation ID before anything else runs and times *every* request — including
-ones rejected by authentication. Auth precedes rate limiting because the limit
-depends on the caller's tier. Rate limiting is innermost so a rejected request
-never touches a model.
+The middleware order is chosen, not incidental. Monitoring sits outermost so
+it assigns the correlation ID first and times every request, including ones
+rejected by authentication. Auth comes before rate limiting because the limit
+depends on the caller's tier. Rate limiting is innermost, so a rejected
+request never touches a model.
 
-Full reasoning in [TECHNICAL.md](docs/TECHNICAL.md).
+Reasoning in [TECHNICAL.md](docs/TECHNICAL.md).
 
 ---
 
-## The three models
+## The models
+
+Four models covering three tasks:
 
 | Task | Model | p50 (CPU) | Size | Endpoint |
 | --- | --- | ---: | ---: | --- |
 | Classification | ResNet-50 (ImageNet-1k) | 84.8 ms | 97.4 MB | `POST /api/v1/classify` |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 14.8 ms | 95.6 MB | same, `model_name` pinned |
 | Detection | YOLOv8n (COCO) | 120.6 ms | 12.1 MB | `POST /api/v1/detect` |
 | Similarity | ResNet-50 embeddings | 43.4 ms | 89.6 MB | `POST /api/v1/similarity/*` |
 
-Each has a [model card](models/cards/) documenting its measured performance
-and — more importantly — its limitations.
+Each has a [model card](models/cards/) with its measured performance and, more
+usefully, its limitations.
 
 > The brief's overview names three tasks while its numbered list gives two.
-> The third model is similarity search, per the overview; confirmed before
+> The third model is similarity search, per the overview, confirmed before
 > building. See [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §1.1.
 
 ---
 
-## The most interesting result
+## Quantization: the result worth reading
 
-The brief asks for INT8 quantization. It is applied to all three models — and
-measurement showed the obvious approach makes the system **dramatically
-worse**:
+The brief asks for INT8 quantization. It is applied to all four models, and
+measurement showed the obvious approach makes things much worse:
 
 | ResNet-50, batch 1 | p50 latency | Size |
 | --- | ---: | ---: |
-| ONNX float32 | **75.7 ms** | 97.4 MB |
-| INT8 **dynamic** | **1008.0 ms** | 24.5 MB |
-| INT8 **static QDQ** | **104.6 ms** | 24.9 MB |
+| ONNX float32 | 75.7 ms | 97.4 MB |
+| INT8 dynamic | 1008.0 ms | 24.5 MB |
+| INT8 static QDQ | 104.6 ms | 24.9 MB |
 
-Dynamic quantization was **13x slower than float32**. It recomputes activation
-scales on every call and falls back to poorly-optimised integer convolution
-kernels — fine for a transformer, catastrophic for a convolutional network.
+Dynamic quantization was 13× slower than float32. It recomputes activation
+scales on every call and falls back to poorly optimised integer convolution
+kernels, which is fine for a transformer and bad for a convolutional network.
 
-Switching to **static QDQ** quantization, calibrated on 100 real images, made
-it ~10x faster than dynamic. Even so it remains ~1.4x slower than float32 on
-this CPU, while being 3.9x smaller.
+Static QDQ, calibrated on 100 real images, is about ten times faster than
+dynamic. It is still roughly 1.4× slower than float32 on this CPU, while being
+3.9× smaller.
 
-**So float32 is the serving default**, with INT8 registered alongside and
-selectable per request. Shipping a 13x-slower "optimisation" as the default,
+So float32 is the serving default, with INT8 registered alongside and
+selectable per request. Shipping a 13× slower optimisation as the default,
 because the brief said to apply quantization, would have been the wrong call.
 
 Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked-and-what-did-not).
@@ -295,33 +295,33 @@ Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked
 
 ## The fine-tuned classifier
 
-ResNet-50 on Tiny-ImageNet — 200 classes, all 100,000 training images, 60
-epochs at 224x224 on an NVIDIA A100-SXM4-40GB. **78.91% top-1, 92.12% top-5**
-against a 0.5% random baseline, in 1.6 hours.
+ResNet-50 on Tiny-ImageNet: 200 classes, all 100,000 training images, 60
+epochs at 224×224 on an A100-SXM4-40GB. **78.91% top-1, 92.12% top-5** against
+a 0.5% random baseline, in 1.6 hours.
 
 ![Loss, validation accuracy, the learning-rate schedule, and raw versus EMA weights](docs/images/training-curves.png)
 
-Plotted straight from the run's own history file by
-`scripts/plot_training_curves.py`. The four panels are loss, validation
-accuracy, the learning-rate schedule and the effect of weight averaging, and
-between them they show all three techniques the brief asks for: mixed
-precision (fp16 AMP with `GradScaler`), gradient clipping (`clip_grad_norm_`
-at 1.0) and LR scheduling (5% linear warmup into cosine decay).
+Plotted from the run's own history file by `scripts/plot_training_curves.py`.
+The four panels show loss, validation accuracy, the learning-rate schedule and
+the effect of weight averaging, and between them they cover all three
+techniques the brief asks for: mixed precision (fp16 AMP with `GradScaler`),
+gradient clipping (`clip_grad_norm_` at 1.0) and LR scheduling (5% linear
+warmup into cosine decay).
 
-**Reading the accuracy panel:** transfer learning from ImageNet-1k reaches
-75.1% by epoch 2, and the remaining 58 epochs add 3.8 points. About half of
-that arrives after epoch 40, when the cosine anneal drops the learning rate by
-two orders of magnitude. The long schedule earns its place here, which was not
-obvious in advance.
+Reading the accuracy panel: transfer learning from ImageNet-1k reaches 75.1%
+by epoch 2, and the remaining 58 epochs add 3.8 points. About half of that
+arrives after epoch 40, when the cosine anneal drops the learning rate by two
+orders of magnitude. The long schedule earns its place, which was not obvious
+in advance.
 
-The rightmost panel is weight averaging. EMA weights beat the live weights in
-53 of 60 epochs, and the shipped checkpoint is an EMA one.
+The rightmost panel is weight averaging. EMA beat the live weights in 53 of 60
+epochs, and the shipped checkpoint is an EMA one.
 
-Full detail, including the three measured input resolutions and why the native
-64x64 is the worst of them, is in
+More detail, including the three input resolutions measured and why the native
+64×64 is the worst of them, is in
 [`models/cards/resnet50-tiny-imagenet.md`](models/cards/resnet50-tiny-imagenet.md).
 
-### Against TensorRT on the same GPU
+### TensorRT on the same GPU
 
 | Runtime | Precision | p50 | Throughput | Size |
 | --- | --- | ---: | ---: | ---: |
@@ -332,9 +332,11 @@ Full detail, including the three measured input resolutions and why the native
 
 ## Measured performance
 
-Intel Core Ultra 7 155H, 22 logical cores, **CPU only**. ONNX Runtime 1.26.0.
+Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
 
-### Single image — the requirement is sub-second
+### Single image
+
+The requirement is sub-second.
 
 | Model | p50 | p95 | p99 | Throughput |
 | --- | ---: | ---: | ---: | ---: |
@@ -342,9 +344,9 @@ Intel Core Ultra 7 155H, 22 logical cores, **CPU only**. ONNX Runtime 1.26.0.
 | yolov8n | 120.6 ms | 153.5 ms | 235.2 ms | 8.0/s |
 | resnet50-embed | 43.4 ms | 278.3 ms | 387.9 ms | 10.8/s |
 
-**All three meet the requirement at p99**, the slowest ~4x inside budget.
+All three meet it at p99, the slowest about 4× inside budget.
 
-### End-to-end, through the full Docker stack
+### End to end through the Docker stack
 
 20 concurrent users, 45 seconds, mixed workload:
 
@@ -355,77 +357,76 @@ Intel Core Ultra 7 155H, 22 logical cores, **CPU only**. ONNX Runtime 1.26.0.
 | p50 / p95 / p99 | 90 / 320 / 1,300 ms |
 | Throughput | 38.7 req/s |
 
-### Verified system properties
+### System properties checked
 
 | Property | Evidence |
 | --- | --- |
 | Concurrency ceiling honoured | Peak in-flight 4 against a limit of 4 |
 | No memory leak | Growth decelerates across 100 inferences |
-| No degradation under load | p50 8.3 ms → 7.0 ms over a sustained run |
-| Invalid input is cheap | 0.019 ms to reject a malformed image |
-| One bad image cannot fail a batch | Live run: 3 succeeded, 1 failed in isolation |
+| No degradation under load | p50 8.3 ms to 7.0 ms over a sustained run |
+| Invalid input is cheap to reject | 0.019 ms |
+| One bad image cannot fail a batch | 3 succeeded, 1 failed in isolation |
 
-Reproduce: `python -m models.optimization.benchmark`
+Reproduce with `python -m models.optimization.benchmark`.
 
 ---
 
-## Features
+## What is built
 
-### Part 1 — Models and optimisation
+### Part 1, models and optimisation
 
-* Three models covering classification, detection and similarity
-* Tiny-ImageNet fine-tuning pipeline with **mixed precision** (AMP + GradScaler
-  on CUDA, bf16 on CPU), **gradient clipping** and **cosine LR scheduling with
-  warmup**
-* Custom augmentation written from scratch: RandAugment (13 operations),
+- Four models covering classification, detection and similarity
+- Tiny-ImageNet fine-tuning with mixed precision (AMP plus GradScaler on CUDA,
+  bf16 on CPU), gradient clipping and cosine LR scheduling with warmup
+- Augmentation written from scratch: RandAugment (13 operations),
   RandomResizedCrop, RandomErasing, MixUp, CutMix
-* ONNX export with **numerical verification** against PyTorch (max diff < 4e-06)
-* INT8 quantization, static and dynamic, with measured accuracy cost
-* TensorRT export, built and benchmarked on an A100 with TensorRT 11.3: fp16
-  at 0.859 ms p50 and 1158 img/s, 1.28x faster and half the size of fp32
-* Validation pipeline: determinism, batch invariance, output sanity,
-  robustness, calibration (ECE), latency
-* A/B testing with a **paired McNemar test** and confidence intervals
-* Drift detection: KS test, chi-square, PSI — requiring *both* statistical
+- ONNX export verified numerically against PyTorch, max diff 3.46e-06
+- INT8 quantization, static and dynamic, with the accuracy cost measured
+- TensorRT built and benchmarked on an A100: fp16 at 0.859 ms p50 and
+  1158 img/s, 1.28× faster and half the size of fp32
+- Validation pipeline: determinism, batch invariance, output sanity,
+  robustness, calibration, latency
+- A/B testing with a paired McNemar test and confidence intervals
+- Drift detection with KS test, chi-square and PSI, requiring both statistical
   significance and a meaningful effect size
-* Performance regression testing with hardware fingerprinting
+- Performance regression testing with hardware fingerprinting
 
-### Part 2 — Production API
+### Part 2, production API
 
-* All six required endpoints, plus similarity and batch management
-* Per-tier rate limiting via a **Redis Lua token bucket** (atomic across
-  replicas), with a per-process fallback
-* Comprehensive image validation: size, format from magic bytes,
-  decompression-bomb guard, **SSRF protection** on `image_url`
-* Async batch processing through Celery
-* Model versioning with per-request pinning and hot reload
-* Graceful degradation with an explicit `degraded` flag
-* Structured JSON logging with **correlation IDs** end to end
-* One error envelope for every failure
+- All six required endpoints, plus similarity and batch management
+- Per-tier rate limiting through a Redis Lua token bucket, atomic across
+  replicas, with a per-process fallback
+- Image validation: size, format from magic bytes, decompression-bomb guard,
+  SSRF protection on `image_url`
+- Async batch processing through Celery
+- Model versioning with per-request pinning and hot reload
+- Graceful degradation with an explicit `degraded` flag
+- Structured JSON logging with correlation IDs end to end
+- One error envelope for every failure
 
-### Part 3 — Testing
+### Part 3, testing
 
-* 1,010 tests: 865 unit, 130 integration, 15 performance, plus Locust load tests
-* The unit suite runs with **no external services** — fakeredis, in-memory
+- 1,010 tests: 865 unit, 130 integration, 15 performance, plus Locust load
+  tests
+- The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed
-* Integration tests go the other way and use the real thing: real ONNX
-  artifacts, and real PostgreSQL and Redis when they are reachable. That is
-  what catches a dialect-specific query or a Lua script that is not actually
-  atomic — neither of which a substitute can show you
-* Every integration test skips cleanly when its dependency is absent, **including
-  unfetched Git LFS pointers**, naming the remedy in the skip message
-* Memory-leak profiling and concurrency verification
-* Locust load testing against the live stack
-* CI with lint, type-check, test, coverage gate, Docker build and security scan
+- Integration tests use the real thing: real ONNX artifacts, and real
+  PostgreSQL and Redis when reachable. That is what catches a
+  dialect-specific query or a Lua script that is not actually atomic
+- Every integration test skips cleanly when its dependency is missing,
+  including unfetched Git LFS pointers, naming the remedy in the skip message
+- Memory profiling and concurrency verification
+- CI with lint, type check, tests, a coverage gate, Docker build and a
+  security scan
 
-### Part 4 — Containerisation
+### Part 4, containerisation
 
-* Multi-stage builds, non-root user (uid 10001), slim base images
-* Seven services, all with health checks, **all verified healthy**
-* Production overlay: replicas, no exposed ports, read-only root filesystems,
-  rolling updates, and **secrets that are required, not defaulted**
-* Three segmented networks; DNS service discovery, no hardcoded IPs
-* Prometheus with 11 alert rules; Grafana auto-provisioned with a 22-panel
+- Multi-stage builds, non-root user (uid 10001), slim base images
+- Seven services, all with health checks
+- Production overlay: replicas, no exposed ports, read-only root filesystems,
+  rolling updates, and secrets that are required rather than defaulted
+- Three segmented networks, DNS service discovery, no hardcoded IPs
+- Prometheus with 11 alert rules; Grafana auto-provisioned with a 22-panel
   dashboard
 
 ---
@@ -435,7 +436,7 @@ Reproduce: `python -m models.optimization.benchmark`
 ```text
 ├── api/                      FastAPI application
 │   ├── main.py               app factory, lifespan, middleware stack
-│   ├── config.py             12-factor settings; fails fast if insecure
+│   ├── config.py             settings; fails fast if insecure
 │   ├── exceptions.py         error hierarchy and handlers
 │   ├── logging_config.py     structured JSON logging + correlation IDs
 │   ├── dependencies.py       shared FastAPI dependencies
@@ -449,64 +450,63 @@ Reproduce: `python -m models.optimization.benchmark`
 │   ├── training/             train_classifier, augmentation, dataset
 │   ├── optimization/         export_onnx, export_tensorrt, quantize, benchmark
 │   ├── validation/           validate, ab_test, drift, regression
-│   ├── cards/                one model card per model
-│   └── registry.py           model registry CLI
-│   └── artifacts/            .onnx / .pt model files -- tracked in Git LFS
+│   ├── cards/                one card per model
+│   ├── registry.py           model registry CLI
+│   └── artifacts/            .onnx / .pt files, tracked in Git LFS
 ├── worker/                   Celery app and batch tasks
 ├── db/                       SQLAlchemy models
 ├── tests/                    unit, integration, performance
-├── notebooks/                colab_gpu_pipeline.ipynb (generated -- see below)
-├── Dockerfile                main application container (the API)
+├── notebooks/                colab_gpu_pipeline.ipynb (generated)
+├── Dockerfile                the API container
 ├── docker/                   Dockerfile.worker, nginx/
 ├── monitoring/               prometheus config + alerts, grafana provisioning
 ├── scripts/                  prepare_models, download_datasets, checklist
 ├── benchmarks/               baselines and generated reports
 ├── docs/                     API, TECHNICAL, ASSUMPTIONS, DEPLOYMENT, openapi
-├── .gitattributes            Git LFS rules for the model files
+├── .gitattributes            Git LFS rules
 └── .github/workflows/        CI pipeline
 ```
 
-Two paths are **generated**, not hand-edited:
+Two paths are generated rather than hand-edited:
 
-* `notebooks/colab_gpu_pipeline.ipynb` comes from
-  `scripts/build_colab_notebook.py`. Editing the notebook directly is
-  overwritten on the next build, and CI fails if the two drift apart
-  (`python scripts/build_colab_notebook.py --check`).
-* `DELIVERABLES_CHECKLIST.xlsx` comes from `scripts/generate_checklist.py`.
+- `notebooks/colab_gpu_pipeline.ipynb` comes from
+  `scripts/build_colab_notebook.py`. Editing the notebook directly gets
+  overwritten on the next build, and CI fails if the two drift apart.
+- `DELIVERABLES_CHECKLIST.xlsx` comes from `scripts/generate_checklist.py`.
 
-`models/artifacts/` is tracked with **Git LFS** (see `.gitattributes`): those
-files cannot be regenerated without a GPU session, unlike the dataset, which
-is excluded because one command rebuilds it. A clone made without git-lfs gets
-130-byte pointer files and the model tests skip with `git lfs pull` as the
-stated remedy.
+`models/artifacts/` is tracked with Git LFS. Those files cannot be regenerated
+without a GPU session, unlike the dataset, which one command rebuilds. A clone
+made without git-lfs gets 130-byte pointer files, and the model tests skip
+with `git lfs pull` as the stated remedy.
 
-Two files extend the brief's prescribed structure: `api/config.py` (required
-by "environment-based configuration" and "no hardcoded secrets") and
-`api/dependencies.py` (so image extraction is defined once rather than per
-router). Extra routers exist because the brief requires those endpoints.
+Two files extend the brief's prescribed structure: `api/config.py`, required
+by "environment-based configuration" and "no hardcoded secrets", and
+`api/dependencies.py`, so image extraction is defined once rather than per
+router. The extra routers exist because the brief requires those endpoints.
 
 ---
 
 ## Development
 
-Activate the virtual environment from step 2 of the Quick start first -
-`.venv\Scripts\Activate.ps1` on Windows, `source .venv/bin/activate`
-elsewhere. Your prompt should read `(.venv)`.
+Activate the virtual environment from step 2 first.
 
 ```bash
 pip install -r requirements-dev.txt
 
-pytest tests/ -v                          # everything except performance
-pytest tests/ --cov=api --cov-report=html # with a coverage report
+pytest tests/ -v                           # everything except performance
+pytest tests/ --cov=api --cov-report=html  # with a coverage report
 pytest tests/performance -m performance -s # timing and memory
-ruff check api/ models/ worker/ tests/    # lint
-black api/ models/ worker/ tests/         # format
+ruff check api/ models/ worker/ tests/     # lint
+black api/ models/ worker/ tests/          # format
 ```
+
+Integration tests against real PostgreSQL and Redis run automatically when
+`docker compose up -d` is running, and skip when it is not.
 
 ### Working with models
 
 ```bash
-python scripts/prepare_models.py                   # export and register all three
+python scripts/prepare_models.py                   # export and register
 python -m models.registry list                     # what is registered
 python -m models.registry validate                 # do the artifacts exist?
 python -m models.validation.validate               # full validation suite
@@ -516,17 +516,16 @@ python -m models.validation.regression check --model resnet50:1.0.0
 
 ### Training
 
-**Training always runs on the complete dataset** — all 200 classes, all
-100,000 training and 10,000 validation images, every batch. There is no option
-to subset it. A startup guard (`verify_full_dataset`) counts what is on disk,
-compares it against what the dataloaders picked up, and refuses to train if
-anything is missing.
+Training always runs on the complete dataset: all 200 classes, all 100,000
+training and 10,000 validation images, every batch. There is no option to
+subset it. `verify_full_dataset` counts what is on disk, compares it against
+what the dataloaders picked up, and refuses to train if anything is missing.
 
 ```bash
-# The standard run. Uses CUDA automatically when a GPU is available.
+# The standard run. Uses CUDA when a GPU is available.
 python -m models.training.train_classifier --epochs 30 --batch-size 256 --device auto
 
-# Faster on CPU at some accuracy cost — still all 200 classes, all images.
+# Faster on CPU at some accuracy cost, still all 200 classes.
 python -m models.training.train_classifier --arch resnet18 --no-stem-adapt --epochs 10
 ```
 
@@ -534,103 +533,74 @@ Measured CPU cost on an Intel Core Ultra 7 155H (16 threads):
 
 | Config | img/s | 1 epoch | 30 epochs |
 | --- | ---: | ---: | ---: |
-| resnet50 + 64px stem (default) | 3.8 | 7.6 h | 9.4 days |
+| resnet50 + 64px stem | 3.8 | 7.6 h | 9.4 days |
 | resnet50, original stem | 21.2 | 1.4 h | 1.7 days |
 | resnet18 + 64px stem | 9.2 | 3.1 h | 3.9 days |
 | resnet18, original stem | 75.0 | 23 min | 11.5 h |
 
 The 64px stem adaptation dominates the cost: it is correct for 64px input, but
-every layer after it then runs at 16x the spatial area. A GPU is roughly
-30-60x faster, putting the default config well under an hour.
+every layer after it then runs at 16× the spatial area. A GPU is roughly
+30-60× faster.
+
+For a long run on a hosted GPU, pass `--mirror-dir` pointing at mounted cloud
+storage so checkpoints outlive the container.
 
 ---
 
 ## Security
 
-* **No hardcoded secrets.** Production refuses to start without them —
-  verified in CI.
-* **Fails closed on authentication.** No keys configured means every request
-  is rejected; there is no default credential.
-* **Constant-time key comparison**; keys never appear in logs, only a
+- No hardcoded secrets. Production refuses to start without them, verified in
+  CI.
+- Authentication fails closed. No keys configured means every request is
+  rejected; there is no default credential.
+- Constant-time key comparison. Keys never appear in logs, only a
   non-reversible fingerprint.
-* **SSRF protection** on `image_url`: scheme and port allow-lists, redirects
+- SSRF protection on `image_url`: scheme and port allow-lists, redirects
   disabled, and every resolved address checked against private, loopback and
   link-local ranges.
-* **Decompression-bomb guard**: headers are parsed and pixel counts checked
-  *before* any pixel buffer is allocated.
-* **Content-based format detection** from magic bytes, never from a filename
-  or a client-declared content type.
-* **TorchScript, not pickle** — loading a pickled checkpoint would execute
-  arbitrary code from the artifact.
-* **JWT algorithm pinning**, so an `alg: none` forgery is rejected.
-* **Non-root containers**, read-only root filesystems in production,
+- Decompression-bomb guard: headers are parsed and pixel counts checked before
+  any pixel buffer is allocated.
+- Format detected from magic bytes, never from a filename or a client-declared
+  content type.
+- TorchScript rather than pickle, because loading a pickled checkpoint would
+  execute arbitrary code from the artifact.
+- JWT algorithm pinning, so an `alg: none` forgery is rejected.
+- Non-root containers, read-only root filesystems in production,
   `no-new-privileges`.
-* **No images stored** — only a SHA-256 hash.
+- No images stored, only a SHA-256 hash.
 
 ---
 
 ## Known limitations
 
-Stated plainly; the full list with reasoning is in
-[ASSUMPTIONS.md](docs/ASSUMPTIONS.md).
+The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 
-1. **TensorRT INT8 is not built** — fp32 and fp16 both are. In TensorRT 11 an
-   INT8 engine needs a QDQ graph; `quantize.py` produces one, but it has not
+1. **TensorRT INT8 is not built**, though fp32 and fp16 are. In TensorRT 11 an
+   INT8 engine needs a QDQ graph; `quantize.py` produces one but it has not
    been run, so `precision="int8"` refuses rather than silently building fp32
    and labelling it INT8.
-2. **Accuracy figures for the ImageNet-1k and COCO models are cited, not
-   re-measured** — that needs the ImageNet
-   and COCO validation sets. Behavioural correctness *was* verified end to end.
+2. **Accuracy for the ImageNet-1k and COCO models is cited, not re-measured.**
+   That needs the ImageNet and COCO validation sets. Behavioural correctness
+   was verified end to end.
 3. **The similarity index is per-process**, so it does not survive horizontal
-   scaling. Options are set out in TECHNICAL.md.
-4. **Confidence calibration varies by model** — the fine-tuned Tiny-ImageNet
-   classifier measures ECE 0.063, but the ImageNet-1k model measures 0.22. Use
-   the ranking, not the absolute scores, unless you have measured otherwise.
-5. **YOLOv8 is AGPL-3.0**, which has real implications for commercial use.
+   scaling. Options are in TECHNICAL.md.
+4. **Confidence is not calibrated.** The fine-tuned classifier measures ECE
+   0.1244 and the ImageNet-1k model 0.22. Use the ranking rather than the
+   absolute scores unless you have measured otherwise on your own data.
+5. **YOLOv8 is AGPL-3.0**, which matters for commercial use.
 6. **The gateway round-robins rather than least-connections.** nginx caches an
    upstream's DNS answer at startup, so an `upstream` block pointed at a
-   container that is later rebuilt keeps calling a dead IP - observed here as a
-   gateway stuck on a stale address for 22 hours. The fix resolves per request
-   via a variable, which cannot reference an upstream block, so `least_conn`
-   and upstream keepalive were given up to get self-healing. Reasoning is in
-   `docker/nginx/nginx.conf`.
+   container that is later rebuilt keeps calling a dead IP. The fix resolves
+   per request through a variable, which cannot reference an upstream block,
+   so `least_conn` and upstream keepalive were given up to get self-healing.
+   Reasoning is in `docker/nginx/nginx.conf`.
 
 ### Next, in priority order
 
-1. Build a TensorRT INT8 engine from the existing QDQ graph
+1. Calibrate confidence with temperature scaling
 2. Move the similarity index to a shared store (pgvector or FAISS)
-3. Measure accuracy properly against the real ImageNet and COCO validation sets
-4. Calibrate confidence with temperature scaling
+3. Build a TensorRT INT8 engine from the existing QDQ graph
+4. Measure accuracy against the real ImageNet and COCO validation sets
 5. Add OpenTelemetry tracing
-
-6. Restore least-connections balancing at the gateway (needs nginx Plus, or a
-   hook that restarts the gateway when the API is recreated)
+6. Restore least-connections balancing at the gateway
 7. Alert when the rate limiter is running on local buckets rather than Redis
-
----
-
-## A note on how this was built
-
-Several defects were found by the system's own checks rather than by review,
-and they are documented rather than quietly fixed — the
-[full list is in ASSUMPTIONS.md §4-5](docs/ASSUMPTIONS.md). A few worth
-knowing about:
-
-* **The provided starter dataloader mislabelled the entire validation set.**
-  `ImageFolder` cannot read Tiny-ImageNet's validation layout and silently
-  assigned label 0 to all 10,000 images. It does not crash — validation
-  accuracy just reads a meaningless 0.5%. Fixed in place; now verified to
-  produce 200 distinct labels with exactly 50 images each.
-* **ONNX export silently broke batching.** torch 2.9's default exporter
-  ignores `dynamic_axes`. Caught by the export script's own verification.
-* **A lint suppression corrupted the Redis Lua script.** A `# noqa` placed
-  after the opening triple-quote became the first line of the Lua source.
-  Redis would have rejected it — but only with a real Redis, which the unit
-  tests never use. The whole suite was blind to it.
-* **Three Prometheus metrics were defined but never incremented**, so a
-  dashboard panel and an alert would have been permanently blank. Found by
-  querying Prometheus after a live run rather than by trusting the code.
-
-The general principle applied throughout: **a claim is not done until there is
-evidence for it.** Every number in this README came from a command that was
-actually run, on the hardware described.

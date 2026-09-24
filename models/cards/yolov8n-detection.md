@@ -1,4 +1,4 @@
-# Model Card — YOLOv8n (Object Detection)
+# Model Card, YOLOv8n (Object Detection)
 
 | | |
 | --- | --- |
@@ -7,7 +7,7 @@
 | **Task** | Object detection |
 | **Status** | Active, default for the detection task |
 | **Serving endpoint** | `POST /api/v1/detect` |
-| **Licence** | **AGPL-3.0** (Ultralytics) — see section 7, this has commercial implications |
+| **Licence** | **AGPL-3.0** (Ultralytics), see section 7, this has commercial implications |
 
 ---
 
@@ -21,7 +21,7 @@ It recognises the **80 COCO categories**: people, vehicles, animals, common
 household and street objects.
 
 Where classification answers "what is this a picture of?", detection answers
-"what things are in it, and where?" — including several objects at once, and
+"what things are in it, and where?", including several objects at once, and
 several instances of the same class.
 
 ---
@@ -30,7 +30,7 @@ several instances of the same class.
 
 **YOLOv8n** ("nano"): ~3.2 M parameters, 12.1 MB as ONNX.
 
-YOLO — "You Only Look Once" — predicts every box in a single forward pass,
+YOLO, "You Only Look Once", predicts every box in a single forward pass,
 rather than the older two-stage approach of proposing regions and then
 classifying each one. One pass instead of hundreds is why it is fast enough to
 run on a CPU at all.
@@ -51,7 +51,7 @@ Why the nano variant:
   workarounds; YOLOv8 exports with one call.
 * **Size.** 12 MB means the model can be shipped, cached and loaded quickly.
 
-**Trade-off accepted, and it is a real one.** Nano is the least accurate
+The trade-off is a real one. Nano is the least accurate
 YOLOv8 variant: roughly **37.3 mAP50-95** on COCO, against ~50.2 for the
 medium variant. In practice that means it misses small, distant and
 partially-hidden objects that a larger model would find. Section 6 is explicit
@@ -64,7 +64,7 @@ about this. Moving to `yolov8s` or `yolov8m` is a single argument change
 
 **COCO 2017** ("Common Objects in Context"): ~118,000 training images with
 ~860,000 labelled object instances across 80 categories. Photographs of
-everyday scenes, deliberately cluttered and unposed — which is why COCO models
+everyday scenes, deliberately cluttered and unposed, which is why COCO models
 generalise to real photographs better than models trained on isolated objects.
 
 The weights are Ultralytics' published COCO checkpoint. **No fine-tuning was
@@ -76,20 +76,20 @@ rather than a subset.
 
 | Step | Value |
 | --- | --- |
-| Resize | **Letterbox** to 640 x 640 — aspect ratio preserved, remainder padded |
+| Resize | **Letterbox** to 640 x 640, aspect ratio preserved, remainder padded |
 | Padding | Grey, value 114 |
 | Colour | RGB |
 | Scale | 0-255 → 0-1 |
-| Normalise | **None** — YOLO normalises internally |
+| Normalise | **None**, YOLO normalises internally |
 
-**Letterboxing is not optional.** Squashing a 1920x1080 photo into a square
+Letterboxing is not optional. Squashing a 1920x1080 photo into a square
 compresses every object horizontally, and the predicted boxes are then wrong
 in a way that is hard to spot and impossible to undo. The inverse transform
 that maps boxes back to original coordinates lives in
 `scale_boxes_to_original()` and is covered by a round-trip test.
 
 Note also that YOLO expects **un-normalised** 0-1 input. Applying ImageNet
-mean/std here — the reflex from the classification path — silently wrecks the
+mean/std here, the reflex from the classification path, silently wrecks the
 output. This is why preprocessing config travels with each model in the
 registry rather than being global.
 
@@ -108,8 +108,8 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
 | ONNX INT8 (static) | 1 | 283.3 ms | 379.2 ms | 410.7 ms | 3.5 img/s | **3.4 MB** |
 | ONNX INT8 (static) | 4 | 1431.8 ms | 1841.6 ms | 2071.4 ms | 2.8 img/s | 3.4 MB |
 
-**Requirement check:** p99 at batch 1 is 235 ms, inside the 1-second budget.
-Note that **batch 4 at p99 exceeds 1 second** — batching detection trades
+p99 at batch 1 is 235 ms, inside the 1-second budget.
+Note that **batch 4 at p99 exceeds 1 second**, batching detection trades
 per-image efficiency for worse tail latency, which is why the batch endpoint
 is asynchronous rather than synchronous.
 
@@ -124,7 +124,7 @@ Published COCO val2017 figures for these weights:
 | mAP50-95 | 37.3 |
 | mAP50 | ~52.6 |
 
-**Not independently re-measured.** Doing so needs the COCO validation set
+Not independently re-measured. Doing so needs the COCO validation set
 (~1 GB) plus the official evaluation protocol. What *was* verified is
 end-to-end correctness on real photographs: on the standard test image the
 model finds 4 people and 1 bus, with boxes correctly placed in original image
@@ -137,10 +137,10 @@ coordinates, and the fp32 and INT8 variants agree exactly.
 | Check | Result |
 | --- | --- |
 | Artifact integrity | Pass |
-| Determinism | Pass — identical output across 3 runs |
-| Batch invariance | **Pass — after a fix.** The first export had a fixed batch dimension and crashed on any batch > 1. The validation pipeline caught it; the export now uses `dynamic=True`. |
-| Output sanity | Pass — no NaN/Inf |
-| Latency | Pass — p95 177 ms |
+| Determinism | Pass, identical output across 3 runs |
+| Batch invariance | **Pass, after a fix.** The first export had a fixed batch dimension and crashed on any batch > 1. The validation pipeline caught it; the export now uses `dynamic=True`. |
+| Output sanity | Pass, no NaN/Inf |
+| Latency | Pass, p95 177 ms |
 
 The batch-invariance failure is worth calling out: it would have made the
 `/api/v1/batch` endpoint fail for every detection job, and nothing else in the
@@ -162,9 +162,9 @@ or confident nonsense.
 This is the single most important practical limitation. The nano variant is
 substantially weaker than larger YOLOv8 models on:
 
-* **small objects** — anything occupying a small fraction of the frame;
-* **distant objects** — a crowd at the back of a scene;
-* **occluded objects** — a person half behind a car.
+* **small objects**, anything occupying a small fraction of the frame;
+* **distant objects**, a crowd at the back of a scene;
+* **occluded objects**, a person half behind a car.
 
 If recall on small objects matters, use a larger variant. Do not compensate by
 lowering `confidence_threshold`: that trades misses for false positives rather
@@ -184,7 +184,7 @@ Non-maximum suppression removes boxes that overlap a higher-scoring box by
 more than `iou_threshold`. In a crowd, two people standing close together can
 legitimately overlap more than the threshold, and one is discarded. Raising
 `iou_threshold` keeps them, at the cost of duplicate boxes elsewhere. There is
-no setting that is correct for all scenes — tune it for yours.
+no setting that is correct for all scenes, tune it for yours.
 
 ### Confidence is not calibrated
 
@@ -198,16 +198,16 @@ considerations noted in the classification card.
 
 ---
 
-## 7. Licensing — read this before commercial use
+## 7. Licensing, read this before commercial use
 
-**Ultralytics YOLOv8 is AGPL-3.0.** That is a strong copyleft licence: if you
+Ultralytics YOLOv8 is AGPL-3.0, a strong copyleft licence. If you
 run it as a network service, the AGPL requires you to offer the complete
 corresponding source of your application to its users.
 
 This matters for a commercial deployment and is a genuine decision, not a
 formality. The options are:
 
-1. **Buy an Ultralytics Enterprise licence** — the route they intend for
+1. **Buy an Ultralytics Enterprise licence**, the route they intend for
    closed-source commercial use.
 2. **Swap the detector** for a permissively licensed one. The serving code is
    architecture-agnostic; a detector exporting to ONNX with a comparable
@@ -221,7 +221,7 @@ the design stage and expensive to fix after launch.
 
 ## 8. Ethical and operational considerations
 
-* **No image is stored** — only a hash.
+* **No image is stored**, only a hash.
 * **Not suitable for surveillance or identification.** It detects that a
   person is present; it cannot and must not be used to identify anyone.
 * **Not suitable for safety-critical use.** Its miss rate on small and

@@ -65,8 +65,8 @@ mlcv-worker       Up (healthy)
 | --- | --- | --- |
 | API (via gateway) | http://localhost | `X-API-Key: dev-key-pro` |
 | API (direct, dev only) | http://localhost:8000 | same |
-| Swagger UI | http://localhost:8000/docs | — |
-| Prometheus | http://localhost:9090 | — |
+| Swagger UI | http://localhost:8000/docs |, |
+| Prometheus | http://localhost:9090 |, |
 | Grafana | http://localhost:3000 | `admin` / `admin` |
 
 ### Everyday commands
@@ -91,7 +91,7 @@ that matter:
 1. **No direct ports.** Only the gateway is reachable. Postgres and Redis are
    not exposed to the host at all.
 2. **Replicas.** 3 API and 2 worker containers by default.
-3. **Secrets are required.** No defaults — the stack refuses to start without
+3. **Secrets are required.** No defaults, the stack refuses to start without
    them.
 4. **Read-only root filesystems**, with explicit tmpfs for scratch space.
 5. **Rolling updates** with automatic rollback.
@@ -106,7 +106,7 @@ python -c "import secrets; print('GRAFANA_PASSWORD=' + secrets.token_urlsafe(24)
 python -c "import secrets; print('API_KEYS=' + secrets.token_urlsafe(32) + ':pro')"
 ```
 
-Put them in the deployment environment — a secrets manager, not a file in the
+Put them in the deployment environment, a secrets manager, not a file in the
 repository.
 
 > The stack **verifies** this. Starting the production overlay without
@@ -183,7 +183,7 @@ Measured: ~38.7 req/s end-to-end through the full stack on a 22-core CPU host.
 | < 30 req/s | 1 | 1 | Development or light production |
 | 30-100 req/s | 3 | 2 | The production default |
 | 100-500 req/s | 8-10 | 4 | Raise Redis memory; consider read replicas |
-| > 500 req/s | — | — | Move to GPU inference; the CPU-first assumptions no longer hold |
+| > 500 req/s |, |, | Move to GPU inference; the CPU-first assumptions no longer hold |
 
 ### Vertical tuning
 
@@ -196,7 +196,7 @@ Measured: ~38.7 req/s end-to-end through the full stack on a 22-core CPU host.
 
 > **Thread counts are pinned to 1** in both images (`OMP_NUM_THREADS=1` etc.)
 > and concurrency is handled by running more containers. Left unset, every
-> numerical library spawns a thread per *host* core — inside a container
+> numerical library spawns a thread per *host* core, inside a container
 > limited to 2 CPUs that means dozens of threads fighting over 2 cores, which
 > is slower than a single thread.
 
@@ -206,7 +206,7 @@ Measured: ~38.7 req/s end-to-end through the full stack on a 22-core CPU host.
 
 ### The four numbers that matter
 
-Open Grafana → *ML CV API — Overview*. The top row answers "is it healthy?":
+Open Grafana → *ML CV API, Overview*. The top row answers "is it healthy?":
 
 | Panel | Healthy | Investigate |
 | --- | --- | --- |
@@ -219,11 +219,11 @@ Open Grafana → *ML CV API — Overview*. The top row answers "is it healthy?":
 
 Eleven rules in `monitoring/prometheus/alerts.yml`, split by severity:
 
-* **critical** — `MLAPIDown`, `NoModelsLoaded`, `HighServerErrorRate`
-* **warning** — `SlowInference`, `InferenceFailures`, `InferenceQueueSaturated`,
+* **critical**, `MLAPIDown`, `NoModelsLoaded`, `HighServerErrorRate`
+* **warning**, `SlowInference`, `InferenceFailures`, `InferenceQueueSaturated`,
   `CacheHitRateCollapsed`, `ModelLoadFailures`, `SlowRequests`,
   `ElevatedClientErrors`
-* **info** — `HighRateLimitRejections`
+* **info**, `HighRateLimitRejections`
 
 Every rule alerts on a **symptom** (users are affected) rather than a cause
 (CPU is busy), and every one carries a description saying what to do. Rules
@@ -288,7 +288,7 @@ promote a model that is 0.2% more accurate and 300 ms slower.
 
 Register a new version rather than overwriting an existing one. Versions are
 how callers pin a model, how the A/B comparison identifies each side, and how
-a rollback names what to go back to — overwriting throws all of that away.
+a rollback names what to go back to, overwriting throws all of that away.
 
 If you do overwrite weights in place, the result cache handles it: the cache
 key carries a content hash of the artifact, so different bytes produce a
@@ -298,10 +298,10 @@ computed from it become live again rather than being discarded.
 
 That safety net exists because the alternative fails silently. Without it, a
 weight swap under an unchanged version leaves the cache serving predictions
-from a file that is no longer on disk — no error, no latency change, just
+from a file that is no longer on disk, no error, no latency change, just
 answers from the wrong model until the TTL expires.
 
-**On a bind-mounted development stack**, check the container actually sees the
+On a bind-mounted development stack, check the container actually sees the
 new file before trusting a test. Docker Desktop on Windows does not reliably
 propagate a bind-mounted file that was *replaced* rather than edited in place:
 
@@ -317,7 +317,7 @@ If they differ, `docker compose up -d --build`.
 `models/validation/ab_test.py` provides deterministic hash-based traffic
 splitting: send 10% of users to the challenger, keep the rest on the champion,
 and compare real outcomes. Assignment is by hashed user id, so a user stays on
-one variant — random per-request assignment would both ruin the statistics and
+one variant, random per-request assignment would both ruin the statistics and
 produce visibly inconsistent behaviour.
 
 ### Rollback
@@ -348,13 +348,13 @@ docker logs mlcv-api --tail 50
 | --- | --- | --- |
 | `registry_missing` | Models not prepared | `python scripts/prepare_models.py` |
 | `model_load_failed` | Artifact missing from the volume | `python -m models.registry validate` |
-| Unhealthy during startup | Still loading models | Wait — `start_period` is 90 s |
+| Unhealthy during startup | Still loading models | Wait, `start_period` is 90 s |
 | `JWT_SECRET must be set` | Production without secrets | Working as designed; set them |
 
 ### Every request returns 401
 
 `AUTH_ENABLED=true` with no `API_KEYS` configured. The service **fails
-closed** on purpose — there is no default credential. Set `API_KEYS`.
+closed** on purpose, there is no default credential. Set `API_KEYS`.
 
 ### Every request returns 429
 
@@ -409,12 +409,12 @@ audit history have a gap for the outage window.
 
 | Data | Where | Priority |
 | --- | --- | --- |
-| Model artifacts | `models/artifacts/` volume | **High** — regenerable, but slowly |
-| Model registry | `models/registry.json` | **High** — in git; keep it there |
-| Inference logs | `postgres_data` volume | Medium — audit and drift history |
-| Similarity index | `models/artifacts/similarity_index.npz` | Medium — re-embeddable |
-| Redis | `redis_data` volume | Low — cache is disposable; the queue is not |
-| Grafana | `grafana_data` volume | Low — dashboards are provisioned from git |
+| Model artifacts | `models/artifacts/` volume | **High**, regenerable, but slowly |
+| Model registry | `models/registry.json` | **High**, in git; keep it there |
+| Inference logs | `postgres_data` volume | Medium, audit and drift history |
+| Similarity index | `models/artifacts/similarity_index.npz` | Medium, re-embeddable |
+| Redis | `redis_data` volume | Low, cache is disposable; the queue is not |
+| Grafana | `grafana_data` volume | Low, dashboards are provisioned from git |
 
 ### Postgres backup
 

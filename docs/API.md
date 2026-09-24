@@ -156,7 +156,7 @@ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." http://localhost/api/v1/
 ```
 
 Short-lived, self-describing, and carries scopes. Tokens are verified with a
-pinned algorithm — a token declaring `"alg": "none"` is rejected.
+pinned algorithm, a token declaring `"alg": "none"` is rejected.
 
 ### Failures
 
@@ -168,7 +168,7 @@ pinned algorithm — a token declaring `"alg": "none"` is rejected.
 | Valid, but insufficient scope | 403 | `PERMISSION_DENIED` |
 
 > **Security note.** Keys are compared in constant time, and never appear in
-> logs — only a short non-reversible fingerprint does.
+> logs, only a short non-reversible fingerprint does.
 
 ---
 
@@ -184,7 +184,7 @@ burst (1.5x the per-minute rate by default).
 | `pro` | 300 | 32 |
 | `enterprise` | 3000 | 64 |
 
-**Every response** carries your current allowance, so a well-behaved client
+Every response carries your current allowance, so a well-behaved client
 can slow down before being blocked:
 
 ```
@@ -234,7 +234,7 @@ A `data:` URI prefix is accepted and stripped, so
 { "image_url": "https://example.com/photo.jpg" }
 ```
 
-The server fetches it. **Security:** the URL is validated before fetching —
+The server fetches it. **Security:** the URL is validated before fetching , 
 only `http`/`https`, only standard ports, redirects disabled, and any hostname
 resolving to a private, loopback or link-local address is refused. This
 prevents the endpoint being used to reach internal services or cloud metadata.
@@ -308,7 +308,7 @@ Identify what an image contains.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `image_base64` / `image_url` | string | — | One is required |
+| `image_base64` / `image_url` | string |, | One is required |
 | `top_k` | int 1-100 | 5 | How many classes to return |
 | `confidence_threshold` | float 0-1 | 0.0 | Drop predictions below this |
 | `include_probabilities` | bool | true | Include confidence values |
@@ -387,11 +387,11 @@ Find objects and where they are.
 }
 ```
 
-**Coordinates are absolute pixels in the image you uploaded**, with `x1,y1`
+Coordinates are absolute pixels in the image you uploaded, with `x1,y1`
 top-left and `x2,y2` bottom-right. You can draw them directly without knowing
 anything about the model's internal resize.
 
-**Tuning the thresholds**
+Tuning the thresholds:
 
 * Raise `confidence_threshold` to cut false positives; lower it to catch more
   objects (at the cost of noise).
@@ -453,7 +453,7 @@ see how much latency is the model and how much is the search.
 
 Scores run from `1.0` (identical direction) through `0.0` (unrelated) to
 `-1.0` (opposite). Near-duplicates typically exceed 0.95; "same kind of thing"
-is roughly 0.7-0.9. **Tune the threshold on your own images** — there is no
+is roughly 0.7-0.9. **Tune the threshold on your own images**, there is no
 universal value.
 
 An empty `results` with `index_size: 0` means nothing has been indexed yet,
@@ -524,7 +524,7 @@ be HTTPS.
 ```
 
 > **One bad image does not fail the batch.** Each item carries its own
-> `success` and `error`. A job can be `completed` with `failed_items > 0` —
+> `success` and `error`. A job can be `completed` with `failed_items > 0` , 
 > that is normal, and far more useful than a single top-level error that tells
 > you nothing about which image was the problem.
 
@@ -559,7 +559,7 @@ currently-resident models.
       "description": "resnet50 pretrained on ImageNet-1k, exported to ONNX...",
       "limitations": [
         "Trained on ImageNet-1k: only recognises those 1000 categories...",
-        "Confidence is not calibrated — a 0.9 score does not mean 90% correct."
+        "Confidence is not calibrated, a 0.9 score does not mean 90% correct."
       ]
     }
   ],
@@ -575,9 +575,9 @@ currently-resident models.
 The `limitations` come straight from the model cards, so the caveats travel
 with the model rather than living in a document nobody reads.
 
-### `GET /api/v1/models/{name}` — one model, `?version=` to pin.
+### `GET /api/v1/models/{name}`, one model, `?version=` to pin.
 
-### `POST /api/v1/models/reload` — re-read the registry without a restart.
+### `POST /api/v1/models/reload`, re-read the registry without a restart.
 
 Requires the `admin` scope. Also invalidates cached results for any model that
 was removed, so predictions from retired weights cannot keep being served.
@@ -593,7 +593,7 @@ was removed, so predictions from retired weights cannot keep being served.
 | `GET /health` | Full dependency status | Dashboards, humans |
 
 These are genuinely different, and conflating them causes outages.
-**Liveness deliberately checks nothing external** — if it depended on the
+Liveness checks nothing external. If it depended on the
 database, a brief database blip would restart every container simultaneously
 and turn a small problem into a total one.
 
@@ -623,7 +623,7 @@ the gateway restricts it to internal networks.
 
 ## 5. Errors
 
-**Every** error, from any endpoint, uses one envelope:
+Every error, from any endpoint, uses one envelope:
 
 ```json
 {
@@ -637,7 +637,7 @@ the gateway restricts it to internal networks.
 }
 ```
 
-**Branch on `code`, never on `message`.** Codes are stable; messages are
+Branch on `code`, never on `message`. Codes are stable, messages are
 written for humans and may be reworded.
 
 | Status | Code | Meaning | What to do |
@@ -658,14 +658,14 @@ written for humans and may be reworded.
 | 503 | `SERVICE_OVERLOADED` | At capacity | Back off and retry |
 | 504 | `INFERENCE_TIMEOUT` | Exceeded its deadline | Try a smaller image |
 
-**Internal details are never returned.** Stack traces, file paths and SQL go
+Internal details are never returned. Stack traces, file paths and SQL go
 to the logs, keyed by the correlation id. Quote that id to support.
 
 ### Retry guidance
 
 | Status | Retry? |
 | --- | --- |
-| 4xx (except 429) | **No** — fix the request first |
+| 4xx (except 429) | **No**, fix the request first |
 | 429 | Yes, after `Retry-After` |
 | 500, 503, 504 | Yes, with exponential backoff and jitter |
 
@@ -677,7 +677,7 @@ Every response carries `X-Correlation-ID`. That id appears on every log line
 produced while handling the request, in the worker if it became a batch job,
 and on the inference record in PostgreSQL.
 
-**Supply your own** to trace a request across your system and ours:
+Supply your own to trace a request across your system and ours:
 
 ```bash
 curl -H "X-Correlation-ID: my-trace-abc-123" ...
@@ -698,9 +698,9 @@ By default you get each task's current default model. To pin:
 `model_version: "latest"` (or omitting it) takes the highest version of that
 model.
 
-**A typo is a 404, not a silent substitution.** Asking for a model that does
+A typo gives a 404 rather than a silent substitution. Asking for a model that does
 not exist returns `MODEL_NOT_FOUND` rather than quietly serving something
-else — being handed predictions from a different model than you asked for is
+else, being handed predictions from a different model than you asked for is
 worse than an error.
 
 The fallback that *does* exist is for **failures**, not typos: if a registered
@@ -715,6 +715,6 @@ outlive the incident.
 ```
 
 `onnx` (float32) is the default. INT8 is ~4x smaller but **measured slower**
-on CPUs without INT8 acceleration — see
+on CPUs without INT8 acceleration, see
 [`../benchmarks/reports/BENCHMARKS.md`](../benchmarks/reports/BENCHMARKS.md)
 before switching.

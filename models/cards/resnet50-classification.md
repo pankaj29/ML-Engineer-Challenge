@@ -1,9 +1,8 @@
-# Model Card — ResNet-50 (Image Classification)
+# Model Card, ResNet-50 (Image Classification)
 
-> A model card is an honest summary of what a model does, how well it does it,
-> and — most importantly — where it fails. It exists so that whoever deploys
-> the model knows what they are deploying, and whoever consumes its output
-> knows how far to trust it.
+> A model card says what a model does, how well it does it, and where it
+> fails. It exists so whoever deploys it knows what they are deploying, and
+> whoever reads its output knows how far to trust it.
 
 | | |
 | --- | --- |
@@ -20,7 +19,7 @@
 
 Given one photograph, it returns a ranked list of the most likely object
 categories, with a confidence score for each. It recognises **1,000
-categories** — the ImageNet-1k label set, which covers everyday objects,
+categories**, the ImageNet-1k label set, which covers everyday objects,
 animals, vehicles, food and household items.
 
 It answers "what is the main thing in this picture?". It does **not** say
@@ -52,13 +51,13 @@ Why this rather than something newer:
   real cost when the pipeline must be reproducible.
 * **It is thoroughly characterised.** Its failure modes are documented across
   a decade of literature, which is worth a lot when writing a section like
-  section 6 of this card honestly.
+  section 6 of this card.
 
-**Trade-off accepted.** A ConvNeXt or an EfficientNetV2 would be 2-4 points
+The trade-off: a ConvNeXt or an EfficientNetV2 would be 2-4 points
 more accurate at a similar parameter count. That accuracy was traded for
 latency headroom and export reliability. If accuracy became the binding
 constraint, swapping the backbone is a one-line change in
-`scripts/prepare_models.py` plus a new registry entry — the serving code is
+`scripts/prepare_models.py` plus a new registry entry, the serving code is
 architecture-agnostic.
 
 ---
@@ -70,14 +69,14 @@ The served weights are torchvision's `IMAGENET1K_V2` checkpoint, trained on
 from the web and labelled via crowdsourcing.
 
 This project also fine-tunes ResNet-50 on **Tiny-ImageNet** (200 classes),
-which the brief requires. That model is trained in full — 78.91% top-1,
-92.12% top-5 on an A100 — and is registered as `resnet50-tiny-imagenet`. It is
+which the brief requires. That model is trained in full, 78.91% top-1,
+92.12% top-5 on an A100, and is registered as `resnet50-tiny-imagenet`. It is
 a separate model with its own card:
 [`resnet50-tiny-imagenet.md`](resnet50-tiny-imagenet.md).
 
 It is deliberately **not** the default here. A 200-class model built from 64x64
 thumbnails is a poor general-purpose classification API next to ImageNet-1k at
-224px — see `docs/ASSUMPTIONS.md` §1.4. Swapping the default is a one-line
+224px, see `docs/ASSUMPTIONS.md` §1.4. Swapping the default is a one-line
 registry change.
 
 ### Preprocessing (must match exactly)
@@ -112,10 +111,10 @@ CPU only**, ONNX Runtime 1.26.0. Reproduce with
 | ONNX INT8 (static) | 1 | 120.3 ms | 202.8 ms | 274.4 ms | 7.2 img/s | **24.9 MB** |
 | ONNX INT8 (static) | 4 | 523.8 ms | 666.3 ms | 788.9 ms | 8.1 img/s | 24.9 MB |
 
-**Requirement check:** the brief asks for sub-second single-image inference.
-p99 at batch 1 is 131 ms — roughly 7x inside budget.
+The brief asks for sub-second single-image inference.
+p99 at batch 1 is 131 ms, roughly 7x inside budget.
 
-**INT8 is deliberately not the default.** It is 3.92x smaller but ~1.4x
+INT8 is not the default. It is 3.92x smaller but about 1.4x
 *slower* on this CPU. The reasoning, and the much worse result from dynamic
 quantization, are in `docs/TECHNICAL.md`. INT8 is registered and selectable
 per request (`"runtime": "onnx_int8"`) for memory-constrained deployments.
@@ -140,7 +139,7 @@ without evaluating accuracy on your own data.**
 Reference accuracy for these weights on the ImageNet-1k validation set is
 **80.86% top-1 / 95.43% top-5** (torchvision `IMAGENET1K_V2`).
 
-**Not independently re-measured here.** Doing so requires the ImageNet
+Not independently re-measured here. Doing so requires the ImageNet
 validation set, which needs a registered account and is ~6 GB. The validation
 pipeline correctly *refuses* to report accuracy against Tiny-ImageNet, because
 the two label spaces (1,000 vs 200 classes) are unrelated and comparing them
@@ -150,23 +149,21 @@ would produce a confident, meaningless number. See `docs/ASSUMPTIONS.md`.
 
 ## 5. Validation results
 
-From `python -m models.validation.validate` — all checks pass:
+From `python -m models.validation.validate`, all checks pass:
 
 | Check | Result |
 | --- | --- |
-| Artifact integrity | Pass — both artifacts present and non-empty |
-| Determinism | Pass — identical output across 3 runs (max diff 0.0) |
-| Batch invariance | Pass — a prediction does not depend on batch position |
-| Output sanity | Pass — no NaN/Inf, probabilities sum to 1 |
-| Robustness | Pass — 0% of predictions flip under imperceptible noise (σ=0.01) |
-| Latency | Pass — p95 95.4 ms, well under the 1,000 ms budget |
-| ONNX export fidelity | Pass — max abs diff vs PyTorch 2.4e-06 |
+| Artifact integrity | Pass, both artifacts present and non-empty |
+| Determinism | Pass, identical output across 3 runs (max diff 0.0) |
+| Batch invariance | Pass, a prediction does not depend on batch position |
+| Output sanity | Pass, no NaN/Inf, probabilities sum to 1 |
+| Robustness | Pass, 0% of predictions flip under imperceptible noise (σ=0.01) |
+| Latency | Pass, p95 95.4 ms, well under the 1,000 ms budget |
+| ONNX export fidelity | Pass, max abs diff vs PyTorch 2.4e-06 |
 
 ---
 
 ## 6. Limitations and failure modes
-
-This is the section that matters most.
 
 ### It only knows 1,000 things
 
@@ -183,7 +180,7 @@ out-of-distribution check in front of it. This model does not provide one.
 A score of 0.9 does *not* mean "right 90% of the time". Modern deep networks
 are systematically overconfident. Our own calibration check, run against a
 distribution the model was not trained on, measured an **Expected Calibration
-Error of 0.22** — badly calibrated.
+Error of 0.22**, badly calibrated.
 
 Practical consequence: do not build a business rule on a raw confidence
 threshold without calibrating first (temperature scaling on a held-out set is
@@ -196,10 +193,10 @@ ImageNet is drawn largely from English-language web sources and is
 well-documented as over-representing North American and European contexts.
 Published analyses find accuracy drops markedly on images of household objects
 from lower-income countries. Categories relating to people are especially
-problematic — parts of the ImageNet "person" subtree were withdrawn by its
+problematic, parts of the ImageNet "person" subtree were withdrawn by its
 maintainers over offensive and non-consensual content.
 
-**Do not use this model to classify people.** It was not built for it, was not
+Do not use this model to classify people. It was not built for it, was not
 evaluated for it, and the underlying data is not suitable for it.
 
 ### One subject at a time
@@ -218,7 +215,7 @@ tell you what was lost.
 ### Sensitivity to image quality
 
 Accuracy degrades on heavy JPEG compression, motion blur and unusual lighting
-— all far more common in real uploads than in a curated benchmark set.
+,  all far more common in real uploads than in a curated benchmark set.
 
 ---
 
@@ -228,7 +225,7 @@ Accuracy degrades on heavy JPEG compression, motion blur and unusual lighting
   never the image itself (`db/models.py`).
 * **Predictions are logged** with the model version and confidence, for drift
   detection and audit. That log is the only record of what was inferred.
-* **Not suitable for consequential decisions about people** — see the bias
+* **Not suitable for consequential decisions about people**, see the bias
   section. There is no human-review workflow built in; if your use case needs
   one, it must live in the calling application.
 * **Monitor for drift.** `models/validation/drift.py` compares recent

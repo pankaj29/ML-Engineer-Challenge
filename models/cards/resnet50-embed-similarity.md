@@ -1,4 +1,4 @@
-# Model Card — ResNet-50 Embeddings (Image Similarity)
+# Model Card, ResNet-50 Embeddings (Image Similarity)
 
 | | |
 | --- | --- |
@@ -14,7 +14,7 @@
 
 ## 1. What it does
 
-It turns an image into a list of 2,048 numbers — an **embedding** — positioned
+It turns an image into a list of 2,048 numbers, an **embedding**, positioned
 so that visually similar images end up close together.
 
 That single idea supports several things without retraining: finding
@@ -38,7 +38,7 @@ shapes, textures and parts, without having collapsed everything down to one of
 1,000 labels.
 
 L2 normalisation is baked into the exported graph rather than applied in
-Python afterwards. The artifact is therefore self-contained — anyone who runs
+Python afterwards. The artifact is therefore self-contained, anyone who runs
 it gets unit vectors without having to remember an extra step, and the API and
 the index cannot disagree about whether normalisation happened.
 
@@ -51,8 +51,8 @@ Why this rather than a purpose-built embedding model:
   strong semantic features.
 * **It is fast**: 43 ms p50, the quickest of the three models.
 
-**Trade-off, stated plainly.** A model trained with a *contrastive* objective
-— CLIP, DINOv2 — produces materially better embeddings for retrieval, because
+The trade-off: a model trained with a contrastive objective
+,  CLIP, DINOv2, produces materially better embeddings for retrieval, because
 they are trained to make similar images close rather than having that emerge
 as a side effect of classification. CLIP also allows text-to-image search,
 which this cannot do at all. They were not chosen here because CLIP ViT-B/32
@@ -67,7 +67,7 @@ change.
 ## 3. Training data
 
 The same ImageNet-1k weights as the classifier (`IMAGENET1K_V2`). No
-additional training — the classification head is removed, nothing is re-fit.
+additional training, the classification head is removed, nothing is re-fit.
 
 This has a direct consequence for behaviour: the features encode **what object
 this is**, because that is what they were optimised to predict. They encode
@@ -77,7 +77,7 @@ building at different times of day.
 
 ### Preprocessing
 
-Identical to the classification model — resize to 256, centre crop 224,
+Identical to the classification model, resize to 256, centre crop 224,
 ImageNet normalisation. Using different preprocessing would place the query
 vector in a different region of the space from the indexed vectors, and every
 similarity score would be wrong while still looking plausible.
@@ -101,7 +101,7 @@ The unusually wide p50-to-p95 gap at batch 1 (43 ms → 278 ms) is measurement
 noise from a busy development machine, not model behaviour; the INT8 row,
 measured in the same run, shows a normal spread.
 
-**Requirement check:** p99 at batch 1 is 388 ms, inside the 1-second budget.
+p99 at batch 1 is 388 ms, inside the 1-second budget.
 
 ### Search latency
 
@@ -113,21 +113,21 @@ Search is exact brute force: the query vector against every indexed vector.
 | 100,000 | ~5 ms | 780 MB |
 | 1,000,000 | ~50 ms | 7.6 GB |
 
-Both scale **linearly** with index size — see the limitations.
+Both scale **linearly** with index size, see the limitations.
 
 ### Retrieval quality
 
 | Check | Result |
 | --- | --- |
-| Self-similarity | **1.0000** — an image against itself, verified end to end |
+| Self-similarity | **1.0000**, an image against itself, verified end to end |
 | Embedding determinism | Identical vectors across repeated calls |
 | Unit length | Verified: norm 1.0 ± 1e-5 straight from the graph |
 | Distinct images | Score below self-match, as expected |
 
-**Recall@k against a labelled retrieval benchmark has not been measured.**
-That needs a dataset with ground-truth similarity judgements. The honest
-summary is: the mechanism is verified correct, the *quality* of the ranking on
-your data is unmeasured. Measure it before relying on a similarity threshold.
+Recall@k against a labelled retrieval benchmark has not been measured.
+That needs a dataset with ground-truth similarity judgements. So: the
+mechanism is verified correct, but the quality of the ranking on your data is
+unmeasured. Measure it before relying on a similarity threshold.
 
 ---
 
@@ -139,8 +139,8 @@ your data is unmeasured. Measure it before relying on a similarity threshold.
 | Determinism | Pass |
 | Batch invariance | Pass |
 | Output sanity | Pass |
-| ONNX export fidelity | Pass — max abs diff vs PyTorch 1.9e-07 |
-| Latency | Pass — p95 189 ms |
+| ONNX export fidelity | Pass, max abs diff vs PyTorch 1.9e-07 |
+| Latency | Pass, p95 189 ms |
 
 ---
 
@@ -155,8 +155,8 @@ lower than you expect. It is not a style, colour or composition matcher.
 
 ### Weak at instance-level retrieval
 
-Finding *this specific object* — a particular painting, a particular
-person's luggage — is what contrastive models are for. This model will return
+Finding *this specific object*, a particular painting, a particular
+person's luggage, is what contrastive models are for. This model will return
 the right *category* and often the wrong instance.
 
 ### Scores are only comparable within one index
@@ -190,7 +190,7 @@ swap is contained.
 It lives in one process's memory, persisted to a `.npz` file. With several API
 replicas, **each has its own index**, so an image indexed on replica A is not
 findable on replica B. This is fine for a single instance and wrong for a
-scaled deployment — see `docs/TECHNICAL.md` for the shared-store options.
+scaled deployment, see `docs/TECHNICAL.md` for the shared-store options.
 
 ---
 
@@ -202,7 +202,7 @@ scaled deployment — see `docs/TECHNICAL.md` for the shared-store options.
 * **Not for facial recognition.** These are general object features. They are
   not accurate enough for identification, and attempting it would be both
   ineffective and inappropriate.
-* **No image is stored** — only vectors and any caller-supplied metadata.
+* **No image is stored**, only vectors and any caller-supplied metadata.
 
 ---
 
