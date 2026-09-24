@@ -46,6 +46,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import sys
@@ -102,6 +103,19 @@ class TrainConfig:
     gradient_clip_norm: float = 1.0
     scheduler: str = "cosine"  # cosine | onecycle | step | plateau
 
+    # --- Weight averaging ---------------------------------------------------
+    # Keep an exponential moving average of the weights alongside the live
+    # ones. The averaged weights sit in a flatter region of the loss surface
+    # than whatever point the last optimiser step happened to land on, which
+    # generalises slightly better - typically a few tenths to about 1.5 points
+    # of top-1, for one extra copy of the model in memory and nothing at all
+    # at inference time.
+    #
+    # Off by default: it changes which weights get shipped, and that should be
+    # an explicit choice rather than something a default turns on quietly.
+    ema: bool = False
+    ema_decay: float = 0.9998
+
     # --- Data --------------------------------------------------------------
     num_workers: int = 4
     adapt_stem: bool = True
@@ -145,6 +159,11 @@ class EpochResult:
     epoch_seconds: float
     grad_norm: float = 0.0
     scaler_scale: float = 0.0
+    # Populated only when EMA is on, so a run without it is unchanged.
+    ema_top1: float | None = None
+    ema_top5: float | None = None
+    # Which set of weights produced val_top1: "raw" or "ema".
+    selected: str = "raw"
 
 
 @dataclass
@@ -164,6 +183,65 @@ class TrainingHistory:
 # ---------------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------------
+class ModelEma:
+    """An exponential moving average of a model's weights.
+
+    Holds a second copy of the model, updated after every optimiser step as
+    ``ema = decay * ema + (1 - decay) * live``. Evaluating the average rather
+    than the live weights is a standard, essentially free improvement: SGD and
+    AdamW bounce around a minimum rather than settling into it, and the
+    average of those positions is closer to the centre than any one of them.
+
+    Two details that are easy to get wrong:
+
+    * **The decay is ramped in.** A fixed 0.9998 from step 1 would leave the
+      average dominated by the *initial* weights for thousands of steps, so
+      early evaluations would report near-random accuracy and the "best"
+      checkpoint logic would be comparing against noise. The warmup schedule
+      ``(1 + step) / (10 + step)`` starts near 0.1 and approaches the target,
+      so the average is useful from the first epoch.
+    * **Buffers are copied, not averaged.** BatchNorm running statistics are
+      already running averages; averaging them again would double-smooth them
+      and lag the real distribution. Integer buffers (``num_batches_tracked``)
+      cannot be averaged at all without silently truncating.
+    """
+
+    def __init__(self, model: nn.Module, decay: float = 0.9998) -> None:
+        self.decay = decay
+        self.steps = 0
+        self.module = copy.deepcopy(model).eval()
+        for param in self.module.parameters():
+            param.requires_grad_(False)
+
+    def _current_decay(self) -> float:
+        return min(self.decay, (1.0 + self.steps) / (10.0 + self.steps))
+
+    @torch.no_grad()
+    def update(self, model: nn.Module) -> None:
+        self.steps += 1
+        decay = self._current_decay()
+
+        # Parameters are averaged; buffers are copied. Splitting on
+        # parameter-vs-buffer rather than float-vs-int matters: BatchNorm's
+        # `running_mean` is a float buffer, so a dtype test silently averages
+        # it along with the weights.
+        live_params = dict(model.named_parameters())
+        for name, value in self.module.named_parameters():
+            value.mul_(decay).add_(live_params[name].detach(), alpha=1.0 - decay)
+
+        live_buffers = dict(model.named_buffers())
+        for name, value in self.module.named_buffers():
+            value.copy_(live_buffers[name])
+
+    def state_dict(self) -> dict[str, Any]:
+        return {"decay": self.decay, "steps": self.steps, "module": self.module.state_dict()}
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        self.decay = float(state.get("decay", self.decay))
+        self.steps = int(state.get("steps", 0))
+        self.module.load_state_dict(state["module"])
+
+
 def build_model(arch: str, num_classes: int, pretrained: bool = True) -> nn.Module:
     """Create the classifier, with its head resized to the class count.
 
@@ -436,6 +514,7 @@ def train_one_epoch(
     config: TrainConfig,
     device: str,
     epoch: int,
+    ema: ModelEma | None = None,
 ) -> tuple[float, float, float]:
     """Run one training epoch.
 
@@ -508,6 +587,11 @@ def train_one_epoch(
                 optimizer.step()
 
             optimizer.zero_grad(set_to_none=True)
+
+            # After the step, not before: the average must track the weights
+            # the optimiser actually produced.
+            if ema is not None:
+                ema.update(model)
 
             # --- LEARNING RATE SCHEDULING --------------------------------
             if step_per_batch and scheduler is not None:
@@ -583,6 +667,7 @@ def save_checkpoint(
     epoch: int,
     best_top1: float,
     epochs_without_improvement: int,
+    ema: ModelEma | None = None,
     history: TrainingHistory,
     config: TrainConfig,
     num_classes: int,
@@ -603,6 +688,9 @@ def save_checkpoint(
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict() if scheduler is not None else None,
         "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
+        # Without this a resumed run would restart the average from the live
+        # weights, throwing away every step of smoothing done so far.
+        "ema_state_dict": ema.state_dict() if ema is not None else None,
         "epoch": epoch,
         "best_top1": best_top1,
         "epochs_without_improvement": epochs_without_improvement,
@@ -630,6 +718,7 @@ def load_checkpoint(
     scheduler: Any,
     scaler: Any,
     device: str,
+    ema: ModelEma | None = None,
 ) -> tuple[int, float, int, list[dict[str, Any]]]:
     """Restore a run from ``path``.
 
@@ -644,6 +733,8 @@ def load_checkpoint(
         scheduler.load_state_dict(ckpt["scheduler_state_dict"])
     if scaler is not None and ckpt.get("scaler_state_dict") is not None:
         scaler.load_state_dict(ckpt["scaler_state_dict"])
+    if ema is not None and ckpt.get("ema_state_dict") is not None:
+        ema.load_state_dict(ckpt["ema_state_dict"])
 
     completed = int(ckpt.get("epoch", 0))
     return (
@@ -719,6 +810,10 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
     use_amp = config.mixed_precision and device == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
+    ema = ModelEma(model, config.ema_decay) if config.ema else None
+    if ema is not None:
+        print(f"weight averaging  : EMA, decay {config.ema_decay} (warmed in)")
+
     print(
         f"mixed precision   : {'fp16 + GradScaler (cuda)' if use_amp else ('bf16 (cpu)' if config.mixed_precision else 'off')}\n"
         f"gradient clipping : max_norm={config.gradient_clip_norm}\n"
@@ -744,6 +839,7 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
                 scheduler=scheduler,
                 scaler=scaler,
                 device=device,
+                ema=ema,
             )
             history.epochs = past
             history.best_top1 = best_top1
@@ -781,10 +877,23 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
             config,
             device,
             epoch,
+            ema,
         )
         # The whole validation split, every epoch - a partial validation set
         # gives a score that is not comparable between epochs.
-        val_loss, top1, top5 = evaluate(model, val_loader, criterion, device)
+        val_loss, raw_top1, raw_top5 = evaluate(model, val_loader, criterion, device)
+
+        # Evaluate the average as well, and ship whichever is better. EMA is
+        # usually behind for the first few epochs (it is still catching up
+        # from the initial weights) and ahead by the end, so picking one of
+        # them up front would either waste the gain or report a worse number
+        # than the run actually achieved.
+        ema_top1 = ema_top5 = None
+        top1, top5, selected = raw_top1, raw_top5, "raw"
+        if ema is not None:
+            _, ema_top1, ema_top5 = evaluate(ema.module, val_loader, criterion, device)
+            if ema_top1 > raw_top1:
+                top1, top5, selected = ema_top1, ema_top5, "ema"
 
         if not step_per_batch and scheduler is not None:
             if config.scheduler == "plateau":
@@ -802,6 +911,9 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
             epoch_seconds=round(time.perf_counter() - epoch_started, 1),
             grad_norm=round(grad_norm, 3),
             scaler_scale=float(scaler.get_scale()) if use_amp else 0.0,
+            ema_top1=None if ema_top1 is None else round(ema_top1, 2),
+            ema_top5=None if ema_top5 is None else round(ema_top5, 2),
+            selected=selected,
         )
         history.epochs.append(asdict(result))
 
@@ -815,7 +927,10 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
 
             torch.save(
                 {
-                    "model_state_dict": model.state_dict(),
+                    "model_state_dict": (
+                        ema.module.state_dict() if selected == "ema" else model.state_dict()
+                    ),
+                    "weights": selected,
                     "arch": config.arch,
                     "num_classes": stats.num_classes,
                     "stem_adapted": adapted,
@@ -841,6 +956,7 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
             optimizer=optimizer,
             scheduler=scheduler,
             scaler=scaler,
+            ema=ema,
             epoch=epoch,
             best_top1=best_top1,
             epochs_without_improvement=epochs_without_improvement,
@@ -855,7 +971,8 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
             f"epoch {epoch:>3}/{config.epochs}  "
             f"train_loss {train_loss:.4f}  val_loss {val_loss:.4f}  "
             f"top1 {top1:6.2f}%  top5 {top5:6.2f}%  "
-            f"lr {lr:.2e}  grad {grad_norm:.2f}  {result.epoch_seconds:.0f}s{marker}",
+            + (f"(raw {raw_top1:5.2f} / ema {ema_top1:5.2f})  " if ema is not None else "")
+            + f"lr {lr:.2e}  grad {grad_norm:.2f}  {result.epoch_seconds:.0f}s{marker}",
             flush=True,
         )
 
@@ -900,6 +1017,25 @@ def main() -> int:
     )
     parser.add_argument("--grad-clip", type=float, default=1.0, dest="gradient_clip_norm")
     parser.add_argument("--no-amp", action="store_true", help="Disable mixed precision.")
+    parser.add_argument(
+        "--ema",
+        action="store_true",
+        help=(
+            "Keep an exponential moving average of the weights and ship whichever "
+            "of the two scores higher. Costs one extra copy of the model in GPU "
+            "memory and nothing at inference time."
+        ),
+    )
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        default=0.9998,
+        help=(
+            "EMA decay. Higher averages over a longer window: 0.9998 spans roughly "
+            "the last 5,000 steps. The decay is warmed in, so the average is usable "
+            "from the first epoch rather than pinned to the initial weights."
+        ),
+    )
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument(
         "--no-stem-adapt",
@@ -957,6 +1093,8 @@ def main() -> int:
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         label_smoothing=args.label_smoothing,
+        ema=args.ema,
+        ema_decay=args.ema_decay,
         mixed_precision=not args.no_amp,
         gradient_clip_norm=args.gradient_clip_norm,
         scheduler=args.scheduler,

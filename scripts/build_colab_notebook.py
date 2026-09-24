@@ -296,6 +296,15 @@ BATCH_SIZE = 256
 # the model, and re-run with PATIENCE = 0 to disable it.
 LR = "3e-4"            # see the note below before changing this
 PATIENCE = 15          # stop after this many epochs with no val improvement
+# EMA keeps a running average of the weights during training and ships
+# whichever of the two - the live weights or the average - scores higher on
+# validation. It costs one extra copy of the model in GPU memory while
+# training and nothing at all at inference: the exported ONNX is a single
+# set of weights either way. Typically worth a few tenths to about 1.5
+# points of top-1, because the average sits nearer the centre of the
+# minimum than the point the last optimiser step happened to land on.
+EMA = True
+EMA_FLAG = "--ema" if EMA else ""
 """),
     md("""
 ## 3. Install dependencies
@@ -550,6 +559,7 @@ an extension of a shorter one.
     --grad-clip 1.0 \\
     --label-smoothing 0.1 \\
     --patience {PATIENCE} \\
+    {EMA_FLAG} \\
     --no-stem-adapt \\
     --data-dir {DATA_DIR} \\
     --device cuda
