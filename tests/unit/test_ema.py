@@ -509,3 +509,70 @@ class TestHistoryPathIsOneDefinition:
 
         path = history_path_for(tmp_path, TrainConfig(arch="resnet50"))
         assert path.name == "resnet50_training_history.json"
+
+
+class TestHistoryIsAlwaysJsonSerialisable:
+    """The history is written as JSON with the config embedded verbatim.
+
+    A single `Path` field on TrainConfig made the whole run unserialisable,
+    and it failed at the *write* - after the training, which is the worst
+    moment to find out. This test fails the moment a new unencodable field is
+    added, rather than sixty epochs later.
+    """
+
+    def test_a_path_field_is_stringified(self) -> None:
+        from models.training.train_classifier import TrainConfig, config_as_json
+
+        config = TrainConfig(mirror_dir=Path("/content/drive/MyDrive/results"))
+        assert isinstance(config_as_json(config)["mirror_dir"], str)
+
+    def test_an_unset_path_stays_none(self) -> None:
+        from models.training.train_classifier import TrainConfig, config_as_json
+
+        assert config_as_json(TrainConfig())["mirror_dir"] is None
+
+    def test_every_field_of_a_default_config_encodes(self) -> None:
+        import json
+
+        from models.training.train_classifier import TrainConfig, config_as_json
+
+        json.dumps(config_as_json(TrainConfig()))
+
+    def test_every_field_of_a_fully_populated_config_encodes(self) -> None:
+        """The configuration an actual GPU run uses, not the defaults."""
+        import json
+
+        from models.training.train_classifier import TrainConfig, config_as_json
+
+        config = TrainConfig(
+            arch="resnet50",
+            epochs=60,
+            image_size=224,
+            batch_size=256,
+            learning_rate=3e-4,
+            ema=True,
+            ema_decay=0.9998,
+            adapt_stem=False,
+            early_stopping_patience=0,
+            mirror_dir=Path("/content/drive/MyDrive/ML-Engineer-Challenge-results/checkpoints"),
+            mirror_every=10,
+        )
+        json.dumps(config_as_json(config))
+
+    def test_the_whole_history_object_encodes(self) -> None:
+        """What `train()` actually writes to disk."""
+        import json
+        from dataclasses import asdict
+
+        from models.training.train_classifier import (
+            TrainConfig,
+            TrainingHistory,
+            config_as_json,
+        )
+
+        history = TrainingHistory(
+            config=config_as_json(TrainConfig(mirror_dir=Path("/somewhere"))),
+            device="cuda",
+            dataset={"classes": 200},
+        )
+        json.dumps(asdict(history))

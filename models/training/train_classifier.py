@@ -756,6 +756,19 @@ def load_checkpoint(
     )
 
 
+def config_as_json(config: TrainConfig) -> dict[str, Any]:
+    """``asdict(config)`` with the Path fields turned into strings.
+
+    The history file is JSON and the config is embedded in it verbatim, so a
+    single ``Path`` field anywhere in ``TrainConfig`` makes the whole run
+    unserialisable - and it fails at the *write*, after the training, which is
+    the worst possible moment to discover it. Converting here rather than
+    passing ``default=str`` to ``json.dumps`` keeps the failure impossible by
+    construction instead of papering over whatever else might be unencodable.
+    """
+    return {k: str(v) if isinstance(v, Path) else v for k, v in asdict(config).items()}
+
+
 def history_path_for(output_dir: Path, config: TrainConfig) -> Path:
     """Where this run's history JSON lives. One definition, several callers."""
     return output_dir / f"{config.arch}_training_history.json"
@@ -875,7 +888,9 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
         f"{config.learning_rate:.1e} -> {config.min_learning_rate:.1e}"
     )
 
-    history = TrainingHistory(config=asdict(config), device=device, dataset=stats.describe())
+    history = TrainingHistory(
+        config=config_as_json(config), device=device, dataset=stats.describe()
+    )
     best_top1 = 0.0
     epochs_without_improvement = 0
     start_epoch = 1
