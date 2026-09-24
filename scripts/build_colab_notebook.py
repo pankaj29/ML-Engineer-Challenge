@@ -258,6 +258,44 @@ DATA_DIR = Path("/content/data") if Path("/content").exists() else Path.cwd() / 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 print("data directory       : " + str(DATA_DIR))
 
+# --- Mount Drive NOW, not in the last cell ---------------------------------
+#
+# The delivery cell at the bottom used to be the first thing that touched
+# Drive. When the mount failed there - it needs an interactive popup, which a
+# kernel driven from an IDE cannot show - the failure surfaced AFTER a
+# two-hour training run, with the results sitting on a container about to be
+# recycled. Ten seconds of checking here is worth nothing at the end.
+#
+# DRIVE_RESULTS is read by the training cell (which mirrors checkpoints into
+# it as the run proceeds) and by the delivery cell. None means "no Drive":
+# everything still runs, results just stay on the runtime.
+DRIVE_FOLDER = "ML-Engineer-Challenge-results"
+DRIVE_RESULTS = None
+
+if Path("/content").exists():
+    drive_root = Path("/content/drive/MyDrive")
+    if not drive_root.exists():
+        try:
+            from google.colab import drive as _drive
+
+            _drive.mount("/content/drive")
+        except Exception as exc:
+            print("could not mount Drive: " + str(exc))
+
+    if drive_root.exists():
+        DRIVE_RESULTS = drive_root / DRIVE_FOLDER
+        (DRIVE_RESULTS / "checkpoints").mkdir(parents=True, exist_ok=True)
+        print("drive results        : My Drive / " + DRIVE_FOLDER)
+    else:
+        print()
+        print("WARNING: Drive is NOT mounted. Training will still run, but")
+        print("nothing is saved off this runtime, and the container is recycled")
+        print("when the session ends. Fix the mount before starting a long run,")
+        print("or plan to download from the Files pane before disconnecting.")
+else:
+    DRIVE_RESULTS = Path.cwd() / "gpu_results"
+    print("drive results        : not on Colab, using " + str(DRIVE_RESULTS))
+
 # --- The training config, in one place -------------------------------------
 # The next cell reads these, so there is exactly one definition of what is
 # being trained. Change it here, not in the command below.
@@ -310,6 +348,19 @@ PATIENCE = 0           # 0 = off; see above before raising it
 # minimum than the point the last optimiser step happened to land on.
 EMA = True
 EMA_FLAG = "--ema" if EMA else ""
+# Mirror checkpoints to Drive AS THE RUN PROCEEDS. Resuming from a checkpoint
+# only helps if the checkpoint outlives the machine, and on a hosted runtime
+# it does not: the container goes away and models/artifacts/ goes with it.
+# The history JSON is a few KB and is copied every epoch; the ~96 MB resume
+# checkpoint every MIRROR_EVERY epochs. A lost session then costs at most
+# that many epochs instead of the whole run.
+MIRROR_EVERY = 10
+MIRROR_FLAGS = (
+    ""
+    if DRIVE_RESULTS is None
+    else "--mirror-dir " + str(DRIVE_RESULTS / "checkpoints")
+    + " --mirror-every " + str(MIRROR_EVERY)
+)
 """),
     md("""
 ## 3. Install dependencies
@@ -565,6 +616,7 @@ an extension of a shorter one.
     --label-smoothing 0.1 \\
     --patience {PATIENCE} \\
     {EMA_FLAG} \\
+    {MIRROR_FLAGS} \\
     --no-stem-adapt \\
     --data-dir {DATA_DIR} \\
     --device cuda
@@ -877,42 +929,39 @@ print(f"\\nbundle: {archive}  ({size:.1f} MB)")
 # Files are written individually AND as the zip: individually so you can grab
 # just the ONNX or just the reports without a 300 MB download, and zipped for
 # when you want the lot in one go.
-DRIVE_FOLDER = "ML-Engineer-Challenge-results"
-
+# DRIVE_RESULTS was resolved at the top of the notebook, so by the time we
+# get here the mount has either worked for the whole run or been visibly
+# absent since before training started.
 delivered = False
-if Path("/content").exists():
-    drive_root = Path("/content/drive/MyDrive")
-    if not drive_root.exists():
-        try:
-            from google.colab import drive as _drive
+if DRIVE_RESULTS is not None:
+    dest = DRIVE_RESULTS
+    # Overwrite file by file rather than deleting the folder first. The
+    # earlier version did `rmtree(dest)` to avoid a stale artifact sitting
+    # next to a fresh one, but dest/checkpoints/ now holds the mid-run mirror
+    # - the only resumable state there is - and wiping it would turn a
+    # re-run of this cell into "retrain from epoch 1". Same-named files are
+    # replaced, which covers the staleness this guarded against.
+    for item in bundle.rglob("*"):
+        if item.is_file():
+            target = dest / item.relative_to(bundle)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+    shutil.copy2(archive, dest / Path(archive).name)
+    delivered = True
 
-            _drive.mount("/content/drive")
-        except Exception as exc:
-            print("could not mount Drive: " + str(exc))
-
-    if drive_root.exists():
-        dest = drive_root / DRIVE_FOLDER
-        # Replace rather than merge: a stale artifact from an earlier run
-        # sitting next to a fresh one is how the wrong file gets downloaded.
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(bundle, dest)
-        shutil.copy2(archive, dest / Path(archive).name)
-        delivered = True
-
-        print()
-        print("saved to Drive: My Drive / " + DRIVE_FOLDER)
-        total = 0.0
-        for item in sorted(dest.rglob("*")):
-            if item.is_file():
-                mb = item.stat().st_size / 1e6
-                total += mb
-                print("    " + str(item.relative_to(dest)) + "  (" + format(mb, ".1f") + " MB)")
-        print("    " + format(total, ".1f") + " MB total")
-        print()
-        print("Open drive.google.com, download what you need, then in the repo:")
-        print("    cp <downloaded>/artifacts/* models/artifacts/")
-        print("    cp <downloaded>/reports/*   benchmarks/reports/")
+    print()
+    print("saved to Drive: " + str(dest))
+    total = 0.0
+    for item in sorted(dest.rglob("*")):
+        if item.is_file():
+            mb = item.stat().st_size / 1e6
+            total += mb
+            print("    " + str(item.relative_to(dest)) + "  (" + format(mb, ".1f") + " MB)")
+    print("    " + format(total, ".1f") + " MB total")
+    print()
+    print("Open drive.google.com, download what you need, then in the repo:")
+    print("    cp <downloaded>/artifacts/* models/artifacts/")
+    print("    cp <downloaded>/reports/*   benchmarks/reports/")
 
 if not delivered:
     print()
