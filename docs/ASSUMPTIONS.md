@@ -372,8 +372,11 @@ a `FakeRuntime`. A suite that needs infrastructure running is a suite that gets
 skipped. Tests that need real artifacts exist separately and skip cleanly when
 the artifacts are absent.
 
-Unit coverage of `api/` is 89.6% across 734 tests. The brief's mandatory bar is
-85% for critical paths; its stretch target is 90%.
+Unit coverage of `api/` is 95.7% across 865 tests, with the cache, database
+and rate-limiting services at 100%. The brief's mandatory bar is 85% for
+critical paths and its stretch target is 90%; CI gates at 92, low enough that
+a failed Git LFS fetch skipping the artifact tests does not read as a coverage
+regression.
 
 ### 3.6 Data lives inside the repository
 

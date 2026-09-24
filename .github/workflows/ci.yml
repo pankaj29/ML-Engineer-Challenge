@@ -166,21 +166,20 @@ jobs:
             -v
 
       - name: Enforce the coverage floor
-        # Gate history: 80 -> 85 -> 88 during the requirements audit. It began
-        # BELOW the 85% the brief requires, so api/ passed CI at 83.9% while
-        # failing the standard. A gate looser than the rule it guards is worse
-        # than none - it looks like assurance.
+        # 92, against an actual 95.7% on api/. The gap is deliberate: if the
+        # Git LFS fetch fails, the artifact-dependent tests skip and coverage
+        # drops a point or two. A gate set at the achieved number turns an
+        # infrastructure hiccup into a coverage failure, which sends the next
+        # person hunting in the wrong place.
         #
-        # Why 88 and not 90, when api/ actually measures 90.5%: if the Git LFS
-        # fetch fails, 37 artifact-dependent tests skip and coverage falls to
-        # 89.9%. A gate set at the achieved number turns an infrastructure
-        # hiccup into a coverage failure, which sends the next person hunting
-        # in the wrong place. 88 catches real regression with room for that.
-        # The brief asks for at least 85% on critical paths. This is a hard
-        # gate, not a report nobody reads.
+        # It must never sit below the standard it guards. The brief requires
+        # 85% on critical paths and targets 90% for unit tests; a gate looser
+        # than either would look like assurance while providing none.
+        #
+        # This is a hard gate, not a report nobody reads.
         run: |
           pytest tests/ -m "not performance" \
-            --cov=api --cov-fail-under=88 --cov-report=term -q
+            --cov=api --cov-fail-under=92 --cov-report=term -q
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
