@@ -332,17 +332,13 @@ class TestTensorRTBackend:
         uploaded = next(iter(spy.copied.values()))
         assert uploaded.flags["C_CONTIGUOUS"]
 
-    def test_the_execution_context_was_actually_run(
-        self, engine_file: Path, monkeypatch
-    ) -> None:
+    def test_the_execution_context_was_actually_run(self, engine_file: Path, monkeypatch) -> None:
         _fake_trt_modules(monkeypatch)
         backend = TensorRTBackend(engine_file)
         backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
         assert backend.context.executed is True
 
-    def test_every_io_tensor_gets_a_device_address(
-        self, engine_file: Path, monkeypatch
-    ) -> None:
+    def test_every_io_tensor_gets_a_device_address(self, engine_file: Path, monkeypatch) -> None:
         _fake_trt_modules(monkeypatch)
         backend = TensorRTBackend(engine_file)
         backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
@@ -375,9 +371,7 @@ class TestBuildRuntimeDispatch:
         self, service: ModelService, engine_file: Path, monkeypatch
     ) -> None:
         _fake_trt_modules(monkeypatch)
-        runtime = service._build_runtime(
-            _entry(artifacts={"tensorrt": "model.engine"}), "tensorrt"
-        )
+        runtime = service._build_runtime(_entry(artifacts={"tensorrt": "model.engine"}), "tensorrt")
         assert isinstance(runtime, TensorRTBackend)
 
     def test_a_format_the_model_does_not_have_is_refused(self, service: ModelService) -> None:

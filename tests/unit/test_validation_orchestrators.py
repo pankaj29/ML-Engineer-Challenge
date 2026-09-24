@@ -157,8 +157,13 @@ class TestValidateModel:
         report = validate_model(registry, eval_samples=eval_samples, max_p95_ms=10_000.0)
         names = {c["name"] for c in report.checks}
         for required in (
-            "artifact_integrity", "determinism", "batch_invariance",
-            "output_sanity", "latency", "accuracy", "calibration",
+            "artifact_integrity",
+            "determinism",
+            "batch_invariance",
+            "output_sanity",
+            "latency",
+            "accuracy",
+            "calibration",
         ):
             assert required in names, f"{required} check did not run"
 
@@ -208,8 +213,7 @@ class TestValidateCli:
         """CI relies on this: a validation failure must break the build."""
         code = _run(
             validate_mod,
-            ["--model", "tiny:1.0.0", "--max-p95-ms", "0", "--output",
-             str(tmp_path / "v.json")],
+            ["--model", "tiny:1.0.0", "--max-p95-ms", "0", "--output", str(tmp_path / "v.json")],
             monkeypatch,
         )
         assert code == 1
@@ -219,8 +223,16 @@ class TestValidateCli:
     ) -> None:
         code = _run(
             validate_mod,
-            ["--eval-samples", "10", "--data-dir", str(tmp_path / "no-data"),
-             "--max-p95-ms", "10000", "--output", str(tmp_path / "v.json")],
+            [
+                "--eval-samples",
+                "10",
+                "--data-dir",
+                str(tmp_path / "no-data"),
+                "--max-p95-ms",
+                "10000",
+                "--output",
+                str(tmp_path / "v.json"),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -242,9 +254,10 @@ class TestBaselineStore:
     def test_recording_then_reading_back(self, tmp_path: Path) -> None:
         store = BaselineStore(tmp_path / "baseline.json")
         store.record("tiny:1.0.0", {"p95_latency_ms": 5.0}, note="first")
-        assert BaselineStore(tmp_path / "baseline.json").get("tiny:1.0.0")["metrics"][
-            "p95_latency_ms"
-        ] == 5.0
+        assert (
+            BaselineStore(tmp_path / "baseline.json").get("tiny:1.0.0")["metrics"]["p95_latency_ms"]
+            == 5.0
+        )
 
     def test_an_unknown_model_has_no_baseline(self, tmp_path: Path) -> None:
         assert BaselineStore(tmp_path / "baseline.json").get("nothing") is None
@@ -266,8 +279,17 @@ class TestRegressionCli:
         baseline = tmp_path / "baseline.json"
         code = _run(
             regression_mod,
-            ["record", "--model", "tiny:1.0.0", "--iterations", "5",
-             "--baseline-file", str(baseline), "--note", "first run"],
+            [
+                "record",
+                "--model",
+                "tiny:1.0.0",
+                "--iterations",
+                "5",
+                "--baseline-file",
+                str(baseline),
+                "--note",
+                "first run",
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -282,14 +304,30 @@ class TestRegressionCli:
         report = tmp_path / "regression.json"
         _run(
             regression_mod,
-            ["record", "--model", "tiny:1.0.0", "--iterations", "5",
-             "--baseline-file", str(baseline)],
+            [
+                "record",
+                "--model",
+                "tiny:1.0.0",
+                "--iterations",
+                "5",
+                "--baseline-file",
+                str(baseline),
+            ],
             monkeypatch,
         )
         code = _run(
             regression_mod,
-            ["check", "--model", "tiny:1.0.0", "--iterations", "5",
-             "--baseline-file", str(baseline), "--output", str(report)],
+            [
+                "check",
+                "--model",
+                "tiny:1.0.0",
+                "--iterations",
+                "5",
+                "--baseline-file",
+                str(baseline),
+                "--output",
+                str(report),
+            ],
             monkeypatch,
         )
         assert code in (0, 1)
@@ -303,14 +341,28 @@ class TestRegressionCli:
         report = tmp_path / "regression.json"
         _run(
             regression_mod,
-            ["record", "--model", "tiny:1.0.0", "--iterations", "5",
-             "--baseline-file", str(baseline)],
+            [
+                "record",
+                "--model",
+                "tiny:1.0.0",
+                "--iterations",
+                "5",
+                "--baseline-file",
+                str(baseline),
+            ],
             monkeypatch,
         )
         code = _run(
             regression_mod,
-            ["check-all", "--iterations", "5", "--baseline-file", str(baseline),
-             "--output", str(report)],
+            [
+                "check-all",
+                "--iterations",
+                "5",
+                "--baseline-file",
+                str(baseline),
+                "--output",
+                str(report),
+            ],
             monkeypatch,
         )
         assert code in (0, 1)
@@ -327,8 +379,15 @@ class TestRegressionCli:
         )
         code = _run(
             regression_mod,
-            ["check-all", "--iterations", "5", "--baseline-file", str(baseline),
-             "--output", str(tmp_path / "r.json")],
+            [
+                "check-all",
+                "--iterations",
+                "5",
+                "--baseline-file",
+                str(baseline),
+                "--output",
+                str(tmp_path / "r.json"),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -424,15 +483,24 @@ class TestDriftCli:
         monkeypatch.setattr(drift_mod, "detect_drift_from_database", fake_from_db)
         monkeypatch.setattr(drift_mod, "get_db_service", lambda: _Db(), raising=False)
         monkeypatch.setitem(
-            __import__("sys").modules, "api.services.db_service",
+            __import__("sys").modules,
+            "api.services.db_service",
             type("M", (), {"get_db_service": staticmethod(lambda: _Db())}),
         )
 
         out = tmp_path / "drift.json"
         code = _run(
             drift_mod,
-            ["--model", "tiny", "--reference-days", "30", "--current-days", "1",
-             "--output", str(out)],
+            [
+                "--model",
+                "tiny",
+                "--reference-days",
+                "30",
+                "--current-days",
+                "1",
+                "--output",
+                str(out),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -551,8 +619,18 @@ class TestAbTestCli:
         out = tmp_path / "ab.json"
         code = _run(
             ab_mod,
-            ["--champion", "tiny:1.0.0", "--challenger", "tiny-challenger:1.0.0",
-             "--data-dir", str(stub_dataset), "--samples", "8", "--output", str(out)],
+            [
+                "--champion",
+                "tiny:1.0.0",
+                "--challenger",
+                "tiny-challenger:1.0.0",
+                "--data-dir",
+                str(stub_dataset),
+                "--samples",
+                "8",
+                "--output",
+                str(out),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -567,8 +645,18 @@ class TestAbTestCli:
         out = tmp_path / "ab.json"
         _run(
             ab_mod,
-            ["--champion", "tiny:1.0.0", "--challenger", "tiny-challenger:1.0.0",
-             "--data-dir", str(stub_dataset), "--samples", "8", "--output", str(out)],
+            [
+                "--champion",
+                "tiny:1.0.0",
+                "--challenger",
+                "tiny-challenger:1.0.0",
+                "--data-dir",
+                str(stub_dataset),
+                "--samples",
+                "8",
+                "--output",
+                str(out),
+            ],
             monkeypatch,
         )
         payload = json.loads(out.read_text(encoding="utf-8"))
@@ -588,9 +676,18 @@ class TestAbTestCli:
         )
         code = _run(
             ab_mod,
-            ["--champion", "tiny:1.0.0", "--challenger", "tiny-challenger:1.0.0",
-             "--data-dir", str(stub_dataset), "--samples", "8",
-             "--output", str(tmp_path / "ab.json")],
+            [
+                "--champion",
+                "tiny:1.0.0",
+                "--challenger",
+                "tiny-challenger:1.0.0",
+                "--data-dir",
+                str(stub_dataset),
+                "--samples",
+                "8",
+                "--output",
+                str(tmp_path / "ab.json"),
+            ],
             monkeypatch,
         )
         assert code == 1
@@ -609,12 +706,16 @@ class TestRequiredSampleSize:
 class TestSignificantButWorseChallenger:
     def test_a_significantly_worse_challenger_says_so(self) -> None:
         champion = ModelScores(
-            name="a", correct=[True] * 160 + [False] * 40,
-            confidences=[0.9] * 200, latencies_ms=[10.0] * 200,
+            name="a",
+            correct=[True] * 160 + [False] * 40,
+            confidences=[0.9] * 200,
+            latencies_ms=[10.0] * 200,
         )
         challenger = ModelScores(
-            name="b", correct=[True] * 60 + [False] * 140,
-            confidences=[0.9] * 200, latencies_ms=[10.0] * 200,
+            name="b",
+            correct=[True] * 60 + [False] * 140,
+            confidences=[0.9] * 200,
+            latencies_ms=[10.0] * 200,
         )
         result = compare(champion, challenger)
         assert "worse" in result.recommendation.lower()

@@ -75,12 +75,18 @@ class TestBenchmarkCli:
         code = _run(
             benchmark_mod,
             [
-                "--onnx", str(onnx_file),
-                "--batch-sizes", "1",
-                "--iterations", "3",
-                "--warmup", "1",
-                "--image-size", "16",
-                "--output-dir", str(out),
+                "--onnx",
+                str(onnx_file),
+                "--batch-sizes",
+                "1",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "--image-size",
+                "16",
+                "--output-dir",
+                str(out),
             ],
             monkeypatch,
         )
@@ -92,8 +98,20 @@ class TestBenchmarkCli:
         out = tmp_path / "reports"
         _run(
             benchmark_mod,
-            ["--onnx", str(onnx_file), "--batch-sizes", "1", "--iterations", "3",
-             "--warmup", "1", "--image-size", "16", "--output-dir", str(out)],
+            [
+                "--onnx",
+                str(onnx_file),
+                "--batch-sizes",
+                "1",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "--image-size",
+                "16",
+                "--output-dir",
+                str(out),
+            ],
             monkeypatch,
         )
         for path in out.glob("*.json"):
@@ -106,8 +124,20 @@ class TestBenchmarkCli:
         out = tmp_path / "reports"
         _run(
             benchmark_mod,
-            ["--onnx", str(onnx_file), "--batch-sizes", "1", "--iterations", "3",
-             "--warmup", "1", "--image-size", "16", "--output-dir", str(out)],
+            [
+                "--onnx",
+                str(onnx_file),
+                "--batch-sizes",
+                "1",
+                "--iterations",
+                "3",
+                "--warmup",
+                "1",
+                "--image-size",
+                "16",
+                "--output-dir",
+                str(out),
+            ],
             monkeypatch,
         )
         markdown = list(out.glob("*.md"))
@@ -119,8 +149,20 @@ class TestBenchmarkCli:
         assert (
             _run(
                 benchmark_mod,
-                ["--onnx", str(onnx_file), "--batch-sizes", "1,2", "--iterations", "2",
-                 "--warmup", "1", "--image-size", "16", "--output-dir", str(out)],
+                [
+                    "--onnx",
+                    str(onnx_file),
+                    "--batch-sizes",
+                    "1,2",
+                    "--iterations",
+                    "2",
+                    "--warmup",
+                    "1",
+                    "--image-size",
+                    "16",
+                    "--output-dir",
+                    str(out),
+                ],
                 monkeypatch,
             )
             == 0
@@ -129,12 +171,17 @@ class TestBenchmarkCli:
     def test_missing_model_is_reported_not_crashed(self, tmp_path: Path, monkeypatch) -> None:
         code = _run(
             benchmark_mod,
-            ["--onnx", str(tmp_path / "absent.onnx"), "--iterations", "2",
-             "--output-dir", str(tmp_path / "r")],
+            [
+                "--onnx",
+                str(tmp_path / "absent.onnx"),
+                "--iterations",
+                "2",
+                "--output-dir",
+                str(tmp_path / "r"),
+            ],
             monkeypatch,
         )
         assert code != 0
-
 
     def test_no_models_anywhere_is_reported(self, tmp_path: Path, monkeypatch) -> None:
         empty = tmp_path / "empty"
@@ -151,9 +198,22 @@ class TestBenchmarkCli:
     ) -> None:
         code = _run(
             benchmark_mod,
-            ["--onnx", str(onnx_file), "--device", "auto", "--batch-sizes", "1",
-             "--iterations", "2", "--warmup", "1", "--image-size", "16",
-             "--output-dir", str(tmp_path / "r")],
+            [
+                "--onnx",
+                str(onnx_file),
+                "--device",
+                "auto",
+                "--batch-sizes",
+                "1",
+                "--iterations",
+                "2",
+                "--warmup",
+                "1",
+                "--image-size",
+                "16",
+                "--output-dir",
+                str(tmp_path / "r"),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -169,8 +229,12 @@ class TestBenchmarkHonestyAboutDevice:
 
         with pytest.warns(RuntimeWarning, match="CUDA was requested"):
             results = benchmark_mod.benchmark_onnx(
-                onnx_file, input_shape=(3, 16, 16), batch_sizes=(1,),
-                iterations=2, warmup=1, device="cuda",
+                onnx_file,
+                input_shape=(3, 16, 16),
+                batch_sizes=(1,),
+                iterations=2,
+                warmup=1,
+                device="cuda",
             )
         assert results[0].device == "cpu"
 
@@ -202,8 +266,12 @@ class TestRegistryInputShapes:
 class TestBenchmarkTorch:
     def test_benchmarks_a_torch_module(self) -> None:
         results = benchmark_torch(
-            _tiny_model(), name="tiny", input_shape=(3, 16, 16),
-            batch_sizes=(1,), iterations=3, warmup=1,
+            _tiny_model(),
+            name="tiny",
+            input_shape=(3, 16, 16),
+            batch_sizes=(1,),
+            iterations=3,
+            warmup=1,
         )
         assert results
         assert results[0].runtime.startswith("torch")
@@ -211,8 +279,12 @@ class TestBenchmarkTorch:
 
     def test_reports_the_requested_batch_sizes(self) -> None:
         results = benchmark_torch(
-            _tiny_model(), name="tiny", input_shape=(3, 16, 16),
-            batch_sizes=(1, 2), iterations=2, warmup=1,
+            _tiny_model(),
+            name="tiny",
+            input_shape=(3, 16, 16),
+            batch_sizes=(1, 2),
+            iterations=2,
+            warmup=1,
         )
         assert {r.batch_size for r in results} == {1, 2}
 
@@ -223,10 +295,23 @@ class TestMarkdownComparisonTable:
     @staticmethod
     def _result(runtime: str, p50: float, size: float, notes=()):
         return benchmark_mod.BenchmarkResult(
-            name="tiny", runtime=runtime, device="cpu", batch_size=1, iterations=10,
-            mean_ms=p50, median_ms=p50, p50_ms=p50, p90_ms=p50, p95_ms=p50, p99_ms=p50,
-            min_ms=p50, max_ms=p50, stdev_ms=0.0,
-            throughput_ips=1000.0 / p50, size_mb=size, notes=list(notes),
+            name="tiny",
+            runtime=runtime,
+            device="cpu",
+            batch_size=1,
+            iterations=10,
+            mean_ms=p50,
+            median_ms=p50,
+            p50_ms=p50,
+            p90_ms=p50,
+            p95_ms=p50,
+            p99_ms=p50,
+            min_ms=p50,
+            max_ms=p50,
+            stdev_ms=0.0,
+            throughput_ips=1000.0 / p50,
+            size_mb=size,
+            notes=list(notes),
         )
 
     def test_int8_is_compared_against_the_fp32_baseline(self) -> None:
@@ -251,8 +336,16 @@ class TestExportCli:
         out = tmp_path / "exported"
         code = _run(
             export_mod,
-            ["--model", "resnet18", "--image-size", "32", "--output", str(out),
-             "--report", str(tmp_path / "export.json")],
+            [
+                "--model",
+                "resnet18",
+                "--image-size",
+                "32",
+                "--output",
+                str(out),
+                "--report",
+                str(tmp_path / "export.json"),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -262,8 +355,16 @@ class TestExportCli:
         report = tmp_path / "export.json"
         _run(
             export_mod,
-            ["--model", "resnet18", "--image-size", "32",
-             "--output", str(tmp_path / "m"), "--report", str(report)],
+            [
+                "--model",
+                "resnet18",
+                "--image-size",
+                "32",
+                "--output",
+                str(tmp_path / "m"),
+                "--report",
+                str(report),
+            ],
             monkeypatch,
         )
         payload = json.loads(report.read_text(encoding="utf-8"))
@@ -276,8 +377,18 @@ class TestExportCli:
         report = tmp_path / "export.json"
         code = _run(
             export_mod,
-            ["--model", "resnet18", "--image-size", "32", "--num-classes", "200",
-             "--output", str(tmp_path / "m"), "--report", str(report)],
+            [
+                "--model",
+                "resnet18",
+                "--image-size",
+                "32",
+                "--num-classes",
+                "200",
+                "--output",
+                str(tmp_path / "m"),
+                "--report",
+                str(report),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -294,9 +405,20 @@ class TestExportCli:
 
         code = _run(
             export_mod,
-            ["--model", "resnet18", "--image-size", "32", "--num-classes", "200",
-             "--checkpoint", str(checkpoint),
-             "--output", str(tmp_path / "m"), "--report", str(tmp_path / "r.json")],
+            [
+                "--model",
+                "resnet18",
+                "--image-size",
+                "32",
+                "--num-classes",
+                "200",
+                "--checkpoint",
+                str(checkpoint),
+                "--output",
+                str(tmp_path / "m"),
+                "--report",
+                str(tmp_path / "r.json"),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -314,8 +436,11 @@ class TestExportVerificationNotes:
     def test_an_impossible_tolerance_is_recorded_as_a_mismatch(self, tmp_path: Path) -> None:
         """`verified` must be driven by the numbers, not by "the export ran"."""
         result = export_to_onnx(
-            _tiny_model(), tmp_path / "strict.onnx",
-            input_shape=INPUT_SHAPE, name="strict", tolerance=0.0,
+            _tiny_model(),
+            tmp_path / "strict.onnx",
+            input_shape=INPUT_SHAPE,
+            name="strict",
+            tolerance=0.0,
         )
         assert result.verified is False
         assert any("NUMERICAL MISMATCH" in n for n in result.notes)
@@ -338,8 +463,7 @@ class TestQuantizeCli:
     def test_dynamic_mode(self, onnx_file: Path, tmp_path: Path, monkeypatch) -> None:
         code = _run(
             quantize_mod,
-            ["--onnx", str(onnx_file), "--mode", "dynamic",
-             "--report", str(tmp_path / "q.json")],
+            ["--onnx", str(onnx_file), "--mode", "dynamic", "--report", str(tmp_path / "q.json")],
             monkeypatch,
         )
         assert code == 0
@@ -350,9 +474,20 @@ class TestQuantizeCli:
     ) -> None:
         code = _run(
             quantize_mod,
-            ["--onnx", str(onnx_file), "--mode", "static",
-             "--calibration-dir", str(calibration_dir), "--num-calibration", "3",
-             "--image-size", "16", "--report", str(tmp_path / "qs.json")],
+            [
+                "--onnx",
+                str(onnx_file),
+                "--mode",
+                "static",
+                "--calibration-dir",
+                str(calibration_dir),
+                "--num-calibration",
+                "3",
+                "--image-size",
+                "16",
+                "--report",
+                str(tmp_path / "qs.json"),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -363,9 +498,20 @@ class TestQuantizeCli:
         report = tmp_path / "qb.json"
         code = _run(
             quantize_mod,
-            ["--onnx", str(onnx_file), "--mode", "both",
-             "--calibration-dir", str(calibration_dir), "--num-calibration", "3",
-             "--image-size", "16", "--report", str(report)],
+            [
+                "--onnx",
+                str(onnx_file),
+                "--mode",
+                "both",
+                "--calibration-dir",
+                str(calibration_dir),
+                "--num-calibration",
+                "3",
+                "--image-size",
+                "16",
+                "--report",
+                str(report),
+            ],
             monkeypatch,
         )
         assert code == 0
@@ -378,15 +524,23 @@ class TestQuantizeCli:
         """Static quantization without calibration is not a thing."""
         code = _run(
             quantize_mod,
-            ["--onnx", str(onnx_file), "--mode", "static",
-             "--calibration-dir", str(tmp_path / "absent")],
+            [
+                "--onnx",
+                str(onnx_file),
+                "--mode",
+                "static",
+                "--calibration-dir",
+                str(tmp_path / "absent"),
+            ],
             monkeypatch,
         )
         assert code != 0
 
     def test_missing_model_is_reported(self, tmp_path: Path, monkeypatch) -> None:
         code = _run(
-            quantize_mod, ["--onnx", str(tmp_path / "absent.onnx"), "--mode", "dynamic"], monkeypatch
+            quantize_mod,
+            ["--onnx", str(tmp_path / "absent.onnx"), "--mode", "dynamic"],
+            monkeypatch,
         )
         assert code != 0
 
