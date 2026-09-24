@@ -706,7 +706,11 @@ def save_checkpoint(
         "best_top1": best_top1,
         "epochs_without_improvement": epochs_without_improvement,
         "history": asdict(history),
-        "config": asdict(config),
+        # config_as_json, not asdict: a raw `Path` field pickles as a
+        # PosixPath, and unpickling a PosixPath on Windows raises outright.
+        # A checkpoint trained on a Linux GPU box has to be readable on the
+        # laptop it gets pulled back to.
+        "config": config_as_json(config),
         "arch": config.arch,
         "num_classes": num_classes,
         "class_names": class_names,
@@ -1012,7 +1016,7 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
                     "epoch": epoch,
                     "val_top1": top1,
                     "val_top5": top5,
-                    "config": asdict(config),
+                    "config": config_as_json(config),
                     "class_names": class_names,
                     "saved_at": datetime.now(UTC).isoformat(),
                 },

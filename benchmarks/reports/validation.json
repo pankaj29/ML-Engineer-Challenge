@@ -1,95 +1,7 @@
 [
   {
-    "model": "resnet50:1.0.0",
-    "validated_at": "2026-09-24T04:53:17.641895+00:00",
-    "passed": true,
-    "checks": [
-      {
-        "name": "artifact_integrity",
-        "passed": true,
-        "severity": "critical",
-        "message": "All 2 artifact(s) present.",
-        "detail": {
-          "sizes_mb": {
-            "onnx": 97.41,
-            "onnx_int8": 24.87
-          }
-        }
-      },
-      {
-        "name": "determinism",
-        "passed": true,
-        "severity": "critical",
-        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
-        "detail": {
-          "runs": 3,
-          "max_diff": 0.0,
-          "tolerance": 1e-05
-        }
-      },
-      {
-        "name": "batch_invariance",
-        "passed": true,
-        "severity": "critical",
-        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
-        "detail": {
-          "batch_size": 8,
-          "max_diff": 0.0
-        }
-      },
-      {
-        "name": "output_sanity",
-        "passed": true,
-        "severity": "critical",
-        "message": "Output is well-formed: no NaN or infinite values.",
-        "detail": {
-          "shape": [
-            1,
-            1000
-          ],
-          "min": -1.4836528301239014,
-          "max": 5.1435160636901855,
-          "raw_sum": 0.123923,
-          "looks_like_probabilities": false,
-          "max_probability": 0.077409
-        }
-      },
-      {
-        "name": "robustness",
-        "passed": true,
-        "severity": "warning",
-        "message": "0.0% of predictions changed under imperceptible noise (sigma=0.01), within the 15% threshold.",
-        "detail": {
-          "samples": 20,
-          "flips": 0,
-          "flip_rate": 0.0,
-          "mean_confidence_drop": 0.0
-        }
-      },
-      {
-        "name": "latency",
-        "passed": true,
-        "severity": "critical",
-        "message": "p95 latency is 58.4 ms, within the 1000 ms budget.",
-        "detail": {
-          "p50_ms": 43.42,
-          "p95_ms": 58.42,
-          "min_ms": 17.84,
-          "max_ms": 115.15,
-          "iterations": 30
-        }
-      }
-    ],
-    "metrics": {
-      "p50_latency_ms": 43.42,
-      "p95_latency_ms": 58.42
-    },
-    "critical_failures": [],
-    "warnings": []
-  },
-  {
     "model": "resnet50-tiny-imagenet:1.0.0",
-    "validated_at": "2026-09-24T04:53:19.443152+00:00",
+    "validated_at": "2026-09-24T11:23:12.412858+00:00",
     "passed": true,
     "checks": [
       {
@@ -135,11 +47,11 @@
             1,
             200
           ],
-          "min": -4.293694019317627,
-          "max": 2.908230781555176,
-          "raw_sum": -479.527162,
+          "min": -2.6607131958007812,
+          "max": 1.8245079517364502,
+          "raw_sum": -273.85524,
           "looks_like_probabilities": false,
-          "max_probability": 0.332061
+          "max_probability": 0.081607
         }
       },
       {
@@ -151,173 +63,146 @@
           "samples": 20,
           "flips": 0,
           "flip_rate": 0.0,
-          "mean_confidence_drop": 0.0
+          "mean_confidence_drop": -0.0
+        }
+      },
+      {
+        "name": "inference_errors",
+        "passed": true,
+        "severity": "critical",
+        "message": "All 2000 samples inferred successfully.",
+        "detail": {
+          "errors": 0,
+          "samples": 2000,
+          "first": ""
+        }
+      },
+      {
+        "name": "accuracy",
+        "passed": true,
+        "severity": "warning",
+        "message": "Top-1 78.60%, top-5 91.95% on 2000 samples.",
+        "detail": {
+          "samples": 2000,
+          "top1": 0.786,
+          "top5": 0.9195,
+          "chance": 0.005
+        }
+      },
+      {
+        "name": "calibration",
+        "passed": true,
+        "severity": "warning",
+        "message": "Expected Calibration Error is 0.1244, within the 0.15 threshold.",
+        "detail": {
+          "ece": 0.124415,
+          "bins": [
+            {
+              "range": "(0.0, 0.1]",
+              "count": 49,
+              "mean_confidence": 0.0745,
+              "accuracy": 0.1429,
+              "gap": 0.0683,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.1, 0.2]",
+              "count": 116,
+              "mean_confidence": 0.1506,
+              "accuracy": 0.3017,
+              "gap": 0.1512,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.2, 0.3]",
+              "count": 118,
+              "mean_confidence": 0.2527,
+              "accuracy": 0.3729,
+              "gap": 0.1202,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.3, 0.4]",
+              "count": 120,
+              "mean_confidence": 0.3488,
+              "accuracy": 0.5167,
+              "gap": 0.1679,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.4, 0.5]",
+              "count": 105,
+              "mean_confidence": 0.4487,
+              "accuracy": 0.5143,
+              "gap": 0.0656,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.5, 0.6]",
+              "count": 103,
+              "mean_confidence": 0.5515,
+              "accuracy": 0.7087,
+              "gap": 0.1572,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.6, 0.7]",
+              "count": 136,
+              "mean_confidence": 0.6532,
+              "accuracy": 0.7868,
+              "gap": 0.1336,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.7, 0.8]",
+              "count": 346,
+              "mean_confidence": 0.7594,
+              "accuracy": 0.8902,
+              "gap": 0.1307,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.8, 0.9]",
+              "count": 814,
+              "mean_confidence": 0.8467,
+              "accuracy": 0.9705,
+              "gap": 0.1239,
+              "direction": "underconfident"
+            },
+            {
+              "range": "(0.9, 1.0]",
+              "count": 93,
+              "mean_confidence": 0.9214,
+              "accuracy": 0.9892,
+              "gap": 0.0678,
+              "direction": "underconfident"
+            }
+          ]
         }
       },
       {
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 32.3 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 33.8 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 10.82,
-          "p95_ms": 32.33,
-          "min_ms": 6.45,
-          "max_ms": 32.79,
+          "p50_ms": 32.6,
+          "p95_ms": 33.79,
+          "min_ms": 28.64,
+          "max_ms": 33.89,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 10.82,
-      "p95_latency_ms": 32.33
-    },
-    "critical_failures": [],
-    "warnings": []
-  },
-  {
-    "model": "yolov8n:1.0.0",
-    "validated_at": "2026-09-24T04:53:22.832698+00:00",
-    "passed": true,
-    "checks": [
-      {
-        "name": "artifact_integrity",
-        "passed": true,
-        "severity": "critical",
-        "message": "All 2 artifact(s) present.",
-        "detail": {
-          "sizes_mb": {
-            "onnx": 12.09,
-            "onnx_int8": 3.41
-          }
-        }
-      },
-      {
-        "name": "determinism",
-        "passed": true,
-        "severity": "critical",
-        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
-        "detail": {
-          "runs": 3,
-          "max_diff": 0.0,
-          "tolerance": 1e-05
-        }
-      },
-      {
-        "name": "batch_invariance",
-        "passed": true,
-        "severity": "critical",
-        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
-        "detail": {
-          "batch_size": 8,
-          "max_diff": 0.0
-        }
-      },
-      {
-        "name": "output_sanity",
-        "passed": true,
-        "severity": "critical",
-        "message": "Output is well-formed: no NaN or infinite values.",
-        "detail": {
-          "shape": [
-            1,
-            84,
-            8400
-          ],
-          "min": 0.0,
-          "max": 639.0703125
-        }
-      },
-      {
-        "name": "latency",
-        "passed": true,
-        "severity": "critical",
-        "message": "p95 latency is 79.3 ms, within the 1000 ms budget.",
-        "detail": {
-          "p50_ms": 66.5,
-          "p95_ms": 79.25,
-          "min_ms": 56.09,
-          "max_ms": 79.9,
-          "iterations": 30
-        }
-      }
-    ],
-    "metrics": {
-      "p50_latency_ms": 66.5,
-      "p95_latency_ms": 79.25
-    },
-    "critical_failures": [],
-    "warnings": []
-  },
-  {
-    "model": "resnet50-embed:1.0.0",
-    "validated_at": "2026-09-24T04:53:24.975223+00:00",
-    "passed": true,
-    "checks": [
-      {
-        "name": "artifact_integrity",
-        "passed": true,
-        "severity": "critical",
-        "message": "All 2 artifact(s) present.",
-        "detail": {
-          "sizes_mb": {
-            "onnx": 89.6,
-            "onnx_int8": 22.91
-          }
-        }
-      },
-      {
-        "name": "determinism",
-        "passed": true,
-        "severity": "critical",
-        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
-        "detail": {
-          "runs": 3,
-          "max_diff": 0.0,
-          "tolerance": 1e-05
-        }
-      },
-      {
-        "name": "batch_invariance",
-        "passed": true,
-        "severity": "critical",
-        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
-        "detail": {
-          "batch_size": 8,
-          "max_diff": 0.0
-        }
-      },
-      {
-        "name": "output_sanity",
-        "passed": true,
-        "severity": "critical",
-        "message": "Output is well-formed: no NaN or infinite values.",
-        "detail": {
-          "shape": [
-            1,
-            2048
-          ],
-          "min": 0.0,
-          "max": 0.5844647884368896
-        }
-      },
-      {
-        "name": "latency",
-        "passed": true,
-        "severity": "critical",
-        "message": "p95 latency is 78.0 ms, within the 1000 ms budget.",
-        "detail": {
-          "p50_ms": 41.96,
-          "p95_ms": 78.04,
-          "min_ms": 18.04,
-          "max_ms": 83.09,
-          "iterations": 30
-        }
-      }
-    ],
-    "metrics": {
-      "p50_latency_ms": 41.96,
-      "p95_latency_ms": 78.04
+      "accuracy": 0.786,
+      "top1_accuracy": 0.786,
+      "top5_accuracy": 0.9195,
+      "mean_confidence": 0.661585,
+      "inference_errors": 0,
+      "expected_calibration_error": 0.124415,
+      "p50_latency_ms": 32.6,
+      "p95_latency_ms": 33.79
     },
     "critical_failures": [],
     "warnings": []

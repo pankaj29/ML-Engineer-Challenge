@@ -596,6 +596,16 @@ def validate_model(
         top5_correct: list[bool] = []
         confidences: list[float] = []
 
+        # Inference failures are counted, not just absorbed. Treating an
+        # exception as "the model got it wrong" is right for a single bad
+        # image and catastrophic for a systematic fault: a preprocessing size
+        # that no longer matches the graph makes every sample raise, and the
+        # run then reports 0.00% accuracy as though the model were merely bad.
+        # That happened - a 128px preprocess config against a 224px model -
+        # and this check passed.
+        errors = 0
+        first_error = ""
+
         for image_bytes, label in eval_samples:
             try:
                 arr = preprocess(image_bytes, cfg).array
@@ -605,7 +615,10 @@ def validate_model(
                 correct.append(int(ranked[0]) == label)
                 top5_correct.append(label in ranked[:5].tolist())
                 confidences.append(float(probs.max()))
-            except Exception:
+            except Exception as exc:
+                errors += 1
+                if not first_error:
+                    first_error = f"{type(exc).__name__}: {exc}"
                 correct.append(False)
                 top5_correct.append(False)
                 confidences.append(0.0)
@@ -616,14 +629,54 @@ def validate_model(
         metrics["top1_accuracy"] = round(top1, 6)
         metrics["top5_accuracy"] = round(top5, 6)
         metrics["mean_confidence"] = round(float(np.mean(confidences)), 6)
+        metrics["inference_errors"] = errors
 
+        error_rate = errors / len(eval_samples)
+        checks.append(
+            CheckResult(
+                name="inference_errors",
+                # 1% tolerates the odd corrupt JPEG in a real dataset. Beyond
+                # that the fault is systematic and the accuracy figure below is
+                # measuring the fault, not the model.
+                passed=error_rate <= 0.01,
+                severity="critical",
+                message=(
+                    f"All {len(eval_samples)} samples inferred successfully."
+                    if errors == 0
+                    else (
+                        f"{errors} of {len(eval_samples)} samples ({error_rate:.1%}) failed "
+                        f"to infer - the accuracy below measures this failure, not the "
+                        f"model. First error: {first_error}"
+                    )
+                ),
+                detail={"errors": errors, "samples": len(eval_samples), "first": first_error},
+            )
+        )
+
+        # Accuracy itself stays informational - a "good enough" threshold is a
+        # per-model product decision and belongs in regression testing against
+        # a recorded baseline. But at or below random chance the model is not
+        # merely underperforming, it is not working, and that is reportable
+        # here without knowing anything about the product.
+        chance = (1.0 / model_classes) if model_classes else 0.0
+        broken = top1 <= chance
         checks.append(
             CheckResult(
                 name="accuracy",
-                passed=True,  # informational; thresholds belong to regression testing
-                severity="warning",
-                message=f"Top-1 {top1:.2%}, top-5 {top5:.2%} on {len(eval_samples)} samples.",
-                detail={"samples": len(eval_samples), "top1": top1, "top5": top5},
+                passed=not broken,
+                severity="critical" if broken else "warning",
+                message=(
+                    f"Top-1 {top1:.2%} is at or below the {chance:.2%} random-chance "
+                    f"baseline for {model_classes} classes - the model is not predicting."
+                    if broken
+                    else f"Top-1 {top1:.2%}, top-5 {top5:.2%} on {len(eval_samples)} samples."
+                ),
+                detail={
+                    "samples": len(eval_samples),
+                    "top1": top1,
+                    "top5": top5,
+                    "chance": chance,
+                },
             )
         )
         checks.append(check_calibration(confidences, correct))

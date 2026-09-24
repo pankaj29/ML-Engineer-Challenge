@@ -327,19 +327,25 @@ CLASSIFICATION_PREPROCESS = PreprocessConfig(
 # because that is the transform its pretrained weights were evaluated with.
 # The right rule is not "always crop" or "never crop" - it is "match how the
 # model was evaluated".)
-# 128, not Tiny-ImageNet's native 64.
+# 224, not Tiny-ImageNet's native 64.
 #
-# The images are 64x64, so this upsamples them. That is deliberate: at 64px the
-# ResNet stem has to be replaced (stride-2 7x7 -> stride-1 3x3, maxpool
-# removed) or the first residual block sees a 16x16 map. Replacing the stem
-# discards pretrained weights. At 128px the original ImageNet stem is used
-# unchanged, and the whole pretrained network transfers.
+# The images are 64x64, so this upsamples them, and that is deliberate. At
+# 64px the ResNet stem has to be replaced (stride-2 7x7 -> stride-1 3x3,
+# maxpool removed) or the first residual block sees a 16x16 map - and
+# replacing the stem discards pretrained weights. Feeding 224px keeps the
+# original ImageNet stem and runs the backbone at the resolution its features
+# were learned at, so the whole pretrained network transfers unchanged.
+#
+# Upsampling adds no information: the source is still 64x64, which is why the
+# gain over 128px is a little over one point rather than the several a
+# resolution change usually buys. The ceiling here is the dataset, not the
+# input size. See docs/ASSUMPTIONS.md.
 #
 # This MUST equal the --image-size the checkpoint was trained with.
 # tests/unit/test_preprocessing_parity.py derives its expectations from this
 # constant rather than hard-coding a number, so the two cannot drift apart.
 TINY_IMAGENET_PREPROCESS = PreprocessConfig(
-    size=(128, 128),
+    size=(224, 224),
     mean=TINY_IMAGENET_MEAN,
     std=TINY_IMAGENET_STD,
     resize_mode="stretch",

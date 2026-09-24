@@ -221,3 +221,152 @@ class TestEnvironmentFingerprint:
         import json
 
         json.dumps(environment_fingerprint())
+
+
+class TestSystematicInferenceFailureIsNotSilent:
+    """The failure this guards against actually happened.
+
+    A 128px preprocessing config was used against a 224px model, so every one
+    of 2000 samples raised on inference. The loop counted each exception as a
+    wrong answer, and the run reported `Top-1 0.00%` with the accuracy check
+    marked **passed** - a total plumbing failure presented as a healthy model
+    that happened to score zero. This module's own docstring says most
+    production failures are plumbing failures; it has to notice its own.
+    """
+
+    @staticmethod
+    def _registry(tmp_path, monkeypatch, *, model_size: int, preprocess_size: int) -> str:
+        """A registry whose preprocessing size can be made to disagree with the graph."""
+        import json
+
+        import torch
+
+        import api.services.model_service as model_service
+        import api.utils.image_processing as image_processing
+        from api.config import Settings
+        from models.optimization.export_onnx import export_to_onnx
+
+        artifacts = tmp_path / "artifacts"
+        artifacts.mkdir()
+        torch.manual_seed(0)
+        model = torch.nn.Sequential(
+            torch.nn.Flatten(),
+            torch.nn.Linear(3 * model_size * model_size, 10),
+        ).eval()
+        export_to_onnx(
+            model,
+            artifacts / "m.onnx",
+            input_shape=(1, 3, model_size, model_size),
+            name="m",
+        )
+        (artifacts / "labels.json").write_text(
+            json.dumps([f"c{i}" for i in range(10)]), encoding="utf-8"
+        )
+
+        monkeypatch.setattr(
+            image_processing,
+            "TINY_IMAGENET_PREPROCESS",
+            image_processing.PreprocessConfig(
+                size=(preprocess_size, preprocess_size),
+                mean=image_processing.TINY_IMAGENET_MEAN,
+                std=image_processing.TINY_IMAGENET_STD,
+                resize_mode="stretch",
+            ),
+        )
+        monkeypatch.setattr(
+            model_service,
+            "PREPROCESS_PRESETS",
+            {
+                **model_service.PREPROCESS_PRESETS,
+                "tiny_imagenet": image_processing.TINY_IMAGENET_PREPROCESS,
+            },
+        )
+
+        registry = tmp_path / "registry.json"
+        registry.write_text(
+            json.dumps(
+                {
+                    "models": [
+                        {
+                            "name": "m",
+                            "version": "1.0.0",
+                            "task": "classification",
+                            "artifacts": {"onnx": "m.onnx"},
+                            "preprocess": "tiny_imagenet",
+                            "labels_file": "labels.json",
+                            "num_classes": 10,
+                            "input_shape": [1, 3, model_size, model_size],
+                            "metrics": {},
+                            "limitations": [],
+                            "description": "fixture",
+                            "is_default": True,
+                            "status": "active",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            model_service,
+            "settings",
+            Settings(model_registry_path=registry, model_artifacts_dir=artifacts),
+        )
+        return "m:1.0.0"
+
+    @staticmethod
+    def _samples(n: int = 20, size: int = 32):
+        import io
+
+        import numpy as np
+        from PIL import Image
+
+        rng = np.random.default_rng(0)
+        out = []
+        for i in range(n):
+            buf = io.BytesIO()
+            Image.fromarray(rng.integers(0, 256, (size, size, 3), dtype=np.uint8)).save(
+                buf, format="PNG"
+            )
+            out.append((buf.getvalue(), i % 10))
+        return out
+
+    def test_a_size_mismatch_fails_the_run(self, tmp_path, monkeypatch) -> None:
+        from models.validation.validate import validate_model
+
+        key = self._registry(tmp_path, monkeypatch, model_size=32, preprocess_size=16)
+        report = validate_model(key, eval_samples=self._samples(), max_p95_ms=10_000.0)
+
+        assert report.passed is False, "a total inference failure was reported as healthy"
+
+    def test_the_error_check_names_the_cause(self, tmp_path, monkeypatch) -> None:
+        from models.validation.validate import validate_model
+
+        key = self._registry(tmp_path, monkeypatch, model_size=32, preprocess_size=16)
+        report = validate_model(key, eval_samples=self._samples(), max_p95_ms=10_000.0)
+
+        errors = next(c for c in report.checks if c["name"] == "inference_errors")
+        assert errors["passed"] is False
+        assert "failed to infer" in errors["message"]
+
+    def test_accuracy_at_chance_is_critical_not_informational(self, tmp_path, monkeypatch) -> None:
+        from models.validation.validate import validate_model
+
+        key = self._registry(tmp_path, monkeypatch, model_size=32, preprocess_size=16)
+        report = validate_model(key, eval_samples=self._samples(), max_p95_ms=10_000.0)
+
+        accuracy = next(c for c in report.checks if c["name"] == "accuracy")
+        assert accuracy["passed"] is False
+        assert accuracy["severity"] == "critical"
+        assert "random-chance" in accuracy["message"]
+
+    def test_a_matching_size_reports_no_errors(self, tmp_path, monkeypatch) -> None:
+        """The control: the same harness with the sizes agreeing."""
+        from models.validation.validate import validate_model
+
+        key = self._registry(tmp_path, monkeypatch, model_size=32, preprocess_size=32)
+        report = validate_model(key, eval_samples=self._samples(), max_p95_ms=10_000.0)
+
+        errors = next(c for c in report.checks if c["name"] == "inference_errors")
+        assert errors["passed"] is True
+        assert report.metrics["inference_errors"] == 0

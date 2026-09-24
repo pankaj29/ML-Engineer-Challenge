@@ -576,3 +576,74 @@ class TestHistoryIsAlwaysJsonSerialisable:
             dataset={"classes": 200},
         )
         json.dumps(asdict(history))
+
+
+class TestCheckpointsArePortableAcrossPlatforms:
+    """A checkpoint trained on a Linux GPU box must load on a Windows laptop.
+
+    `asdict(config)` pickles a `Path` field as a `PosixPath`, and unpickling a
+    `PosixPath` on Windows raises `UnsupportedOperation` - so adding
+    `--mirror-dir` silently made every Colab checkpoint unreadable on the
+    machine it gets pulled back to. The config is stored JSON-safe instead.
+    """
+
+    def test_no_path_objects_are_stored_in_the_checkpoint(self, tmp_path) -> None:
+        from models.training.train_classifier import (
+            TrainConfig,
+            TrainingHistory,
+            save_checkpoint,
+        )
+
+        model = _model()
+        path = tmp_path / "last.pt"
+        save_checkpoint(
+            path,
+            model=model,
+            optimizer=torch.optim.SGD(model.parameters(), lr=0.1),
+            scheduler=None,
+            scaler=None,
+            ema=None,
+            epoch=1,
+            best_top1=0.0,
+            epochs_without_improvement=0,
+            history=TrainingHistory(config={}),
+            config=TrainConfig(mirror_dir=Path("/content/drive/MyDrive/results")),
+            num_classes=2,
+            class_names=["a", "b"],
+            adapted=False,
+        )
+
+        stored = torch.load(path, map_location="cpu", weights_only=False)["config"]
+        offenders = [k for k, v in stored.items() if isinstance(v, Path)]
+        assert not offenders, f"Path objects in the checkpoint config: {offenders}"
+        assert isinstance(stored["mirror_dir"], str)
+
+    def test_the_checkpoint_config_is_json_encodable(self, tmp_path) -> None:
+        """The same dict is copied into the history file, which is JSON."""
+        import json
+
+        from models.training.train_classifier import (
+            TrainConfig,
+            TrainingHistory,
+            save_checkpoint,
+        )
+
+        model = _model()
+        path = tmp_path / "last.pt"
+        save_checkpoint(
+            path,
+            model=model,
+            optimizer=torch.optim.SGD(model.parameters(), lr=0.1),
+            scheduler=None,
+            scaler=None,
+            ema=None,
+            epoch=1,
+            best_top1=0.0,
+            epochs_without_improvement=0,
+            history=TrainingHistory(config={}),
+            config=TrainConfig(mirror_dir=Path("/content/drive/MyDrive/results")),
+            num_classes=2,
+            class_names=["a", "b"],
+            adapted=False,
+        )
+        json.dumps(torch.load(path, map_location="cpu", weights_only=False)["config"])
