@@ -454,6 +454,16 @@ def main() -> int:
         print(f"error: no .onnx files found in {args.artifacts}", file=sys.stderr)
         return 2
 
+    # A glob can only yield files that exist, but an explicit --onnx cannot.
+    # Without this, a mistyped path surfaced as a raw ONNX Runtime NO_SUCHFILE
+    # traceback partway through the run, after earlier models had already been
+    # benchmarked and their results thrown away.
+    missing = [p for p in targets if not Path(p).is_file()]
+    if missing:
+        for path in missing:
+            print(f"error: no such model file: {path}", file=sys.stderr)
+        return 2
+
     # Each model has its own input size (224 for the classifiers, 640 for the
     # detector). Benchmarking them all at one size would either crash the
     # detector or silently measure it at the wrong resolution, which would

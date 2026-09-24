@@ -242,12 +242,30 @@ def check_output_sanity(
     }
 
     if expect_probabilities and output.ndim == 2 and not problems:
+        # Check the RAW output, not softmax(output).
+        #
+        # This previously computed softmax(output) and then asserted the result
+        # summed to 1. Softmax always sums to 1 by construction, so the branch
+        # could never fail - a check that cannot detect its own failure mode.
+        #
+        # A classifier here may legitimately emit either probabilities or raw
+        # logits, so the rule is: if it looks like probabilities, it must be
+        # valid probabilities. Anything outside [0, 1] is treated as logits and
+        # only sanity-checked for finiteness (already done above).
+        raw_total = float(output.astype(np.float64).sum(axis=1)[0])
+        looks_like_probabilities = bool(output.min() >= -1e-6 and output.max() <= 1.0 + 1e-6)
+        detail["raw_sum"] = round(raw_total, 6)
+        detail["looks_like_probabilities"] = looks_like_probabilities
+
+        if looks_like_probabilities and abs(raw_total - 1.0) > 1e-3:
+            problems.append(
+                f"output is in [0, 1] so it should be a probability "
+                f"distribution, but it sums to {raw_total:.6f}, not 1.0"
+            )
+
+        # Report the normalised view either way - it is what the API returns.
         probs = softmax(output.astype(np.float64))
-        total = float(probs.sum(axis=1)[0])
-        detail["probability_sum"] = round(total, 6)
         detail["max_probability"] = round(float(probs.max()), 6)
-        if abs(total - 1.0) > 1e-4:
-            problems.append(f"probabilities sum to {total:.6f}, not 1.0")
 
     passed = not problems
     return CheckResult(

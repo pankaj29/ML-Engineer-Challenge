@@ -1,7 +1,7 @@
 [
   {
     "model": "resnet50:1.0.0",
-    "validated_at": "2026-09-22T13:51:45.072357+00:00",
+    "validated_at": "2026-09-24T04:53:17.641895+00:00",
     "passed": true,
     "checks": [
       {
@@ -12,7 +12,7 @@
         "detail": {
           "sizes_mb": {
             "onnx": 97.41,
-            "onnx_int8": 24.54
+            "onnx_int8": 24.87
           }
         }
       },
@@ -47,10 +47,11 @@
             1,
             1000
           ],
-          "min": -1.424161434173584,
-          "max": 5.1418280601501465,
-          "probability_sum": 1.0,
-          "max_probability": 0.076493
+          "min": -1.4836528301239014,
+          "max": 5.1435160636901855,
+          "raw_sum": 0.123923,
+          "looks_like_probabilities": false,
+          "max_probability": 0.077409
         }
       },
       {
@@ -66,49 +67,128 @@
         }
       },
       {
-        "name": "accuracy",
-        "passed": true,
-        "severity": "warning",
-        "message": "Accuracy NOT measured: the model has 1000 classes but the evaluation set uses 200. Their class indices refer to different things, so any accuracy figure would be meaningless. Evaluate against a dataset matching the model's label space, or fine-tune the model on this one.",
-        "detail": {
-          "model_classes": 1000,
-          "dataset_classes": 200
-        }
-      },
-      {
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 95.4 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 58.4 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 70.85,
-          "p95_ms": 95.43,
-          "min_ms": 25.71,
-          "max_ms": 115.77,
+          "p50_ms": 43.42,
+          "p95_ms": 58.42,
+          "min_ms": 17.84,
+          "max_ms": 115.15,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 70.85,
-      "p95_latency_ms": 95.43
+      "p50_latency_ms": 43.42,
+      "p95_latency_ms": 58.42
     },
     "critical_failures": [],
     "warnings": []
   },
   {
-    "model": "yolov8n:1.0.0",
-    "validated_at": "2026-09-22T13:51:51.750312+00:00",
+    "model": "resnet50-tiny-imagenet:1.0.0",
+    "validated_at": "2026-09-24T04:53:19.443152+00:00",
     "passed": true,
     "checks": [
       {
         "name": "artifact_integrity",
         "passed": true,
         "severity": "critical",
-        "message": "All 1 artifact(s) present.",
+        "message": "All 2 artifact(s) present.",
         "detail": {
           "sizes_mb": {
-            "onnx": 12.09
+            "onnx": 91.16,
+            "onnx_int8": 23.3
+          }
+        }
+      },
+      {
+        "name": "determinism",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is deterministic across 3 runs (max diff 0.00e+00).",
+        "detail": {
+          "runs": 3,
+          "max_diff": 0.0,
+          "tolerance": 1e-05
+        }
+      },
+      {
+        "name": "batch_invariance",
+        "passed": true,
+        "severity": "critical",
+        "message": "Predictions are batch-invariant (max diff 0.00e+00).",
+        "detail": {
+          "batch_size": 8,
+          "max_diff": 0.0
+        }
+      },
+      {
+        "name": "output_sanity",
+        "passed": true,
+        "severity": "critical",
+        "message": "Output is well-formed: no NaN or infinite values.",
+        "detail": {
+          "shape": [
+            1,
+            200
+          ],
+          "min": -4.293694019317627,
+          "max": 2.908230781555176,
+          "raw_sum": -479.527162,
+          "looks_like_probabilities": false,
+          "max_probability": 0.332061
+        }
+      },
+      {
+        "name": "robustness",
+        "passed": true,
+        "severity": "warning",
+        "message": "0.0% of predictions changed under imperceptible noise (sigma=0.01), within the 15% threshold.",
+        "detail": {
+          "samples": 20,
+          "flips": 0,
+          "flip_rate": 0.0,
+          "mean_confidence_drop": 0.0
+        }
+      },
+      {
+        "name": "latency",
+        "passed": true,
+        "severity": "critical",
+        "message": "p95 latency is 32.3 ms, within the 1000 ms budget.",
+        "detail": {
+          "p50_ms": 10.82,
+          "p95_ms": 32.33,
+          "min_ms": 6.45,
+          "max_ms": 32.79,
+          "iterations": 30
+        }
+      }
+    ],
+    "metrics": {
+      "p50_latency_ms": 10.82,
+      "p95_latency_ms": 32.33
+    },
+    "critical_failures": [],
+    "warnings": []
+  },
+  {
+    "model": "yolov8n:1.0.0",
+    "validated_at": "2026-09-24T04:53:22.832698+00:00",
+    "passed": true,
+    "checks": [
+      {
+        "name": "artifact_integrity",
+        "passed": true,
+        "severity": "critical",
+        "message": "All 2 artifact(s) present.",
+        "detail": {
+          "sizes_mb": {
+            "onnx": 12.09,
+            "onnx_int8": 3.41
           }
         }
       },
@@ -145,33 +225,33 @@
             8400
           ],
           "min": 0.0,
-          "max": 639.537109375
+          "max": 639.0703125
         }
       },
       {
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 177.2 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 79.3 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 130.13,
-          "p95_ms": 177.23,
-          "min_ms": 98.87,
-          "max_ms": 224.42,
+          "p50_ms": 66.5,
+          "p95_ms": 79.25,
+          "min_ms": 56.09,
+          "max_ms": 79.9,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 130.13,
-      "p95_latency_ms": 177.23
+      "p50_latency_ms": 66.5,
+      "p95_latency_ms": 79.25
     },
     "critical_failures": [],
     "warnings": []
   },
   {
     "model": "resnet50-embed:1.0.0",
-    "validated_at": "2026-09-22T13:51:55.902603+00:00",
+    "validated_at": "2026-09-24T04:53:24.975223+00:00",
     "passed": true,
     "checks": [
       {
@@ -182,7 +262,7 @@
         "detail": {
           "sizes_mb": {
             "onnx": 89.6,
-            "onnx_int8": 22.58
+            "onnx_int8": 22.91
           }
         }
       },
@@ -218,26 +298,26 @@
             2048
           ],
           "min": 0.0,
-          "max": 0.5492016077041626
+          "max": 0.5844647884368896
         }
       },
       {
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 188.6 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 78.0 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 52.95,
-          "p95_ms": 188.6,
-          "min_ms": 22.3,
-          "max_ms": 199.34,
+          "p50_ms": 41.96,
+          "p95_ms": 78.04,
+          "min_ms": 18.04,
+          "max_ms": 83.09,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 52.95,
-      "p95_latency_ms": 188.6
+      "p50_latency_ms": 41.96,
+      "p95_latency_ms": 78.04
     },
     "critical_failures": [],
     "warnings": []

@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "updated_at": "2026-09-23T10:52:18.880396+00:00",
+  "updated_at": "2026-09-24T04:42:05.858204+00:00",
   "models": [
     {
       "name": "resnet50",
@@ -94,7 +94,8 @@
       "version": "1.0.0",
       "task": "classification",
       "artifacts": {
-        "onnx": "resnet50-tiny-imagenet.onnx"
+        "onnx": "resnet50-tiny-imagenet.onnx",
+        "onnx_int8": "resnet50-tiny-imagenet_int8_static.onnx"
       },
       "preprocess": "tiny_imagenet",
       "labels_file": "tiny_imagenet_labels.json",
@@ -109,7 +110,7 @@
       "limitations": [],
       "description": null,
       "is_default": false,
-      "registered_at": "2026-09-23T10:52:18.880260+00:00",
+      "registered_at": "2026-09-24T04:42:05.858028+00:00",
       "status": "active"
     }
   ]

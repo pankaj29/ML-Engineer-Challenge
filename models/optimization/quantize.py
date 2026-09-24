@@ -130,6 +130,31 @@ class _OnnxCalibrationReader:
 # ---------------------------------------------------------------------------
 # Accuracy comparison
 # ---------------------------------------------------------------------------
+def _compare_or_note(
+    original: Path, quantized: Path, samples: list[np.ndarray], notes: list[str]
+) -> tuple[float, float, float]:
+    """Compare the two models, or record why the comparison was impossible.
+
+    Quantization and verification are separate steps, and only the first one
+    produced the artifact. A quantized model that will not load is a real and
+    useful finding - ONNX Runtime's CPU provider has no `ConvInteger` kernel,
+    so dynamically quantizing a convolutional model yields exactly that - but
+    letting the load error propagate discards the compression numbers too, and
+    reports a crash where the honest answer is "smaller, unverifiable".
+    """
+    try:
+        return _compare_onnx_models(original, quantized, samples)
+    except Exception as exc:  # any load or run failure is reportable, not fatal
+        notes.append(
+            f"accuracy NOT verified: the quantized model could not be executed "
+            f"({type(exc).__name__}). The file was still written. A common cause "
+            f"is dynamic quantization of a convolutional model, which emits "
+            f"ConvInteger - unsupported by the ONNX Runtime CPU provider. Use "
+            f"static quantization for convolutional models."
+        )
+        return 0.0, 0.0, 0.0
+
+
 def _compare_onnx_models(
     original: Path, quantized: Path, samples: list[np.ndarray]
 ) -> tuple[float, float, float]:
@@ -253,7 +278,7 @@ def quantize_onnx_dynamic(
             "accuracy measured on random noise; supply real images for a meaningful number"
         )
 
-    max_diff, mean_diff, agreement = _compare_onnx_models(src, dst, samples)
+    max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples, notes)
 
     original_mb = src.stat().st_size / 1_048_576
     quantized_mb = dst.stat().st_size / 1_048_576
@@ -347,7 +372,8 @@ def quantize_onnx_static(
     duration = time.perf_counter() - started
     preprocessed.unlink(missing_ok=True)
 
-    max_diff, mean_diff, agreement = _compare_onnx_models(src, dst, samples[:32])
+    notes: list[str] = []
+    max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples[:32], notes)
 
     original_mb = src.stat().st_size / 1_048_576
     quantized_mb = dst.stat().st_size / 1_048_576
@@ -365,6 +391,7 @@ def quantize_onnx_static(
         top1_agreement=agreement,
         duration_seconds=duration,
         calibration_images=len(samples),
+        notes=notes,
     )
 
 
@@ -457,6 +484,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if not args.onnx.is_file():
+        print(f"error: no such model file: {args.onnx}", file=sys.stderr)
+        return 2
+
     cfg = PreprocessConfig(size=(args.image_size, args.image_size))
     results: list[QuantizationResult] = []
 
@@ -469,9 +500,12 @@ def main() -> int:
         results.append(quantize_onnx_dynamic(args.onnx, samples=samples))
 
     if args.mode in ("static", "both"):
-        if not args.calibration_dir:
+        # `is_dir()` rather than just "was it passed": a mistyped path used to
+        # reach quantize_onnx_static and surface as a bare FileNotFoundError,
+        # when the same helpful message applies.
+        if not args.calibration_dir or not args.calibration_dir.is_dir():
             print(
-                "error: --calibration-dir is required for static quantization.\n"
+                "error: --calibration-dir must name an existing directory of images.\n"
                 "Static quantization needs real images to measure activation ranges.",
                 file=sys.stderr,
             )

@@ -2,63 +2,63 @@
   {
     "model": "resnet50:1.0.0",
     "baseline_recorded_at": "2026-09-22T13:48:14.073765+00:00",
-    "checked_at": "2026-09-22T13:48:32.837326+00:00",
+    "checked_at": "2026-09-24T04:41:08.466972+00:00",
     "passed": true,
     "checks": [
       {
         "name": "p50_latency_ms",
         "baseline": 67.774,
-        "current": 42.804,
-        "delta": -24.97,
-        "delta_percent": -36.843,
+        "current": 32.982,
+        "delta": -34.792,
+        "delta_percent": -51.335,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "p50_latency_ms improved: 67.7740 -> 42.8040 (-36.8%)"
+        "message": "p50_latency_ms improved: 67.7740 -> 32.9820 (-51.3%)"
       },
       {
         "name": "p95_latency_ms",
         "baseline": 91.753,
-        "current": 67.866,
-        "delta": -23.887,
-        "delta_percent": -26.034,
+        "current": 39.695,
+        "delta": -52.058,
+        "delta_percent": -56.737,
         "tolerance": 0.3,
         "higher_is_better": false,
         "passed": true,
-        "message": "p95_latency_ms improved: 91.7530 -> 67.8660 (-26.0%)"
+        "message": "p95_latency_ms improved: 91.7530 -> 39.6950 (-56.7%)"
       },
       {
         "name": "p99_latency_ms",
         "baseline": 91.83,
-        "current": 76.677,
-        "delta": -15.153,
-        "delta_percent": -16.501,
+        "current": 40.416,
+        "delta": -51.414,
+        "delta_percent": -55.988,
         "tolerance": 0.4,
         "higher_is_better": false,
         "passed": true,
-        "message": "p99_latency_ms improved: 91.8300 -> 76.6770 (-16.5%)"
+        "message": "p99_latency_ms improved: 91.8300 -> 40.4160 (-56.0%)"
       },
       {
         "name": "mean_latency_ms",
         "baseline": 64.651,
-        "current": 43.86,
-        "delta": -20.791,
-        "delta_percent": -32.159,
+        "current": 33.127,
+        "delta": -31.524,
+        "delta_percent": -48.76,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "mean_latency_ms improved: 64.6510 -> 43.8600 (-32.2%)"
+        "message": "mean_latency_ms improved: 64.6510 -> 33.1270 (-48.8%)"
       },
       {
         "name": "throughput_ips",
         "baseline": 15.47,
-        "current": 22.8,
-        "delta": 7.33,
-        "delta_percent": 47.382,
+        "current": 30.19,
+        "delta": 14.72,
+        "delta_percent": 95.152,
         "tolerance": 0.1,
         "higher_is_better": true,
         "passed": true,
-        "message": "throughput_ips improved: 15.4700 -> 22.8000 (+47.4%)"
+        "message": "throughput_ips improved: 15.4700 -> 30.1900 (+95.2%)"
       },
       {
         "name": "size_mb",

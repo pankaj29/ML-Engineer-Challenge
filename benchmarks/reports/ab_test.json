@@ -1,0 +1,34 @@
+{
+  "champion": "resnet50-tiny-imagenet:1.0.0",
+  "challenger": "resnet50-tiny-imagenet:1.0.0",
+  "n_samples": 25,
+  "champion_accuracy": 0.84,
+  "challenger_accuracy": 0.84,
+  "accuracy_delta": 0.0,
+  "test": "mcnemar_exact",
+  "statistic": 0.0,
+  "p_value": 1.0,
+  "significant": false,
+  "confidence_interval": [
+    -0.203232,
+    0.203232
+  ],
+  "champion_p95_ms": 29.04,
+  "challenger_p95_ms": 29.04,
+  "latency_delta_ms": 0.0,
+  "winner": "tie",
+  "recommendation": "No significant difference (p=1.0000). Keep resnet50-tiny-imagenet:1.0.0. The challenger disagreed on 0 of 25 samples, winning 0 and losing 0 \u2014 too close to call. The models are effectively identical on this set.",
+  "detail": {
+    "champion_only_correct": 0,
+    "challenger_only_correct": 0,
+    "both_correct": 21,
+    "both_wrong": 4,
+    "champion_mean_confidence": 0.7156,
+    "challenger_mean_confidence": 0.7156,
+    "champion_errors": 0,
+    "challenger_errors": 0,
+    "alpha": 0.05,
+    "min_improvement": 0.005
+  },
+  "generated_at": "2026-09-24T04:45:42.548899+00:00"
+}

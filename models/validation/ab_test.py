@@ -408,6 +408,50 @@ def verify_split_balance(split: TrafficSplit, sample_users: int = 100_000) -> di
 # ---------------------------------------------------------------------------
 # Offline evaluation harness
 # ---------------------------------------------------------------------------
+class IncomparableLabelSpacesError(RuntimeError):
+    """The two models do not predict over the same set of classes.
+
+    A paired test on such a pair is arithmetically valid and semantically
+    worthless: the models' class indices mean different things, so one of them
+    scores near zero no matter how good it is, and the test dutifully reports
+    a large, significant "improvement".
+    """
+
+
+def assert_comparable_label_spaces(entries: dict[str, int | None], dataset_classes: int) -> None:
+    """Refuse an A/B comparison whose result could not mean anything.
+
+    Args:
+        entries: ``{model_name: num_classes}`` from the registry.
+        dataset_classes: How many distinct labels the evaluation set uses.
+
+    Raises:
+        IncomparableLabelSpacesError: If any model's label space cannot line up
+            with the dataset, or if the two models disagree with each other.
+    """
+    sized = {name: n for name, n in entries.items() if n}
+
+    for name, n in sized.items():
+        if dataset_classes > n or n > dataset_classes * 2:
+            raise IncomparableLabelSpacesError(
+                f"{name} predicts {n} classes but the evaluation set uses "
+                f"{dataset_classes}. Their class indices refer to different "
+                "things, so any accuracy comparison would be meaningless - "
+                f"{name} would score near zero however good it is.\n"
+                "Evaluate both models against a dataset matching their label "
+                "space, or compare two models trained on the same one."
+            )
+
+    distinct = set(sized.values())
+    if len(distinct) > 1:
+        pairs = ", ".join(f"{k}={v}" for k, v in sorted(sized.items()))
+        raise IncomparableLabelSpacesError(
+            f"The models have different label spaces ({pairs}). A paired test "
+            "would compare predictions that do not refer to the same "
+            "categories."
+        )
+
+
 def evaluate_models(
     predict_fns: dict[str, Callable[[bytes], tuple[int, float, float]]],
     samples: list[tuple[bytes, int]],
@@ -493,6 +537,29 @@ def main() -> int:
     train = TinyImageNetTrain(root)
     val = TinyImageNetVal(root, train.class_to_idx)
     samples = [(path.read_bytes(), label) for path, label in val.samples[: args.samples]]
+
+    # Check the comparison is meaningful BEFORE spending minutes on inference.
+    def _num_classes(spec: str) -> int | None:
+        name, _, version = spec.partition(":")
+        entry = service.resolve(
+            next(e.task for e in service.list_entries() if e.name == name),
+            name,
+            version or "latest",
+        )
+        return entry.num_classes
+
+    try:
+        assert_comparable_label_spaces(
+            {name: _num_classes(name) for name in (args.champion, args.challenger)},
+            # len(train.classes), not max(label)+1 over the sample: with a
+            # small --samples the highest label seen under-counts the dataset
+            # and the guard would refuse a perfectly valid comparison.
+            dataset_classes=len(train.classes),
+        )
+    except IncomparableLabelSpacesError as exc:
+        print(f"\nREFUSED: {exc}", file=sys.stderr)
+        return 1
+
     print(f"evaluating on {len(samples)} samples")
 
     scores = evaluate_models(

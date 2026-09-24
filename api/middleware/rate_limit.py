@@ -136,7 +136,11 @@ class _LocalBucket:
         if self.tokens >= amount:
             self.tokens -= amount
             return True, self.tokens, 0.0
-        return False, self.tokens, (amount - self.tokens) / rate
+        # rate == 0 means the bucket never refills - a legitimate way to block
+        # a tier entirely (RATE_LIMIT_FREE_RPM=0). Dividing by it raised
+        # ZeroDivisionError and turned a deliberate config into a 500.
+        retry_after = float("inf") if rate <= 0 else (amount - self.tokens) / rate
+        return False, self.tokens, retry_after
 
 
 class RateLimiter:

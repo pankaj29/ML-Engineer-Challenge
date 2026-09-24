@@ -1,0 +1,9 @@
+{
+  "model": "resnet50:latest",
+  "generated_at": "2026-09-24T04:40:45.773635+00:00",
+  "results": [],
+  "overall_severity": "none",
+  "drifted": false,
+  "summary": "No drift tests could be run: no comparable data was supplied.",
+  "recommendations": []
+}
