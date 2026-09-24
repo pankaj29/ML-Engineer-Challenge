@@ -287,15 +287,20 @@ BATCH_SIZE = 256
 # resolution was chosen to preserve: validation top-1 regressed 70.5% -> 64.8%
 # while train loss kept falling, with non-finite gradients appearing.
 #
-# PATIENCE 15, not the script default of 0 (off) and not the 8 that burned
-# three runs. A cosine schedule does most of its work in the final anneal, so
-# validation accuracy plateaus mid-run as a matter of course - 8 epochs of
-# flatness is normal there, not a signal. 15 is long enough to sit through
-# that and short enough to cut a genuinely dead run. It is still a judgement
-# call: if it fires before roughly epoch 45, suspect the plateau rather than
-# the model, and re-run with PATIENCE = 0 to disable it.
+# PATIENCE 0 - early stopping OFF. This is the script default, and the
+# setting to leave alone with a cosine schedule.
+#
+# Cosine spends its first two thirds at a high learning rate and delivers most
+# of its accuracy in the final anneal, so validation accuracy plateaus mid-run
+# as a matter of course. Three runs on this project died to that plateau: a
+# patience of 8 killed two, and 15 killed a 60-epoch run at epoch 32 - it had
+# peaked at epoch 17 with the learning rate still at 86% of maximum, so the
+# run never reached the part that pays.
+#
+# Early stopping is the right tool for --scheduler plateau or step. With a
+# fixed-length schedule it is a way to throw the schedule away.
 LR = "3e-4"            # see the note below before changing this
-PATIENCE = 15          # stop after this many epochs with no val improvement
+PATIENCE = 0           # 0 = off; see above before raising it
 # EMA keeps a running average of the weights during training and ships
 # whichever of the two - the live weights or the average - scores higher on
 # validation. It costs one extra copy of the model in GPU memory while
@@ -931,7 +936,7 @@ python -m models.registry register \\
     --name resnet50-tiny-imagenet --version 1.0.0 --task classification \\
     --onnx resnet50-tiny-imagenet.onnx --labels tiny_imagenet_labels.json \\
     --preprocess tiny_imagenet --num-classes 200 \\
-    --input-shape 1,3,128,128 --default --overwrite
+    --input-shape 1,3,224,224 --default --overwrite
 
 # 3. Confirm it serves
 python -m models.registry validate

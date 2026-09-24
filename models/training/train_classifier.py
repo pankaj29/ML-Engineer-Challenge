@@ -140,6 +140,17 @@ class TrainConfig:
     # run long enough that losing it hurts.
     resume: bool = True
 
+    # Copy checkpoints and history to a second directory as the run proceeds -
+    # typically mounted cloud storage. Resuming only helps if the checkpoint
+    # outlives the machine, and on a hosted runtime it does not: the container
+    # is recycled and `models/artifacts/` goes with it. Mirroring turns a lost
+    # session from "retrain from scratch" into "resume from the last mirror".
+    mirror_dir: Path | None = None
+    # Full checkpoints are ~96 MB, so they are copied every N epochs rather
+    # than every epoch. The history JSON is a few KB and is copied every time,
+    # so progress is always visible even between checkpoint mirrors.
+    mirror_every: int = 10
+
     def resolve_device(self) -> str:
         if self.device != "auto":
             return self.device
@@ -745,6 +756,43 @@ def load_checkpoint(
     )
 
 
+def history_path_for(output_dir: Path, config: TrainConfig) -> Path:
+    """Where this run's history JSON lives. One definition, several callers."""
+    return output_dir / f"{config.arch}_training_history.json"
+
+
+def mirror_files(paths: list[Path], mirror_dir: Path) -> list[str]:
+    """Copy ``paths`` into ``mirror_dir``, reporting what failed rather than raising.
+
+    A mirror is insurance, not part of the run. Cloud-storage mounts go
+    unavailable for all the usual reasons - a token expires, the network
+    blips, the volume fills - and none of those are a good reason to kill a
+    two-hour training job at epoch 47. Failures are returned so the caller can
+    print them; the run continues either way.
+    """
+    import shutil
+
+    problems: list[str] = []
+    try:
+        mirror_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return [f"{mirror_dir}: {type(exc).__name__}: {exc}"]
+
+    for source in paths:
+        if not source.is_file():
+            continue
+        try:
+            # Write to a temporary name in the destination and rename. A copy
+            # interrupted partway leaves a truncated file that looks valid,
+            # which is worse than no mirror at all.
+            tmp = mirror_dir / (source.name + ".partial")
+            shutil.copy2(source, tmp)
+            tmp.replace(mirror_dir / source.name)
+        except Exception as exc:
+            problems.append(f"{source.name}: {type(exc).__name__}: {exc}")
+    return problems
+
+
 def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHistory:
     """Run the full training loop and save the best checkpoint."""
     torch.manual_seed(config.seed)
@@ -814,6 +862,12 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
     if ema is not None:
         print(f"weight averaging  : EMA, decay {config.ema_decay} (warmed in)")
 
+    if config.mirror_dir is not None:
+        print(
+            f"mirroring to      : {config.mirror_dir} "
+            f"(history every epoch, checkpoints every {config.mirror_every})"
+        )
+
     print(
         f"mixed precision   : {'fp16 + GradScaler (cuda)' if use_amp else ('bf16 (cpu)' if config.mixed_precision else 'off')}\n"
         f"gradient clipping : max_norm={config.gradient_clip_norm}\n"
@@ -862,6 +916,12 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
         return history
 
     run_started = time.perf_counter()
+
+    # Written once up front so the per-epoch mirror always has something to
+    # copy, and so a run that dies in epoch 1 still leaves its config behind.
+    history_path_for(output_dir, config).write_text(
+        json.dumps(asdict(history), indent=2), encoding="utf-8"
+    )
 
     for epoch in range(start_epoch, config.epochs + 1):
         epoch_started = time.perf_counter()
@@ -967,6 +1027,18 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
             adapted=adapted,
         )
 
+        # Written after the local checkpoint, so the mirror never holds a
+        # newer epoch than the file a resume would actually read.
+        if config.mirror_dir is not None:
+            to_mirror = [history_path_for(output_dir, config)]
+            if marker:  # a new best is worth copying immediately
+                to_mirror.append(best_path)
+            if epoch % config.mirror_every == 0 or epoch == config.epochs:
+                to_mirror.append(last_path)
+            failures = mirror_files(to_mirror, config.mirror_dir)
+            for failure in failures:
+                print(f"  mirror failed: {failure}", file=sys.stderr)
+
         print(
             f"epoch {epoch:>3}/{config.epochs}  "
             f"train_loss {train_loss:.4f}  val_loss {val_loss:.4f}  "
@@ -990,8 +1062,15 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
 
     history.total_seconds = round(time.perf_counter() - run_started, 1)
 
-    history_path = output_dir / f"{config.arch}_training_history.json"
+    history_path = history_path_for(output_dir, config)
     history_path.write_text(json.dumps(asdict(history), indent=2), encoding="utf-8")
+
+    if config.mirror_dir is not None:
+        failures = mirror_files([history_path, best_path, last_path], config.mirror_dir)
+        for failure in failures:
+            print(f"mirror failed: {failure}", file=sys.stderr)
+        if not failures:
+            print(f"mirrored          : {config.mirror_dir}")
 
     print(
         f"\nbest top-1        : {history.best_top1:.2f}% at epoch {history.best_epoch}\n"
@@ -1071,6 +1150,27 @@ def main() -> int:
             "long run survive a disconnected hosted GPU session."
         ),
     )
+    parser.add_argument(
+        "--mirror-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Copy checkpoints and the history JSON here as the run proceeds. "
+            "Point it at mounted cloud storage on a hosted runtime: the container "
+            "is recycled when the session ends, and without a mirror the run dies "
+            "with it."
+        ),
+    )
+    parser.add_argument(
+        "--mirror-every",
+        type=int,
+        default=10,
+        help=(
+            "Mirror the full resume checkpoint every N epochs. The history JSON "
+            "is mirrored every epoch regardless; only the ~96 MB checkpoint is "
+            "rate-limited."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
@@ -1095,6 +1195,8 @@ def main() -> int:
         label_smoothing=args.label_smoothing,
         ema=args.ema,
         ema_decay=args.ema_decay,
+        mirror_dir=args.mirror_dir,
+        mirror_every=args.mirror_every,
         mixed_precision=not args.no_amp,
         gradient_clip_norm=args.gradient_clip_norm,
         scheduler=args.scheduler,

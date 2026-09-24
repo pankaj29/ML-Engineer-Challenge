@@ -12,6 +12,8 @@ So these tests pin the arithmetic, not just that the code runs.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 torch = pytest.importorskip("torch")
@@ -394,3 +396,116 @@ class TestCheckpointCarriesTheAverage:
             ema=ema,
         )
         assert ema.steps == 0
+
+
+# ---------------------------------------------------------------------------
+# Mirroring checkpoints off the machine
+# ---------------------------------------------------------------------------
+class TestMirrorFiles:
+    """A mirror exists so a recycled runtime does not cost a whole run.
+
+    The failure mode that matters is the quiet one: a mirror that reports
+    success while writing nothing, or that leaves a half-copied checkpoint
+    looking valid. Both turn "resume from the mirror" into "discover at resume
+    time that there is nothing to resume from".
+    """
+
+    def test_copies_the_files(self, tmp_path) -> None:
+        from models.training.train_classifier import mirror_files
+
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "a.pt").write_bytes(b"weights")
+        (source / "b.json").write_text("{}", encoding="utf-8")
+
+        dest = tmp_path / "mirror"
+        assert mirror_files([source / "a.pt", source / "b.json"], dest) == []
+        assert (dest / "a.pt").read_bytes() == b"weights"
+        assert (dest / "b.json").read_text(encoding="utf-8") == "{}"
+
+    def test_creates_the_destination(self, tmp_path) -> None:
+        from models.training.train_classifier import mirror_files
+
+        source = tmp_path / "a.pt"
+        source.write_bytes(b"x")
+        mirror_files([source], tmp_path / "deep" / "nested" / "mirror")
+        assert (tmp_path / "deep" / "nested" / "mirror" / "a.pt").is_file()
+
+    def test_overwrites_an_older_copy(self, tmp_path) -> None:
+        """Each epoch replaces the last; a stale mirror is worse than none."""
+        from models.training.train_classifier import mirror_files
+
+        source = tmp_path / "a.pt"
+        dest = tmp_path / "mirror"
+        source.write_bytes(b"epoch1")
+        mirror_files([source], dest)
+        source.write_bytes(b"epoch2")
+        mirror_files([source], dest)
+        assert (dest / "a.pt").read_bytes() == b"epoch2"
+
+    def test_leaves_no_partial_files_behind(self, tmp_path) -> None:
+        """The copy goes to `.partial` and is renamed, so a reader never sees
+        a half-written checkpoint under its real name."""
+        from models.training.train_classifier import mirror_files
+
+        source = tmp_path / "a.pt"
+        source.write_bytes(b"x" * 1024)
+        dest = tmp_path / "mirror"
+        mirror_files([source], dest)
+        assert list(dest.glob("*.partial")) == []
+
+    def test_a_missing_source_is_skipped_not_an_error(self, tmp_path) -> None:
+        """`best.pt` does not exist until the first improvement."""
+        from models.training.train_classifier import mirror_files
+
+        present = tmp_path / "there.pt"
+        present.write_bytes(b"x")
+        dest = tmp_path / "mirror"
+        assert mirror_files([tmp_path / "absent.pt", present], dest) == []
+        assert (dest / "there.pt").is_file()
+
+    def test_an_unwritable_destination_is_reported_not_raised(self, tmp_path) -> None:
+        """A Drive mount going away must not kill training at epoch 47."""
+        from models.training.train_classifier import mirror_files
+
+        source = tmp_path / "a.pt"
+        source.write_bytes(b"x")
+        blocker = tmp_path / "blocked"
+        blocker.write_text("I am a file, not a directory", encoding="utf-8")
+
+        problems = mirror_files([source], blocker)
+        assert problems, "a failed mirror must be reported"
+        assert "blocked" in problems[0]
+
+    def test_one_bad_file_does_not_stop_the_others(self, tmp_path, monkeypatch) -> None:
+        from models.training.train_classifier import mirror_files
+
+        good = tmp_path / "good.pt"
+        bad = tmp_path / "bad.pt"
+        good.write_bytes(b"x")
+        bad.write_bytes(b"y")
+        dest = tmp_path / "mirror"
+
+        import shutil as shutil_mod
+
+        real_copy = shutil_mod.copy2
+
+        def flaky(src, dst, *a, **k):
+            if Path(src).name == "bad.pt":
+                raise OSError("device disconnected")
+            return real_copy(src, dst, *a, **k)
+
+        monkeypatch.setattr(shutil_mod, "copy2", flaky)
+
+        problems = mirror_files([bad, good], dest)
+        assert len(problems) == 1 and "bad.pt" in problems[0]
+        assert (dest / "good.pt").is_file(), "a later file was skipped after an earlier failure"
+
+
+class TestHistoryPathIsOneDefinition:
+    def test_it_matches_what_the_pipeline_looks_for(self, tmp_path) -> None:
+        """The run script and the trainer must agree on the filename."""
+        from models.training.train_classifier import TrainConfig, history_path_for
+
+        path = history_path_for(tmp_path, TrainConfig(arch="resnet50"))
+        assert path.name == "resnet50_training_history.json"
