@@ -15,12 +15,12 @@ preserved at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | **CI** | All 7 jobs green on Python 3.11 and 3.12 |
-| **Tests** | 404 passing locally; 390 passing / 14 skipped on CI |
-| **Coverage** | 83.9% overall; 85-100% on critical paths |
+| **Tests** | 734 unit tests passing, plus integration and load suites |
+| **Coverage** | 89.6% on `api/`; 85-100% on critical paths |
 | **Lint** | `ruff` and `black` clean |
 | **Stack** | 7 services, all verified healthy |
-| **Classifier** | 77.66% top-1 on Tiny-ImageNet (200 classes), validated 8/8 |
-| **Latency** | 0.73 ms p50 on A100 via TensorRT fp16; 43-121 ms on CPU |
+| **Classifier** | 78.91% top-1 on Tiny-ImageNet (200 classes), validated 9/9 |
+| **Latency** | 0.86 ms p50 on A100 via TensorRT fp16; 43-121 ms on CPU |
 | **Load tested** | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
 
 The 14 CI skips are the Tiny-ImageNet dataset tests. The dataset is 519 MB
@@ -296,32 +296,37 @@ Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked
 ## The fine-tuned classifier
 
 ResNet-50 on Tiny-ImageNet — 200 classes, all 100,000 training images, 60
-epochs on an NVIDIA A100-SXM4-40GB. **77.66% top-1, 91.52% top-5** against a
-0.5% random baseline, in 33.9 minutes.
+epochs at 224x224 on an NVIDIA A100-SXM4-40GB. **78.91% top-1, 92.12% top-5**
+against a 0.5% random baseline, in 1.6 hours.
 
-![Training curves: loss, validation accuracy, and the warmup + cosine learning rate schedule](docs/images/training-curves.png)
+![Loss, validation accuracy, the learning-rate schedule, and raw versus EMA weights](docs/images/training-curves.png)
 
-Produced by the training run itself, not redrawn — the three panels are loss,
-validation accuracy, and the learning-rate schedule, showing all three
-techniques the brief asks for: mixed precision (fp16 AMP + `GradScaler`),
-gradient clipping (`clip_grad_norm_` at 1.0) and LR scheduling (5% linear
-warmup into cosine decay).
+Plotted straight from the run's own history file by
+`scripts/plot_training_curves.py`. The four panels are loss, validation
+accuracy, the learning-rate schedule and the effect of weight averaging, and
+between them they show all three techniques the brief asks for: mixed
+precision (fp16 AMP with `GradScaler`), gradient clipping (`clip_grad_norm_`
+at 1.0) and LR scheduling (5% linear warmup into cosine decay).
 
-**The honest reading of the middle panel:** top-1 reaches 76.5% by epoch 2 and
-the remaining 58 epochs add about a point. Transfer learning from ImageNet-1k
-does nearly all the work immediately; the long cosine tail is worth ~1.1
-points. Around 25-30 epochs would have captured most of it.
+**Reading the accuracy panel:** transfer learning from ImageNet-1k reaches
+75.1% by epoch 2, and the remaining 58 epochs add 3.8 points. About half of
+that arrives after epoch 40, when the cosine anneal drops the learning rate by
+two orders of magnitude. The long schedule earns its place here, which was not
+obvious in advance.
 
-Full detail, including two counter-intuitive findings about resolution and
-learning rate, is in
+The rightmost panel is weight averaging. EMA weights beat the live weights in
+53 of 60 epochs, and the shipped checkpoint is an EMA one.
+
+Full detail, including the three measured input resolutions and why the native
+64x64 is the worst of them, is in
 [`models/cards/resnet50-tiny-imagenet.md`](models/cards/resnet50-tiny-imagenet.md).
 
 ### Against TensorRT on the same GPU
 
 | Runtime | Precision | p50 | Throughput | Size |
 | --- | --- | ---: | ---: | ---: |
-| TensorRT | fp16 | **0.729 ms** | **1369 img/s** | 46.0 MB |
-| TensorRT | fp32 | 1.059 ms | 972 img/s | 91.5 MB |
+| TensorRT | fp16 | **0.859 ms** | **1158 img/s** | 46.0 MB |
+| TensorRT | fp32 | 1.099 ms | 907 img/s | 91.5 MB |
 
 ---
 
@@ -376,8 +381,8 @@ Reproduce: `python -m models.optimization.benchmark`
   RandomResizedCrop, RandomErasing, MixUp, CutMix
 * ONNX export with **numerical verification** against PyTorch (max diff < 4e-06)
 * INT8 quantization, static and dynamic, with measured accuracy cost
-* TensorRT export — **executed on an A100 (TensorRT 11.3)**: fp16 at 0.729 ms
-  p50 / 1369 img/s, 1.45x faster and half the size of fp32
+* TensorRT export, built and benchmarked on an A100 with TensorRT 11.3: fp16
+  at 0.859 ms p50 and 1158 img/s, 1.28x faster and half the size of fp32
 * Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration (ECE), latency
 * A/B testing with a **paired McNemar test** and confidence intervals
@@ -596,11 +601,6 @@ Stated plainly; the full list with reasoning is in
 6. Restore least-connections balancing at the gateway (needs nginx Plus, or a
    hook that restarts the gateway when the API is recreated)
 7. Alert when the rate limiter is running on local buckets rather than Redis
-
-*Done since the first draft: the full Tiny-ImageNet fine-tune (77.66% top-1),
-the TensorRT fp32/fp16 path (0.729 ms p50), a green CI pipeline, and a fix for
-rate limiting that had silently been per-process rather than shared across
-replicas.*
 
 ---
 

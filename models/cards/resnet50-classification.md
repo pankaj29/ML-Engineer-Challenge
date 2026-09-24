@@ -70,8 +70,8 @@ The served weights are torchvision's `IMAGENET1K_V2` checkpoint, trained on
 from the web and labelled via crowdsourcing.
 
 This project also fine-tunes ResNet-50 on **Tiny-ImageNet** (200 classes),
-which the brief requires. That model has been trained in full — 77.66% top-1,
-91.52% top-5 on an A100 — and is registered as `resnet50-tiny-imagenet`. It is
+which the brief requires. That model is trained in full — 78.91% top-1,
+92.12% top-5 on an A100 — and is registered as `resnet50-tiny-imagenet`. It is
 a separate model with its own card:
 [`resnet50-tiny-imagenet.md`](resnet50-tiny-imagenet.md).
 
