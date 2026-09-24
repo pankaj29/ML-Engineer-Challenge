@@ -19,9 +19,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from models.optimization import benchmark as benchmark_mod
-from models.optimization import export_onnx as export_mod
-from models.optimization import quantize as quantize_mod
+from models.optimization import (
+    benchmark as benchmark_mod,
+    export_onnx as export_mod,
+    quantize as quantize_mod,
+)
 from models.optimization.benchmark import benchmark_torch
 from models.optimization.export_onnx import export_to_onnx
 from models.optimization.quantize import quantize_torch_dynamic

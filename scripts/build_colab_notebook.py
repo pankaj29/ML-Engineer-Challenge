@@ -263,15 +263,29 @@ print("data directory       : " + str(DATA_DIR))
 # being trained. Change it here, not in the command below.
 ARCH = "resnet50"
 EPOCHS = 60
-IMAGE_SIZE = 128
+IMAGE_SIZE = 224
 STEM_ADAPTED = False      # False = keep ResNet's original pretrained stem
 BATCH_SIZE = 256
+# IMAGE_SIZE 224, matching the resolution the ImageNet-1k ResNet-50 weights
+# were trained at. Tiny-ImageNet is natively 64px, so every setting here is an
+# upsample and the only question is how far. At 128px the run saturates almost
+# at once - 76.54% by epoch 2, and all 60 epochs to reach 77.66% - which is the
+# signature of a resolution ceiling rather than an optimisation one. More
+# epochs, stronger augmentation and a longer schedule do not move a ceiling of
+# that kind; feeding the backbone the scale its features were learned at does.
+#
+# Cost: 224px is (224/128)^2 = 3.1x the pixels, so roughly 115 s/epoch instead
+# of 38 s - about 2 hours for 60 epochs on an A100-SXM4-40GB rather than 34
+# minutes. BATCH_SIZE 256 fits in 40 GB with AMP; on a smaller GPU (L4, T4)
+# drop it to 96 and leave LR alone - AdamW is far less batch-sensitive than
+# SGD, so the usual linear-scaling rule does not apply.
+#
 # LR 3e-4, not 1e-3. AdamW at 1e-3 suits a network with a randomly
 # initialised stem (the 64px adapted-stem config), where part of the model
 # trains from scratch. With STEM_ADAPTED = False the whole pretrained
-# ResNet-50 is intact, and 1e-3 erodes exactly the features 128px was chosen
-# to preserve: validation top-1 regressed 70.5% -> 64.8% while train loss
-# kept falling, with non-finite gradients appearing.
+# ResNet-50 is intact, and 1e-3 erodes exactly the features the higher
+# resolution was chosen to preserve: validation top-1 regressed 70.5% -> 64.8%
+# while train loss kept falling, with non-finite gradients appearing.
 #
 # PATIENCE 15, not the script default of 0 (off) and not the 8 that burned
 # three runs. A cosine schedule does most of its work in the final anneal, so

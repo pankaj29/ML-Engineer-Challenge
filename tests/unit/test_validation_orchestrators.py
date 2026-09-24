@@ -23,10 +23,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from models.validation import ab_test as ab_mod
-from models.validation import drift as drift_mod
-from models.validation import regression as regression_mod
-from models.validation import validate as validate_mod
+from models.validation import (
+    ab_test as ab_mod,
+    drift as drift_mod,
+    regression as regression_mod,
+    validate as validate_mod,
+)
 from models.validation.ab_test import ModelScores, compare, evaluate_models
 from models.validation.drift import detect_drift
 from models.validation.regression import BaselineStore, measure_model
