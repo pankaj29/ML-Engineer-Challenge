@@ -90,6 +90,10 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "map50": 0.01,
     "map50_95": 0.01,
     "recall_at_1": 0.01,
+    # The registry publishes accuracy as a percentage (78.91), not a fraction,
+    # so the tolerance here is half a percentage point rather than 0.005.
+    "top1": 0.5,
+    "top5": 0.5,
     # Latency metrics: allowed *relative* increase.
     "p50_latency_ms": 0.25,  # 25% slower
     "p95_latency_ms": 0.30,
@@ -105,6 +109,8 @@ HIGHER_IS_BETTER = {
     "accuracy",
     "top1_accuracy",
     "top5_accuracy",
+    "top1",
+    "top5",
     "map50",
     "map50_95",
     "recall_at_1",
@@ -206,6 +212,11 @@ def check_metric(
     tolerance = DEFAULT_TOLERANCES.get(name, 0.1) if tolerance is None else tolerance
     higher_better = name in HIGHER_IS_BETTER
     relative = name in RELATIVE_METRICS
+    # An unlisted metric falls through to lower-is-better, which is right for
+    # latency and wrong for anything accuracy-shaped: a drop would read as an
+    # improvement and the gate would pass. The check still runs, but it says
+    # so, because a silently mis-signed metric is worse than an absent one.
+    recognised = name in HIGHER_IS_BETTER or name in DEFAULT_TOLERANCES
 
     delta = current - baseline
     delta_percent = (delta / baseline * 100) if baseline else 0.0
@@ -233,6 +244,13 @@ def check_metric(
         message = (
             f"REGRESSION: {name} {direction} from {baseline:.4f} to {current:.4f} "
             f"({delta_percent:+.1f}%), exceeding the allowed {limit:.4f}"
+        )
+
+    if not recognised:
+        message += (
+            f"  [unrecognised metric '{name}': assumed lower-is-better with an "
+            f"absolute tolerance of {tolerance}. Add it to HIGHER_IS_BETTER or "
+            f"DEFAULT_TOLERANCES in regression.py to check it properly.]"
         )
 
     return MetricCheck(

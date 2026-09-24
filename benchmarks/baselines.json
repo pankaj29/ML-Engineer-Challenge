@@ -20,7 +20,30 @@
         "gpu": null
       },
       "note": "initial baseline"
+    },
+    "resnet50-tiny-imagenet:1.0.0": {
+      "metrics": {
+        "p50_latency_ms": 54.277,
+        "p95_latency_ms": 66.51,
+        "p99_latency_ms": 102.733,
+        "mean_latency_ms": 50.389,
+        "throughput_ips": 19.85,
+        "size_mb": 91.161,
+        "top1": 78.91,
+        "top5": 92.12
+      },
+      "recorded_at": "2026-09-24T14:09:50.040120+00:00",
+      "environment": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+        "python": "3.13.14",
+        "cpu_count": 22,
+        "torch": "2.9.0+cpu",
+        "gpu": null
+      },
+      "note": "224px EMA model, local CPU baseline"
     }
   },
-  "updated_at": "2026-09-22T13:48:14.106183+00:00"
+  "updated_at": "2026-09-24T14:11:25.577265+00:00"
 }

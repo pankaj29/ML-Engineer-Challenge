@@ -720,3 +720,95 @@ class TestSignificantButWorseChallenger:
         result = compare(champion, challenger)
         assert "worse" in result.recommendation.lower()
         assert "preprocessing mismatch" in result.recommendation.lower()
+
+
+class TestRegressionGateDirections:
+    """A metric's direction has to match its name, or the gate lies.
+
+    `HIGHER_IS_BETTER` listed `top1_accuracy` while the registry publishes
+    `top1`. The name never matched, so `top1` fell through to the
+    lower-is-better default and a two-point accuracy drop was reported as
+    "top1 improved". The build stayed green. These tests pin the direction of
+    every metric the pipeline actually emits.
+    """
+
+    from models.validation.regression import check_metric as _check
+
+    @pytest.mark.parametrize("name", ["top1", "top5", "accuracy", "throughput_ips"])
+    def test_a_drop_in_a_higher_is_better_metric_fails(self, name: str) -> None:
+        from models.validation.regression import check_metric
+
+        result = check_metric(name, baseline=80.0, current=60.0)
+        assert result.passed is False
+        assert result.higher_is_better is True
+        assert "dropped" in result.message
+
+    @pytest.mark.parametrize("name", ["top1", "top5", "accuracy", "throughput_ips"])
+    def test_a_rise_in_a_higher_is_better_metric_passes(self, name: str) -> None:
+        from models.validation.regression import check_metric
+
+        assert check_metric(name, baseline=60.0, current=80.0).passed is True
+
+    @pytest.mark.parametrize(
+        "name", ["p50_latency_ms", "p95_latency_ms", "mean_latency_ms", "size_mb"]
+    )
+    def test_a_rise_in_a_lower_is_better_metric_fails(self, name: str) -> None:
+        from models.validation.regression import check_metric
+
+        result = check_metric(name, baseline=10.0, current=100.0)
+        assert result.passed is False
+        assert result.higher_is_better is False
+        assert "increased" in result.message
+
+    @pytest.mark.parametrize(
+        "name", ["p50_latency_ms", "p95_latency_ms", "mean_latency_ms", "size_mb"]
+    )
+    def test_a_fall_in_a_lower_is_better_metric_passes(self, name: str) -> None:
+        from models.validation.regression import check_metric
+
+        assert check_metric(name, baseline=100.0, current=10.0).passed is True
+
+    def test_every_registry_metric_has_a_known_direction(self) -> None:
+        """The check that would have caught the original bug.
+
+        Whatever `measure_model` puts in the baseline must be a name the
+        direction table recognises.
+        """
+        from models.validation.regression import DEFAULT_TOLERANCES, HIGHER_IS_BETTER
+
+        emitted = {
+            "p50_latency_ms",
+            "p95_latency_ms",
+            "p99_latency_ms",
+            "mean_latency_ms",
+            "throughput_ips",
+            "size_mb",
+            "top1",
+            "top5",
+        }
+        unknown = {m for m in emitted if m not in HIGHER_IS_BETTER and m not in DEFAULT_TOLERANCES}
+        assert not unknown, f"metrics with no declared direction or tolerance: {unknown}"
+
+    def test_accuracy_uses_an_absolute_tolerance_not_a_relative_one(self) -> None:
+        """A 25% relative tolerance on accuracy would let a model collapse."""
+        from models.validation.regression import check_metric
+
+        # 78.91 -> 77.0 is only -2.4% relative, but 1.9 points absolute.
+        assert check_metric("top1", baseline=78.91, current=77.0).passed is False
+
+    def test_a_tiny_accuracy_drop_is_within_tolerance(self) -> None:
+        from models.validation.regression import check_metric
+
+        assert check_metric("top1", baseline=78.91, current=78.6).passed is True
+
+    def test_an_unrecognised_metric_says_so(self) -> None:
+        """Silently guessing a direction is how the original bug survived."""
+        from models.validation.regression import check_metric
+
+        result = check_metric("some_new_metric", baseline=10.0, current=9.0)
+        assert "unrecognised metric" in result.message
+
+    def test_a_known_metric_does_not_carry_the_warning(self) -> None:
+        from models.validation.regression import check_metric
+
+        assert "unrecognised" not in check_metric("top1", baseline=78.0, current=78.1).message
