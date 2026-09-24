@@ -14,7 +14,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,010: 865 unit, 130 integration, 15 performance |
+| Tests | 1,133: 988 unit, 130 integration, 15 performance |
 | Coverage | 95.8% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
@@ -406,7 +406,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,010 tests: 865 unit, 130 integration, 15 performance, plus Locust load
+- 1,133 tests: 988 unit, 130 integration, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed
@@ -502,6 +502,14 @@ black api/ models/ worker/ tests/          # format
 
 Integration tests against real PostgreSQL and Redis run automatically when
 `docker compose up -d` is running, and skip when it is not.
+
+The status table at the top of this file is checked in CI against the actual
+suite, so the numbers cannot quietly rot:
+
+```bash
+python scripts/check_readme_stats.py         # report drift
+python scripts/check_readme_stats.py --fix   # update the README
+```
 
 ### Working with models
 

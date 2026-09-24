@@ -166,7 +166,7 @@ jobs:
             -v
 
       - name: Enforce the coverage floor
-        # 92, against an actual 95.7% on api/. The gap is deliberate: if the
+        # 92, against an actual 95.8% on api/. The gap is on purpose: if the
         # Git LFS fetch fails, the artifact-dependent tests skip and coverage
         # drops a point or two. A gate set at the achieved number turns an
         # infrastructure hiccup into a coverage failure, which sends the next
@@ -180,6 +180,13 @@ jobs:
         run: |
           pytest tests/ -m "not performance" \
             --cov=api --cov-fail-under=92 --cov-report=term -q
+
+      # The README quotes test counts and a coverage figure. Those are correct
+      # the day they are written and quietly wrong a fortnight later, and a
+      # reviewer who spots one stale number has no reason to trust the rest.
+      # Runs after the coverage step so .coverage exists to read.
+      - name: README statistics match the repository
+        run: python scripts/check_readme_stats.py
 
       - name: Upload coverage
         if: matrix.python-version == '3.12'
