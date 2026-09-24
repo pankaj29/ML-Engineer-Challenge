@@ -31,6 +31,7 @@ through :meth:`ModelService.resolve`.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import threading
 import time
@@ -408,6 +409,9 @@ class ModelService:
         self.device = self.settings.resolve_device()
 
         self._entries: dict[str, ModelEntry] = {}
+        # Artifact content hashes, keyed by path+size+mtime so a file is only
+        # read once per distinct state.
+        self._fingerprints: dict[str, str] = {}
         self._loaded: dict[str, LoadedModel] = {}
         # Guards _loaded. A plain threading.Lock is right here because model
         # loading is synchronous, CPU-bound work that runs in a thread pool.
@@ -462,6 +466,41 @@ class ModelService:
             "registry_loaded",
             extra={"count": len(entries), "models": sorted(entries)},
         )
+
+    def artifact_fingerprint(self, entry: ModelEntry) -> str:
+        """Short content hash of the entry's primary artifact.
+
+        This exists so the result cache can tell two different sets of weights
+        apart even when they share a registry version. Bumping the version on
+        a weight change is the right discipline, but it is a human step, and
+        when it is missed the cache goes on serving predictions produced by a
+        file that is no longer on disk — silently, and until the TTL expires.
+
+        Content is hashed rather than mtime, so re-copying an identical file
+        during a deploy does not needlessly throw the cache away. The read
+        happens once per distinct (path, size, mtime); after that it is a dict
+        lookup.
+        """
+        fmt = next(iter(entry.artifacts), None)
+        path = self._artifact_path(entry, fmt) if fmt else None
+        if path is None or not path.is_file():
+            # A missing artifact is the loader's problem to report, not the
+            # cache key's. A stable placeholder keeps keys well-formed.
+            return "absent"
+
+        stat = path.stat()
+        token = f"{path}:{stat.st_size}:{stat.st_mtime_ns}"
+        cached = self._fingerprints.get(token)
+        if cached is not None:
+            return cached
+
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        short = digest.hexdigest()[:12]
+        self._fingerprints[token] = short
+        return short
 
     def list_entries(self) -> list[ModelEntry]:
         """Every active registry entry."""

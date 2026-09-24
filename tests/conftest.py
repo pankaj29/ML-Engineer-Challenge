@@ -319,6 +319,14 @@ class FakeModelService:
         self.device = "cpu"
         self.resolve_calls: list[tuple] = []
 
+    def artifact_fingerprint(self, entry: Any) -> str:
+        """Stand-in for the real content hash.
+
+        Constant, because these fakes have no artifact on disk. Tests that care
+        about invalidation set this explicitly.
+        """
+        return getattr(self, "fingerprint", "fake")
+
     def resolve(self, task: Any, name: str | None = None, version: str | None = None) -> Any:
         from api.exceptions import ModelNotFoundError
 

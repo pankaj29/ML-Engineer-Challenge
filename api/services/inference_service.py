@@ -371,7 +371,10 @@ class InferenceService:
                 cache_key = build_cache_key(
                     "classify",
                     digest,
-                    entry.key,
+                    # The fingerprint, not just name:version. Replacing weights
+                    # without bumping the version would otherwise leave the
+                    # cache serving the previous model's answers.
+                    f"{entry.key}@{self.models.artifact_fingerprint(entry)}",
                     (runtime or RuntimeFormat(self.settings.preferred_runtime)).value,
                     params,
                 )
@@ -471,7 +474,10 @@ class InferenceService:
                 cache_key = build_cache_key(
                     "detect",
                     digest,
-                    entry.key,
+                    # The fingerprint, not just name:version. Replacing weights
+                    # without bumping the version would otherwise leave the
+                    # cache serving the previous model's answers.
+                    f"{entry.key}@{self.models.artifact_fingerprint(entry)}",
                     (runtime or RuntimeFormat(self.settings.preferred_runtime)).value,
                     params,
                 )

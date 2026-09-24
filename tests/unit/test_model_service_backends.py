@@ -431,3 +431,117 @@ class TestUnloadAll:
         loaded.runtime.close = lambda: (_ for _ in ()).throw(RuntimeError("stuck"))
         service.unload_all()
         assert service.health()["loaded"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Artifact fingerprinting
+# ---------------------------------------------------------------------------
+class TestArtifactFingerprint:
+    """The cache key carries this so replaced weights invalidate their entries.
+
+    Bumping the registry version on a weight change is the right discipline,
+    but it is a manual step. When it is missed, the cache goes on serving
+    predictions produced by a file that is no longer on disk - no error, no
+    slowdown, just confidently wrong answers until the TTL expires. This makes
+    the miss harmless rather than silent.
+    """
+
+    @staticmethod
+    def _write(path: Path, content: bytes) -> None:
+        path.write_bytes(content)
+
+    def test_same_content_gives_the_same_fingerprint(
+        self, service: ModelService, tmp_path: Path
+    ) -> None:
+        self._write(tmp_path / "m.onnx", b"weights-A")
+        entry = _entry(artifacts={"onnx": "m.onnx"})
+        assert service.artifact_fingerprint(entry) == service.artifact_fingerprint(entry)
+
+    def test_different_content_gives_a_different_fingerprint(
+        self, service: ModelService, tmp_path: Path
+    ) -> None:
+        """The whole point: new weights, new key."""
+        path = tmp_path / "m.onnx"
+        entry = _entry(artifacts={"onnx": "m.onnx"})
+
+        self._write(path, b"weights-A")
+        first = service.artifact_fingerprint(entry)
+        self._write(path, b"weights-B-which-is-longer")
+        second = service.artifact_fingerprint(entry)
+
+        assert first != second
+
+    def test_identical_content_recopied_keeps_the_same_fingerprint(
+        self, service: ModelService, tmp_path: Path
+    ) -> None:
+        """Content, not mtime.
+
+        A deploy that re-copies an unchanged artifact must not throw the cache
+        away - that would mean a cold cache after every restart.
+        """
+        import os
+        import time
+
+        path = tmp_path / "m.onnx"
+        entry = _entry(artifacts={"onnx": "m.onnx"})
+
+        self._write(path, b"identical-bytes")
+        first = service.artifact_fingerprint(entry)
+
+        time.sleep(0.01)
+        os.utime(path, None)  # touch: same bytes, new mtime
+        assert service.artifact_fingerprint(entry) == first
+
+    def test_a_missing_artifact_gives_a_stable_placeholder(self, service: ModelService) -> None:
+        """A missing file is the loader's problem to report, not the key's."""
+        entry = _entry(artifacts={"onnx": "not-there.onnx"})
+        assert service.artifact_fingerprint(entry) == "absent"
+
+    def test_an_entry_with_no_artifacts_at_all(self, service: ModelService) -> None:
+        assert service.artifact_fingerprint(_entry(artifacts={})) == "absent"
+
+    def test_it_is_short_enough_for_a_cache_key(
+        self, service: ModelService, tmp_path: Path
+    ) -> None:
+        self._write(tmp_path / "m.onnx", b"x" * 4096)
+        fingerprint = service.artifact_fingerprint(_entry(artifacts={"onnx": "m.onnx"}))
+        assert len(fingerprint) == 12
+        assert fingerprint.isalnum()
+
+    def test_the_file_is_read_once_per_state(
+        self, service: ModelService, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Hashing a 95 MB artifact on every request would be absurd."""
+        path = tmp_path / "m.onnx"
+        self._write(path, b"y" * (2 << 20))
+        entry = _entry(artifacts={"onnx": "m.onnx"})
+
+        reads = {"n": 0}
+        real_open = Path.open
+
+        def counting_open(self, *args, **kwargs):
+            if self.name == "m.onnx" and "b" in str(args[0] if args else kwargs.get("mode", "")):
+                reads["n"] += 1
+            return real_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", counting_open)
+        for _ in range(5):
+            service.artifact_fingerprint(entry)
+        assert reads["n"] == 1, f"artifact was read {reads['n']} times"
+
+
+class TestCacheKeysCarryTheFingerprint:
+    def test_replacing_weights_changes_the_key(self, tmp_path: Path) -> None:
+        """An end-to-end statement of the bug this prevents."""
+        from api.services.cache_service import build_cache_key
+
+        before = build_cache_key("classify", "imagehash", "m:1.0.0@aaaaaaaaaaaa", "onnx", {})
+        after = build_cache_key("classify", "imagehash", "m:1.0.0@bbbbbbbbbbbb", "onnx", {})
+        assert before != after
+
+    def test_the_same_weights_reuse_the_key(self) -> None:
+        from api.services.cache_service import build_cache_key
+
+        a = build_cache_key("classify", "imagehash", "m:1.0.0@aaaaaaaaaaaa", "onnx", {})
+        b = build_cache_key("classify", "imagehash", "m:1.0.0@aaaaaaaaaaaa", "onnx", {})
+        assert a == b

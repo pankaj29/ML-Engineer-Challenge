@@ -29,12 +29,26 @@ def degraded_app(monkeypatch):
     Redis and Postgres are pointed at closed ports, so startup must take the
     degraded path rather than raising. Model warmup is disabled to keep this
     fast - it is covered separately in test_model_service_internals.py.
-    """
-    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:6391/0")
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@127.0.0.1:5433/none")
-    monkeypatch.setenv("EAGER_MODEL_LOAD", "false")
 
-    from api.config import get_settings
+    The services default to the module-level `settings` object, which is built
+    once when `api.config` is imported. Setting environment variables and
+    clearing the `get_settings` cache does not reach it, so each service's
+    module attribute is replaced directly. Without this the test quietly
+    connected to whatever was really listening on the default ports and
+    reported healthy - it passed only while no Redis happened to be running.
+    """
+    import api.services.cache_service as cache_service
+    import api.services.db_service as db_service
+    from api.config import Settings, get_settings
+
+    monkeypatch.setenv("EAGER_MODEL_LOAD", "false")
+    unreachable = Settings(
+        redis_url="redis://127.0.0.1:6391/0",
+        database_url="postgresql+asyncpg://u:p@127.0.0.1:5433/none",
+        eager_model_load=False,
+    )
+    monkeypatch.setattr(cache_service, "settings", unreachable)
+    monkeypatch.setattr(db_service, "settings", unreachable)
 
     get_settings.cache_clear()
     yield create_app()

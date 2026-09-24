@@ -284,6 +284,34 @@ whether the difference is real or luck, and reports a confidence interval on
 the accuracy delta alongside the latency change. It will tell you not to
 promote a model that is 0.2% more accurate and 300 ms slower.
 
+### Replacing weights under an existing version
+
+Register a new version rather than overwriting an existing one. Versions are
+how callers pin a model, how the A/B comparison identifies each side, and how
+a rollback names what to go back to — overwriting throws all of that away.
+
+If you do overwrite weights in place, the result cache handles it: the cache
+key carries a content hash of the artifact, so different bytes produce a
+different key and the stale entries are simply never read again. You do not
+need to flush Redis. Restoring the original file restores its hash, so entries
+computed from it become live again rather than being discarded.
+
+That safety net exists because the alternative fails silently. Without it, a
+weight swap under an unchanged version leaves the cache serving predictions
+from a file that is no longer on disk — no error, no latency change, just
+answers from the wrong model until the TTL expires.
+
+**On a bind-mounted development stack**, check the container actually sees the
+new file before trusting a test. Docker Desktop on Windows does not reliably
+propagate a bind-mounted file that was *replaced* rather than edited in place:
+
+```bash
+docker compose exec ml-api md5sum models/artifacts/<model>.onnx
+md5sum models/artifacts/<model>.onnx        # should match
+```
+
+If they differ, `docker compose up -d --build`.
+
 ### Canary rollout
 
 `models/validation/ab_test.py` provides deterministic hash-based traffic
