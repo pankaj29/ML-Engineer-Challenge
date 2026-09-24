@@ -15,8 +15,8 @@ preserved at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | **CI** | All 7 jobs green on Python 3.11 and 3.12 |
-| **Tests** | 734 unit tests passing, plus integration and load suites |
-| **Coverage** | 89.6% on `api/`; 85-100% on critical paths |
+| **Tests** | 1,010 tests: 865 unit, 130 integration, 15 performance |
+| **Coverage** | 95.8% on `api/`; cache, database and rate limiting at 100% |
 | **Lint** | `ruff` and `black` clean |
 | **Stack** | 7 services, all verified healthy |
 | **Classifier** | 78.91% top-1 on Tiny-ImageNet (200 classes), validated 9/9 |
@@ -405,10 +405,15 @@ Reproduce: `python -m models.optimization.benchmark`
 
 ### Part 3 — Testing
 
-* 370 tests: 286 unit, 67 integration, 15 performance, 2 load-test classes
-* Runs with **no external services** — fakeredis, in-memory SQLite, fake runtimes
-* Real-artifact integration tests that skip cleanly when artifacts are absent
-  **or are unfetched Git LFS pointers**, naming the remedy in the skip message
+* 1,010 tests: 865 unit, 130 integration, 15 performance, plus Locust load tests
+* The unit suite runs with **no external services** — fakeredis, in-memory
+  SQLite and fake runtimes, so a fresh clone needs nothing installed
+* Integration tests go the other way and use the real thing: real ONNX
+  artifacts, and real PostgreSQL and Redis when they are reachable. That is
+  what catches a dialect-specific query or a Lua script that is not actually
+  atomic — neither of which a substitute can show you
+* Every integration test skips cleanly when its dependency is absent, **including
+  unfetched Git LFS pointers**, naming the remedy in the skip message
 * Memory-leak profiling and concurrency verification
 * Locust load testing against the live stack
 * CI with lint, type-check, test, coverage gate, Docker build and security scan
