@@ -688,9 +688,13 @@ req/s end-to-end through the full stack with a realistic cache hit rate.
 | 100-500 req/s | 8-10 API replicas, 4 workers, Redis with more memory |
 | > 500 req/s | GPU inference; revisit the CPU-first assumptions entirely |
 
-The single largest lever is GPU inference, and I measured it. The TensorRT engines in section 3 run the fine-tuned classifier at
-822 to 1068 img/s on an A100, against roughly 13/s on this CPU. That is close
-to two orders of magnitude, and it is the reason the TensorRT path exists.
+The single largest lever is GPU inference, and I measured it. The TensorRT
+engines in section 3 run the fine-tuned classifier at 822 to 1068 img/s on an
+A100. The same model on this laptop manages 25.9 img/s (`BENCHMARKS.md`, batch
+1, fp32), so the A100 is 32x to 41x faster depending on precision. Section 3
+quotes a smaller multiple, 12.5x, because it compares latency against the GPU
+host's own CPU, 11.50 ms against 0.920 ms, instead of against this laptop.
+Either way it is the reason the TensorRT path exists.
 Deploying it means building the engine on the serving host, since an engine is
 tied to one GPU architecture and TensorRT version.
 
