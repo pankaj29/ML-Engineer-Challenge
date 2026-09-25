@@ -1,0 +1,111 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drift-watch
+  namespace: mlcv
+  labels:
+    app.kubernetes.io/name: drift-watch
+    app.kubernetes.io/component: mlops
+spec:
+  # 07:00 UTC on Mondays. Weekly because the pipeline's own cooldown is 24
+  # hours and drift here moves slowly; nightly would mostly re-report the
+  # same thing.
+  schedule: "0 7 * * 1"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # A job that cannot start within an hour of its slot is stale. Better to
+  # skip it and run at the next one than to pile up.
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # An hour is generous for reading the inference log and running the
+      # statistics. Past that something is wrong and it should stop.
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: drift-watch
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: drift
+              image: mlcv/api:latest
+              imagePullPolicy: IfNotPresent
+              # This is the reason the check runs here rather than in GitHub
+              # Actions. Drift is computed from the inference log, and the
+              # database is in this namespace. A runner outside the cluster
+              # can only read a committed snapshot, which is a decision made
+              # on stale data.
+              command:
+                - sh
+                - -c
+                - |
+                  set -e
+                  python -m models.validation.drift \
+                    --model resnet50-tiny-imagenet \
+                    --reference-days 30 \
+                    --current-days 7 \
+                    --output /tmp/drift_report.json
+
+                  # Report only. Retraining needs a GPU and the dataset, and
+                  # an unattended retrain on data nobody inspected is how a
+                  # working model gets replaced by a worse one. The decision
+                  # is automated; acting on it is not.
+                  python -m models.pipeline.retraining \
+                    --model resnet50-tiny-imagenet \
+                    --drift-report /tmp/drift_report.json \
+                    --history /state/retraining_history.json \
+                    --report /tmp/retraining_run.json
+              envFrom:
+                - configMapRef:
+                    name: mlcv-config
+                - secretRef:
+                    name: mlcv-secrets
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: state
+                  mountPath: /state
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            # The cooldown and the repeat-confirmation rule both read this
+            # history, so it has to outlive the job. Without it every run
+            # looks like the first and the cooldown never applies.
+            - name: state
+              persistentVolumeClaim:
+                claimName: mlops-state
+            - name: tmp
+              emptyDir: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-state
+  namespace: mlcv
+spec:
+  # ReadWriteOnce is right here: one job writes it, nothing else reads it, and
+  # concurrencyPolicy Forbid means there is never a second writer.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

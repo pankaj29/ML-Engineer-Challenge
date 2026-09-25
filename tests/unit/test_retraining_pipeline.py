@@ -247,3 +247,41 @@ def _run(
         epochs=1,
         track="none",
     )
+
+
+class TestTheTrainingCommand:
+    """The one seam the mocked gates cannot cover.
+
+    `_run_training` builds a command line and hands it to a subprocess. If a
+    flag is renamed in the training CLI, every other test here still passes
+    and the pipeline fails only when someone runs it for real, an hour into a
+    job that was supposed to retrain.
+    """
+
+    def test_the_command_is_accepted_by_the_training_cli(self, monkeypatch, tmp_path) -> None:
+        captured: dict[str, list[str]] = {}
+
+        class Completed:
+            returncode = 0
+
+        def capture(command, **kwargs):
+            captured["command"] = command
+            return Completed()
+
+        monkeypatch.setattr("models.pipeline.retraining.subprocess.run", capture)
+
+        from models.pipeline.retraining import _run_training
+
+        assert _run_training(epochs=3, data_dir=tmp_path, output_dir=tmp_path, track="none")
+
+        command = captured["command"]
+        assert command[1:3] == ["-m", "models.training.train_classifier"]
+
+        # Run the real parser over the real flags. This fails if any of them
+        # is renamed or dropped.
+        import subprocess
+
+        done = subprocess.run([*command, "--help"], capture_output=True, text=True, timeout=120)
+        assert done.returncode == 0, (
+            "the training CLI rejected the pipeline's arguments:\n" + done.stderr[-800:]
+        )

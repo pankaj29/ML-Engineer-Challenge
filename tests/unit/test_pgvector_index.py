@@ -108,3 +108,69 @@ class TestInterchangeableWithTheInMemoryIndex:
         memory = await SimilarityIndex(dimension=4).snapshot()
         assert memory["backend"] == "memory"
         assert memory["shared"] is False
+
+
+class TestConcurrentExtensionCreation:
+    """`CREATE EXTENSION IF NOT EXISTS` is not atomic.
+
+    Two replicas starting together both see the extension missing, both try,
+    and the loser gets a unique violation on pg_extension_name_index. Seen on
+    a real two-pod rollout, where the losing pod came up with similarity
+    degraded and no useful error.
+
+    The winner's work is what the loser wanted, so losing is success.
+    """
+
+    @staticmethod
+    def _session(error: Exception | None):
+        class Nested:
+            async def __aenter__(self):
+                return None
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class Session:
+            def __init__(self):
+                self.begin_nested = lambda: Nested()
+
+            async def execute(self, *args, **kwargs):
+                if error is not None:
+                    raise error
+                return None
+
+        return Session()
+
+    async def test_losing_the_race_is_not_an_error(self) -> None:
+        from sqlalchemy.exc import IntegrityError
+
+        from api.services.pgvector_index import PgVectorSimilarityIndex
+
+        clash = IntegrityError(
+            "CREATE EXTENSION IF NOT EXISTS vector",
+            {},
+            Exception('duplicate key value violates unique constraint "pg_extension_name_index"'),
+        )
+        # Must not raise: the extension exists, which is all the caller wanted.
+        await PgVectorSimilarityIndex._create_extension(self._session(clash))
+
+    async def test_a_real_failure_still_propagates(self) -> None:
+        """Swallowing everything would hide a missing extension or a
+        permissions problem, and the pod would start with no vector support
+        and no explanation."""
+        from sqlalchemy.exc import IntegrityError
+
+        from api.services.pgvector_index import PgVectorSimilarityIndex
+
+        denied = IntegrityError(
+            "CREATE EXTENSION IF NOT EXISTS vector",
+            {},
+            Exception('permission denied to create extension "vector"'),
+        )
+        with pytest.raises(IntegrityError):
+            await PgVectorSimilarityIndex._create_extension(self._session(denied))
+
+    async def test_the_happy_path_does_nothing_surprising(self) -> None:
+        from api.services.pgvector_index import PgVectorSimilarityIndex
+
+        await PgVectorSimilarityIndex._create_extension(self._session(None))

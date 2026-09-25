@@ -65,6 +65,14 @@ def _workloads(objects) -> list[dict[str, Any]]:
     return _by_kind(objects, "Deployment") + _by_kind(objects, "StatefulSet")
 
 
+def _pod_specs(objects) -> list[tuple[str, dict[str, Any]]]:
+    """Every pod template, including the ones inside a CronJob."""
+    specs = [(_name(w), w["spec"]["template"]["spec"]) for w in _workloads(objects)]
+    for cron in _by_kind(objects, "CronJob"):
+        specs.append((_name(cron), cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]))
+    return specs
+
+
 def _containers(workload) -> list[dict[str, Any]]:
     return workload["spec"]["template"]["spec"].get("containers", [])
 
@@ -296,3 +304,138 @@ class TestScalingCorrectness:
 
     def test_postgres_is_a_statefulset_not_a_deployment(self, objects) -> None:
         assert not any(_name(d) == "postgres" for d in _by_kind(objects, "Deployment"))
+
+
+class TestArtifactDelivery:
+    """Weights are not in the image and there is no shared volume, so every
+    pod fetches its own copy before the app starts."""
+
+    def test_workloads_that_need_models_fetch_them_first(self, objects) -> None:
+        for name in ("ml-api", "worker"):
+            workload = next(w for w in _workloads(objects) if _name(w) == name)
+            init = workload["spec"]["template"]["spec"].get("initContainers", [])
+            assert any(
+                c["name"] == "fetch-artifacts" for c in init
+            ), f"{name} mounts a models volume but nothing populates it"
+
+    def test_the_models_volume_is_not_a_shared_claim(self, objects) -> None:
+        """A ReadOnlyMany PVC is what left the whole stack Pending on a
+        cluster whose provisioner only does ReadWriteOnce."""
+        claims = {_name(c) for c in _by_kind(objects, "PersistentVolumeClaim")}
+        assert "model-artifacts" not in claims
+
+        for name in ("ml-api", "worker"):
+            workload = next(w for w in _workloads(objects) if _name(w) == name)
+            models = next(
+                v for v in workload["spec"]["template"]["spec"]["volumes"] if v["name"] == "models"
+            )
+            assert "emptyDir" in models, f"{name} still mounts a claim for its weights"
+
+    def test_the_fetcher_writes_where_the_app_reads(self, objects) -> None:
+        """A mismatch here gives a pod that downloads 380 MB and then starts
+        with an empty artifacts directory."""
+        for name in ("ml-api", "worker"):
+            workload = next(w for w in _workloads(objects) if _name(w) == name)
+            pod = workload["spec"]["template"]["spec"]
+            fetcher = next(c for c in pod["initContainers"] if c["name"] == "fetch-artifacts")
+            app = pod["containers"][0]
+
+            written = {m["name"] for m in fetcher["volumeMounts"] if not m.get("readOnly")}
+            read = {m["name"] for m in app["volumeMounts"]}
+            assert "models" in written and "models" in read
+
+            dest = next(e["value"] for e in fetcher["env"] if e["name"] == "ARTIFACT_DEST")
+            mount = next(m["mountPath"] for m in fetcher["volumeMounts"] if m["name"] == "models")
+            assert dest == mount, f"{name} fetches to {dest} but mounts the volume at {mount}"
+
+    def test_the_source_is_configured(self, objects) -> None:
+        config = next(c for c in _by_kind(objects, "ConfigMap") if _name(c) == "mlcv-config")
+        assert config["data"].get(
+            "ARTIFACT_SOURCE"
+        ), "without a source the init container has nowhere to fetch from"
+
+
+class TestDriftCronJob:
+    """The drift check runs here because the inference log is here. A job
+    outside the cluster can only read a committed snapshot."""
+
+    def test_the_cronjob_exists_and_does_not_overlap_itself(self, objects) -> None:
+        cron = next(iter(_by_kind(objects, "CronJob")), None)
+        assert cron is not None, "no scheduled drift check"
+        assert (
+            cron["spec"]["concurrencyPolicy"] == "Forbid"
+        ), "two concurrent runs would both write the history file"
+
+    def test_it_keeps_its_history_across_runs(self, objects) -> None:
+        """The cooldown and the confirm-before-acting rule both read this. On
+        an emptyDir every run would look like the first."""
+        cron = _by_kind(objects, "CronJob")[0]
+        pod = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        state = next(v for v in pod["volumes"] if v["name"] == "state")
+        assert "persistentVolumeClaim" in state
+
+        claims = {_name(c) for c in _by_kind(objects, "PersistentVolumeClaim")}
+        assert state["persistentVolumeClaim"]["claimName"] in claims
+
+    def test_it_reports_rather_than_retrains(self, objects) -> None:
+        """--execute would retrain unattended on data nobody inspected, in a
+        pod with no GPU and no dataset."""
+        cron = _by_kind(objects, "CronJob")[0]
+        command = " ".join(
+            cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["command"]
+        )
+        assert "--execute" not in command
+
+    def test_it_cannot_run_forever(self, objects) -> None:
+        cron = _by_kind(objects, "CronJob")[0]
+        assert cron["spec"]["jobTemplate"]["spec"].get("activeDeadlineSeconds")
+
+
+class TestSecurityAcrossEveryPod:
+    """Including init containers and the CronJob, which the earlier checks
+    miss because they only look at Deployments."""
+
+    def test_every_container_anywhere_drops_capabilities(self, objects) -> None:
+        for name, pod in _pod_specs(objects):
+            for container in pod.get("containers", []) + pod.get("initContainers", []):
+                ctx = container.get("securityContext", {})
+                assert (
+                    ctx.get("allowPrivilegeEscalation") is False
+                ), f"{name}/{container['name']} allows privilege escalation"
+                assert ctx.get("capabilities", {}).get("drop") == [
+                    "ALL"
+                ], f"{name}/{container['name']} does not drop all capabilities"
+
+    def test_every_pod_anywhere_runs_as_non_root(self, objects) -> None:
+        for name, pod in _pod_specs(objects):
+            assert pod.get("securityContext", {}).get("runAsNonRoot") is True, name
+
+
+class TestTheImageHasWhatItNeeds:
+    """Caught by deploying, not by reading.
+
+    The image copied models/registry.py but not models/registry.json, so the
+    API started, reported its dependencies healthy, and loaded zero models.
+    The only symptom was a 503 from /health with every model unhealthy.
+    """
+
+    @staticmethod
+    def _dockerfile() -> str:
+        return (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
+
+    def test_the_registry_json_is_copied_not_just_the_reader(self) -> None:
+        assert (
+            "models/registry.json" in self._dockerfile()
+        ), "the image has registry.py but not registry.json, so it will load no models"
+
+    def test_the_fetch_script_and_manifest_are_present(self) -> None:
+        """The init container runs from this image and verifies against the
+        manifest, so both have to be in it."""
+        dockerfile = self._dockerfile()
+        assert "scripts/fetch_artifacts.py" in dockerfile
+        assert "models/artifacts_manifest.json" in dockerfile
+
+    def test_the_mlops_code_the_cronjob_runs_is_present(self) -> None:
+        dockerfile = self._dockerfile()
+        assert "models/validation/" in dockerfile
+        assert "models/pipeline/" in dockerfile

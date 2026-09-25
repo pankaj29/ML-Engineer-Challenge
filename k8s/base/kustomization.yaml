@@ -9,6 +9,7 @@ resources:
   - data.yaml
   - api.yaml
   - worker.yaml
+  - drift-cronjob.yaml
   - ingress.yaml
 
 labels:

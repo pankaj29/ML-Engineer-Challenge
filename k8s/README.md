@@ -90,18 +90,78 @@ pgvector puts the vectors in Postgres, which this stack already runs. The
 Postgres image is `pgvector/pgvector:pg16` for that reason; plain `postgres`
 cannot create the extension.
 
-## Storage
+## Where the weights come from
 
-`model-artifacts` is a `ReadOnlyMany` PVC so the API and worker can share one
-copy of the weights. Most cloud block storage only offers `ReadWriteOnce`, and
-the claim will not bind there. Two options:
+Not the image, and not a shared volume. An init container downloads them into
+an `emptyDir` the app container shares, and verifies every file against
+`models/artifacts_manifest.json` before the API is allowed to start.
 
-- Bake the artifacts into the image. Simplest, and makes the image the single
-  versioned unit, at the cost of a ~400 MB image and a rebuild per model.
-- Use a filesystem volume (EFS, Filestore, Azure Files), which supports
-  `ReadOnlyMany`.
+```
+initContainer fetch-artifacts   downloads + verifies -> emptyDir
+container api                   reads the emptyDir, read-only
+```
 
-Postgres uses a `volumeClaimTemplate`, so its storage follows the pod.
+`ARTIFACT_SOURCE` in the ConfigMap says where from: `s3://bucket/prefix`,
+`https://host/path`, or `file:///path`. Version the prefix rather than
+overwriting it in place, so rolling a model back is changing that string back.
+
+Three alternatives were considered.
+
+**In the image.** 380 MB, and it ties the model version to the image version:
+shipping new weights means redeploying the service, and rolling back a code
+change also rolls back the model. Reasonable if you want one versioned unit;
+rejected here because model and code move on different schedules.
+
+**A ReadOnlyMany PVC.** Needs a filesystem volume (EFS, Filestore, Azure
+Files) that most clusters do not have by default. This is what the manifests
+used to do, and applying them to kind is how that was found: the claim never
+bound and both workloads sat Pending behind it.
+
+**A ReadWriteOnce PVC.** Binds anywhere, but every pod mounting it must land
+on one node, which defeats the autoscaler.
+
+The cost of the current approach is a download per pod start. The fetch script
+skips files already present with a matching checksum, so a restart on a warm
+volume is a checksum pass rather than a re-download.
+
+### Checksums are the point
+
+Serving the wrong weights produces plausible predictions and no error
+anywhere. A mismatch fails the init container, so the pod never serves.
+Mismatches are not retried: retrying downloads the same wrong bytes.
+
+Regenerate the manifest whenever the weights change:
+
+```bash
+python scripts/fetch_artifacts.py \
+  --dest models/artifacts \
+  --write-manifest models/artifacts_manifest.json
+```
+
+A test asserts the committed manifest matches the files on disk, so forgetting
+this fails CI rather than every pod start.
+
+## Scheduled drift checks
+
+`drift-watch` is a CronJob rather than a GitHub Action, and the reason is
+data. Drift is computed from the inference log, and the database is in this
+namespace. A runner outside the cluster can only read a committed snapshot,
+which means deciding on stale data.
+
+It runs weekly, computes drift over the last 7 days against the previous 30,
+and asks the retraining pipeline what to do. It reports; it does not retrain.
+Training needs a GPU and the dataset, and an unattended retrain on data nobody
+inspected is how a working model gets replaced by a worse one.
+
+Its history lives on a small PVC because the pipeline's cooldown and its
+confirm-before-acting rule both read it. On an `emptyDir` every run would look
+like the first and the cooldown would never apply.
+
+```bash
+# Run it now rather than waiting for Monday
+kubectl -n mlcv create job --from=cronjob/drift-watch drift-now
+kubectl -n mlcv logs job/drift-now
+```
 
 ## Differences from Compose
 
@@ -140,48 +200,81 @@ database should leave the load-balancer pool without being restarted.
 
 ## Verified on a cluster
 
-These are not manifests that only render. On 25 September 2026 the base plus
-the `kind` overlay was applied to a kind cluster (Kubernetes v1.33.1) and the
-whole stack reached Ready.
+These are not manifests that only render. Applied to a kind cluster
+(Kubernetes v1.33.1) with the `kind` overlay, the stack came up and served a
+real request.
 
 ```
-pod/ml-api-57b8c54b9b-ljxfx   1/1   Running
-pod/ml-api-57b8c54b9b-rjh4z   1/1   Running
-pod/postgres-0                1/1   Running
-pod/redis-6cdbfb94bf-4lzs9    1/1   Running
-pod/worker-658b4c84b4-qt79m   1/1   Running
+NAME                              READY   STATUS
+artifact-server-56db9c7c6-xglrp   1/1     Running
+ml-api-7d9f4c8b96-2qkxp           1/1     Running
+postgres-0                        1/1     Running
+redis-6cdbfb94bf-th2cg            1/1     Running
+worker-56d7b9c7fd-c6vhk           1/1     Running
 
-horizontalpodautoscaler/ml-api   cpu: 0%/70%, memory: 3%/80%   1  10  2
-horizontalpodautoscaler/worker   cpu: 11%/75%                  1   6  1
+status: healthy
+  cache                      healthy
+  database                   healthy
+  model:classification       healthy
+  model:detection            healthy
+  model:similarity           healthy
 ```
 
-What that run actually confirmed, beyond "it applied":
+End to end, through the cluster: a token from `POST /api/v1/auth/token`, used
+to authenticate an upload to `/api/v1/classify/upload`, which returned
+Labrador retriever at 0.397 for `samples/dog.jpg`.
 
-- **The HPA scales.** With metrics-server installed the targets resolve, and
-  dropping the memory target to 1% as a live patch took ml-api from 1 pod to 2
-  within a minute. Restored afterwards; the manifest was not touched.
-- **The rollout strategy works.** `kubectl set image` replaced the API pod
-  with `maxUnavailable: 0`, and the old pod only terminated after the new one
-  was Ready.
-- **In-cluster service discovery works.** `/api/v1/health` reported cache and
-  database healthy, so the Services, the Secret wiring and the NetworkPolicy
-  all resolve.
+What else the run confirmed:
+
+- **The init container fetches and verifies.** All 11 artifacts pulled over
+  HTTP from the in-cluster store, every checksum checked, 382.5 MB. The retry
+  path fired for real: the first request hit connection-refused before the
+  server was ready, and the retry succeeded.
+- **The HPA scales.** With metrics-server present the targets resolved, and
+  dropping the memory target to 1% took ml-api from one pod to two inside a
+  minute. Restored afterwards; the manifest was untouched.
+- **Rollouts do not shed capacity.** `maxUnavailable: 0` held: the old pod
+  terminated only after the new one was Ready.
 - **pgvector provisions itself.** The API created `similarity_vectors` with a
-  `vector(2048)` column against the in-cluster Postgres at startup, on
-  extension version 0.8.6.
-- **Token issuance works.** `POST /api/v1/auth/token` returned a signed
-  pro-tier JWT.
+  `vector(2048)` column against in-cluster Postgres, extension 0.8.6.
+- **The drift CronJob runs where the data is.** `kubectl create job
+  --from=cronjob/drift-watch` completed: it queried the inference log, wrote a
+  report, and the pipeline decided to skip. That is the whole reason it is a
+  CronJob and not a GitHub Action.
 
-And what it found, which is why doing this mattered: the base `model-artifacts`
-PVC is `ReadOnlyMany`, and on kind's local-path provisioner it never binds.
-Both the API and the worker sat Pending behind it. That is the caveat already
-written in the Storage section above, confirmed rather than theorised, and it
-is the single reason the `kind` overlay exists.
+### Three bugs this found
 
-Two things this did not verify. Inference was not exercised, because no model
-artifacts were on the volume and the overlay sets `EAGER_MODEL_LOAD=false`. And
-a single-node cluster cannot test the multi-node behaviour the base targets,
-which is exactly where `ReadWriteOnce` would stop being adequate.
+None of these were visible from reading the manifests.
+
+**`models/registry.json` was not in the image.** The Dockerfile copied
+`registry.py` but not the registry it reads. The API started, reported cache
+and database healthy, and loaded zero models. The only symptom was a 503 from
+`/health` with every model unhealthy. A test now asserts the Dockerfile copies
+it.
+
+**`CREATE EXTENSION IF NOT EXISTS` is not atomic.** Two replicas starting
+together both found the vector extension missing, both tried to create it, and
+the loser took a unique violation on `pg_extension_name_index` and came up with
+similarity degraded. Schema setup now tolerates losing that race inside a
+savepoint, and still propagates anything else, such as a permissions error.
+
+**`hostPath` is forbidden by the restricted Pod Security Standard.** An earlier
+version of this overlay mounted the repo's artifacts directly and every
+ReplicaSet was rejected at admission. That is the control working. Serving the
+files over HTTP from an in-cluster pod keeps the security posture identical to
+production and exercises the real network fetch path rather than a `file://`
+shortcut.
+
+An earlier run also confirmed why the `ReadOnlyMany` PVC had to go: on
+local-path storage the claim never bound and both workloads sat Pending behind
+it.
+
+### What this did not verify
+
+A single node cannot exercise the multi-node behaviour the base targets, and
+TensorRT is not involved: these are the CPU ONNX runtimes. The artifact store
+here is a pod serving static files, not S3, so the `s3://` branch of the fetch
+script is covered by unit tests rather than by this run.
 
 ## Verifying changes
 

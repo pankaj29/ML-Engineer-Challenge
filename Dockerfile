@@ -103,7 +103,22 @@ WORKDIR /app
 COPY --chown=appuser:appuser api/ ./api/
 COPY --chown=appuser:appuser db/ ./db/
 COPY --chown=appuser:appuser models/registry.py ./models/registry.py
+# The registry JSON, not just the code that reads it. Without this the
+# service starts, reports healthy on its dependencies, and loads zero
+# models, which only shows up as a 503 from /health.
+COPY --chown=appuser:appuser models/registry.json ./models/registry.json
 COPY --chown=appuser:appuser models/__init__.py ./models/__init__.py
+
+# Serving does not use these. The init container and the drift CronJob do, and
+# they run this same image rather than a second one: a separate image would
+# drift out of step with the API it is meant to be checking.
+#
+# All three are pure Python over numpy and the database, so they add kilobytes
+# rather than the training stack.
+COPY --chown=appuser:appuser models/validation/ ./models/validation/
+COPY --chown=appuser:appuser models/pipeline/ ./models/pipeline/
+COPY --chown=appuser:appuser scripts/fetch_artifacts.py ./scripts/fetch_artifacts.py
+COPY --chown=appuser:appuser models/artifacts_manifest.json ./models/artifacts_manifest.json
 
 # Only the Celery *app* (broker configuration), never worker/tasks.py. The API
 # enqueues jobs by task name via send_task and reads their status, so it needs

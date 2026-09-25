@@ -14,8 +14,8 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,277: 1080 unit, 154 integration, 28 end-to-end, 15 performance |
-| Coverage | 95.6% on `api/`; cache, database and rate limiting at 100% |
+| Tests | 1,309: 1107 unit, 159 integration, 28 end-to-end, 15 performance |
+| Coverage | 94.6% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
 | Classifier | 78.91% top-1 on Tiny-ImageNet, 9 of 9 validation checks pass |
@@ -449,7 +449,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,277 tests: 1080 unit, 154 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,309 tests: 1107 unit, 159 integration, 28 end-to-end, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed

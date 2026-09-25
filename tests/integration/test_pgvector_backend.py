@@ -177,3 +177,48 @@ class TestStats:
         assert snapshot["shared"] is True
         assert snapshot["size"] == 1
         assert snapshot["dimension"] == DIMENSION
+
+
+class TestConcurrentStartup:
+    """Several instances setting up at once all succeed.
+
+    A smoke test, not a reproduction. The failure this guards against was
+    seen between two pods on a rollout: both found the extension missing, both
+    ran CREATE EXTENSION IF NOT EXISTS, and the loser took a unique violation
+    on pg_extension_name_index and started with similarity degraded.
+
+    Coroutines sharing one connection pool do not reliably recreate that;
+    their transactions tend to serialise, and this passes with or without the
+    fix. The behaviour that actually matters is unit-tested in
+    tests/unit/test_pgvector_index.py::TestConcurrentExtensionCreation.
+    """
+
+    async def test_several_instances_can_set_up_at_once(self, index) -> None:
+        import asyncio
+
+        from sqlalchemy import text
+
+        # Drop it so every instance races from the same starting point.
+        # The fixture patched the module's get_db_service, so go through
+        # that rather than the global singleton, which was never connected.
+        from api.services import pgvector_index
+        from api.services.pgvector_index import PgVectorSimilarityIndex
+
+        async with pgvector_index.get_db_service().session() as session:
+            await session.execute(text("DROP TABLE IF EXISTS similarity_vectors"))
+            # Drop the extension too. With it already present every CREATE
+            # EXTENSION IF NOT EXISTS is a no-op and nothing races, which is
+            # why an earlier version of this test passed against the bug.
+            await session.execute(text("DROP EXTENSION IF EXISTS vector CASCADE"))
+
+        replicas = [PgVectorSimilarityIndex(dimension=DIMENSION) for _ in range(5)]
+        results = await asyncio.gather(
+            *(r.ensure_schema() for r in replicas), return_exceptions=True
+        )
+
+        failures = [r for r in results if r is not True]
+        assert not failures, f"{len(failures)} of 5 replicas failed to set up: {failures}"
+
+        # And the table is usable afterwards, not left half-created.
+        assert await replicas[0].insert(_unit(1, 0, 0), item_id="after-race")
+        assert await replicas[1].count() == 1

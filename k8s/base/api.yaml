@@ -47,6 +47,50 @@ spec:
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: ml-api
+      initContainers:
+        # Weights are not in the image. Putting 380 MB there would tie the
+        # model version to the image version, so shipping new weights would
+        # mean redeploying the service and every code rollback would also roll
+        # back the model.
+        #
+        # This downloads them into an emptyDir the app container shares, and
+        # verifies every file against models/artifacts_manifest.json. A
+        # mismatch fails the init container, so the pod never serves: wrong
+        # weights produce plausible predictions and no error, which is the
+        # worst failure this system has.
+        - name: fetch-artifacts
+          image: mlcv/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/fetch_artifacts.py"]
+          env:
+            - name: ARTIFACT_SOURCE
+              valueFrom:
+                configMapKeyRef:
+                  name: mlcv-config
+                  key: ARTIFACT_SOURCE
+            - name: ARTIFACT_DEST
+              value: /models
+          envFrom:
+            # Credentials for an s3:// source. Absent for an https:// one.
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: api
           image: mlcv/api:latest
@@ -122,9 +166,14 @@ spec:
                 command: ["sleep", "5"]
       terminationGracePeriodSeconds: 30
       volumes:
+        # emptyDir, not a PVC. The volume lives and dies with the pod, which
+        # is what makes this work on any cluster: no ReadOnlyMany support
+        # needed, no shared volume every replica depends on. The cost is
+        # re-downloading on each pod start, which the fetch script keeps to a
+        # checksum comparison when the files are already there.
         - name: models
-          persistentVolumeClaim:
-            claimName: model-artifacts
+          emptyDir:
+            sizeLimit: 2Gi
         - name: tmp
           emptyDir: {}
 ---

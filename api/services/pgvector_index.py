@@ -71,7 +71,7 @@ class PgVectorSimilarityIndex:
 
         try:
             async with db.session() as session:
-                await session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                await self._create_extension(session)
                 await session.execute(
                     text(
                         "CREATE TABLE IF NOT EXISTS similarity_vectors ("
@@ -92,6 +92,30 @@ class PgVectorSimilarityIndex:
                 extra={"error": f"{type(exc).__name__}: {exc}", "dimension": self.dimension},
             )
             return False
+
+    @staticmethod
+    async def _create_extension(session: Any) -> None:
+        """Create the vector extension, tolerating a concurrent creator.
+
+        `CREATE EXTENSION IF NOT EXISTS` is not atomic. Two replicas starting
+        together both see it missing, both try, and the loser gets a unique
+        violation on pg_extension_name_index. Observed on a two-replica
+        rollout: one pod came up with similarity degraded for no reason it
+        could report.
+
+        A savepoint keeps that failure from poisoning the outer transaction,
+        which would otherwise take the CREATE TABLE down with it.
+        """
+        from sqlalchemy.exc import DBAPIError, IntegrityError
+
+        try:
+            async with session.begin_nested():
+                await session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except (IntegrityError, DBAPIError) as exc:
+            # Someone else won the race. Anything else is a real problem.
+            if "pg_extension_name_index" not in str(exc) and "already exists" not in str(exc):
+                raise
+            logger.debug("vector extension was created concurrently by another replica")
 
     def _to_literal(self, vector: np.ndarray) -> str:
         """pgvector's text input format, which is '[1,2,3]'.

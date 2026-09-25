@@ -25,6 +25,41 @@ spec:
         fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Same fetch as the API. The worker runs the models too, so it needs
+        # the same weights verified the same way.
+        - name: fetch-artifacts
+          image: mlcv/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/fetch_artifacts.py"]
+          env:
+            - name: ARTIFACT_SOURCE
+              valueFrom:
+                configMapKeyRef:
+                  name: mlcv-config
+                  key: ARTIFACT_SOURCE
+            - name: ARTIFACT_DEST
+              value: /models
+          envFrom:
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: worker
           image: mlcv/worker:latest
@@ -71,8 +106,8 @@ spec:
       terminationGracePeriodSeconds: 120
       volumes:
         - name: models
-          persistentVolumeClaim:
-            claimName: model-artifacts
+          emptyDir:
+            sizeLimit: 2Gi
         - name: tmp
           emptyDir: {}
 ---

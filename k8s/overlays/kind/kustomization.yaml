@@ -13,22 +13,18 @@ namespace: mlcv
 
 resources:
   - ../../base
+  - artifact-server.yaml
 
 patches:
-  # A local-path provisioner only supports ReadWriteOnce. ReadOnlyMany leaves
-  # the claim Pending forever, and both workloads sit unschedulable behind it.
-  # RWO is fine on one node, where every pod mounting it lands on that node
-  # anyway.
+  # Fetch the weights from the repo checkout instead of object storage. The
+  # base points at an https:// artifact store; a laptop has the files already.
   - target:
-      kind: PersistentVolumeClaim
-      name: model-artifacts
+      kind: ConfigMap
+      name: mlcv-config
     patch: |-
       - op: replace
-        path: /spec/accessModes
-        value: ["ReadWriteOnce"]
-      - op: replace
-        path: /spec/resources/requests/storage
-        value: 1Gi
+        path: /data/ARTIFACT_SOURCE
+        value: "http://artifact-server"
 
   # One API replica. Two is right in production and pointless on one node,
   # and the PodDisruptionBudget's minAvailable of 1 would block eviction of
@@ -58,14 +54,4 @@ patches:
         path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
         value: 2Gi
 
-  # Models are not baked into the image and there is no shared volume here, so
-  # eager loading finds nothing and startup fails. Lazy loading lets the
-  # process come up; the point of this overlay is proving the manifests
-  # schedule and pass their probes, not serving predictions.
-  - target:
-      kind: ConfigMap
-      name: mlcv-config
-    patch: |-
-      - op: replace
-        path: /data/EAGER_MODEL_LOAD
-        value: "false"
+
