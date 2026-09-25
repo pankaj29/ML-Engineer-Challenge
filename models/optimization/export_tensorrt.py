@@ -659,18 +659,58 @@ def build_engine(
 _VERIFY_TOLERANCE = {"fp32": 1e-3, "fp16": 1e-2, "int8": 1e-1}
 
 
+def _verification_input(spatial: list[int]) -> tuple[np.ndarray, str]:
+    """An input to compare the engine against the ONNX graph on.
+
+    A real photograph when the repo has one, random noise otherwise.
+
+    This matters for INT8 and only for INT8. Its scales were calibrated on
+    photographs, so noise falls outside every range they cover, the error is
+    inflated, and - because the noise was different each run - the verdict
+    flipped between builds of the same engine: max diff 0.385 one run and
+    0.440 the next, straddling the threshold. fp32 and fp16 do not care what
+    they are fed, so this costs them nothing.
+
+    The fallback is seeded, so even with no images the answer is repeatable.
+    """
+    samples_dir = REPO_ROOT / "samples"
+    images = sorted(samples_dir.glob("*.jpg")) + sorted(samples_dir.glob("*.png"))
+    if images:
+        try:
+            from api.utils.image_processing import PreprocessConfig
+            from models.optimization.quantize import iter_calibration_images
+
+            config = PreprocessConfig(size=(spatial[1], spatial[2]))
+            for array in iter_calibration_images(samples_dir, config, 1):
+                batch = array if array.ndim == 4 else array[None]
+                return batch.astype(np.float32), f"real image ({images[0].name})"
+        except Exception:
+            # Preprocessing is a convenience here, not the thing under test.
+            pass
+
+    return (
+        np.random.default_rng(0).standard_normal((1, *spatial)).astype(np.float32),
+        "seeded random noise (no sample images found)",
+    )
+
+
 def _verify_engine(
     onnx_path: Path,
     engine_path: Path,
     spatial: list[int],
     precision: str = "fp16",
 ) -> tuple[float, bool]:
-    """Run the ONNX model and the engine on the same input and compare."""
+    """Run the ONNX model and the engine on the same input and compare.
+
+    Returns ``(max_abs_diff, verified)``, where verified compares the
+    difference against :data:`_VERIFY_TOLERANCE` as a fraction of the
+    reference's own peak magnitude.
+    """
     import onnxruntime as ort
 
     from api.services.model_service import TensorRTBackend
 
-    sample = np.random.randn(1, *spatial).astype(np.float32)
+    sample, source = _verification_input(spatial)
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     reference = session.run(None, {session.get_inputs()[0].name: sample})[0]
@@ -687,7 +727,12 @@ def _verify_engine(
     # broken engine from dividing its way to a pass.
     peak = float(np.abs(reference).max())
     relative = max_diff / peak if peak > 0 else float("inf")
-    return max_diff, relative < _VERIFY_TOLERANCE.get(precision, 1e-2)
+    verified = relative < _VERIFY_TOLERANCE.get(precision, 1e-2)
+    print(
+        f"  verify [{precision}] on {source}: max diff {max_diff:.3e} "
+        f"= {relative * 100:.3f}% of peak -> {'pass' if verified else 'FAIL'}"
+    )
+    return max_diff, verified
 
 
 def benchmark_engine(
