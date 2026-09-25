@@ -193,6 +193,7 @@ whether it came from cache.
 | File upload | Add `/upload` to any inference endpoint for multipart instead of base64 |
 | Models | `GET /api/v1/models`, what is registered and which is default |
 | Health | `/health`, `/health/live`, `/health/ready` |
+| Tokens | `POST /api/v1/auth/token`, trades an API key for a short-lived JWT |
 
 Full reference: [`docs/API.md`](docs/API.md). Interactive docs generated from
 the code: <http://localhost:8000/docs>.
@@ -230,6 +231,13 @@ the code: <http://localhost:8000/docs>.
 
 ## Architecture
 
+There are two deployment targets. Docker Compose is what the quick start
+brings up and what the end-to-end tests drive. Kubernetes is the one that
+scales, and it is a different topology, so it gets its own diagram below
+rather than being drawn as a variant of the first.
+
+### Docker Compose
+
 ```text
                     ┌──────────────┐
    client ─────────▶│  api-gateway │  Nginx: load balancing, edge rate
@@ -265,7 +273,64 @@ rejected by authentication. Auth comes before rate limiting because the limit
 depends on the caller's tier. Rate limiting is innermost, so a rejected
 request never touches a model.
 
-Reasoning in [TECHNICAL.md](docs/TECHNICAL.md).
+### Kubernetes
+
+Compose fixes the replica count and keeps the similarity index in each API
+process, which is fine on one machine and wrong across several. The manifests
+in [`k8s/`](k8s/README.md) change both: the HPA sets the replica count from
+load, and the index moves into pgvector so every replica sees the same
+vectors.
+
+```text
+                        ┌──────────────┐
+    client ────────────▶│   Ingress    │  nginx; canary split by annotation
+                        └──────┬───────┘
+                 ┌─────────────┴─────────────┐
+                 │ 95%                       │ 5%
+                 ▼                           ▼
+         ┌───────────────┐           ┌───────────────┐
+         │  ml-api       │           │  ml-api       │  canary: a new model
+         │  Deployment   │           │  canary       │  version, compared
+         │  HPA 2..10    │           │  Deployment   │  against stable on
+         │  PDB minAv 1  │           └───────────────┘  real predictions
+         └───┬───────┬───┘
+             │       │           ┌────────────────────┐
+             │       │           │  worker Deployment │  Celery, own HPA
+             │       │           └─────────┬──────────┘
+             ▼       ▼                     │
+    ┌────────────┐  ┌──────────────────────┴───┐
+    │   redis    │  │  postgres + pgvector     │  inference log, jobs, and
+    │  cache     │  │                          │  the shared similarity index
+    │  broker    │  └──────────────────────────┘
+    │  limiter   │
+    └────────────┘             ┌────────────────────┐
+                               │  drift CronJob     │  weekly: decide whether
+                               └────────────────────┘  to retrain, gate on
+                                                       validation
+```
+
+Details worth knowing before applying it:
+
+- **Artifacts are not baked into the image.** An init container fetches them
+  and verifies each SHA-256, so a new model version does not need a rebuild.
+- **The pods run under the restricted Pod Security Standard**: non-root,
+  read-only root filesystem, all capabilities dropped, no `hostPath`.
+- **A NetworkPolicy** keeps Postgres reachable only from the API and worker.
+- **Migrations run in an init container**, not from the app, because in
+  production the API does not create tables. Several replicas running Alembic
+  at once is safe: Postgres applies DDL transactionally and stamps
+  `alembic_version` in the same transaction, so the losers find the migration
+  already applied.
+- **Overlays**: `kind` for local verification, `gpu` for TensorRT serving on a
+  GPU node, `canary` and `canary-kind` for progressive delivery.
+
+Verified on a kind cluster rather than asserted: the HPA scaled `ml-api` from
+1 pod to 2 under a forced target. That run is what surfaced the missing
+registry file in the image, the `CREATE EXTENSION` race between replicas and
+the `hostPath` the restricted policy rejects.
+
+Reasoning in [TECHNICAL.md](docs/TECHNICAL.md); the manifests have their own
+[README](k8s/README.md).
 
 ---
 
@@ -424,15 +489,6 @@ Reproduce with `python -m models.optimization.benchmark`.
 - Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration, latency
 - Experiment tracking through MLflow, optional and off by default
-- Kubernetes manifests with horizontal pod autoscaling, verified on a kind
-  cluster
-- A retraining loop that decides from drift, then gates promotion on
-  validation and a regression check
-- Release workflow publishing signed, scanned images on a version tag
-- GPU serving overlay: TensorRT, engine built on the serving node, autoscaling
-  on GPU utilisation
-- Canary releases: a second deployment on a new model version taking 5% of
-  traffic, compared against stable on real predictions
 - A/B testing with a paired McNemar test and confidence intervals
 - Drift detection with KS test, chi-square and PSI, requiring both statistical
   significance and a meaningful effect size
@@ -467,8 +523,11 @@ Reproduce with `python -m models.optimization.benchmark`.
 - Every integration and end-to-end test skips cleanly when its dependency is
   missing, including unfetched Git LFS pointers, naming the remedy
 - Memory profiling and concurrency verification
-- CI with lint, type check, tests, a coverage gate, Docker build and a
-  security scan
+- CI in eight jobs: lint, type check, tests on 3.11 and 3.12, a coverage
+  gate, a security scan, an image build, end-to-end against the deployed
+  stack, and a real model export. Two more workflows alongside it:
+  `release.yml` publishes attested images on a version tag, `drift-watch.yml`
+  runs the retraining decision weekly
 
 ### Part 4, containerisation
 
@@ -479,6 +538,27 @@ Reproduce with `python -m models.optimization.benchmark`.
 - Three segmented networks, DNS service discovery, no hardcoded IPs
 - Prometheus with 11 alert rules; Grafana auto-provisioned with a 22-panel
   dashboard
+
+### Beyond the brief
+
+The brief stops at Docker Compose. These exist because "production ready"
+stops being true the moment you need a second machine.
+
+- Kubernetes manifests with horizontal pod autoscaling, a PodDisruptionBudget
+  and a NetworkPolicy, verified on a kind cluster
+- pgvector as a shared similarity index, so replicas agree on what has been
+  indexed
+- Alembic migrations, applied by a Job rather than at API startup
+- Canary releases: a second deployment on a new model version taking 5% of
+  traffic, compared against stable on real predictions
+- GPU serving overlay: TensorRT, engine built on the serving node, autoscaling
+  on GPU utilisation
+- A retraining loop that decides from drift, then gates promotion on
+  validation and a regression check, run weekly by a CronJob
+- Release workflow publishing attested, scanned images on a version tag
+- `POST /auth/token` to trade an API key for a short-lived JWT
+- `scripts/smoke_test_api.py`, which exercises every endpoint against a
+  running deployment and exits non-zero on any failure
 
 ---
 
@@ -505,18 +585,22 @@ Reproduce with `python -m models.optimization.benchmark`.
 │   ├── registry.py           model registry CLI
 │   └── artifacts/            .onnx / .pt files, tracked in Git LFS
 ├── worker/                   Celery app and batch tasks
-├── db/                       SQLAlchemy models
+├── db/                       SQLAlchemy models, Alembic migrations, init SQL
+├── k8s/                      base manifests, overlays (kind, gpu, canary),
+│                             artifact-server component
 ├── tests/                    unit, integration, performance
 ├── notebooks/                colab_gpu_pipeline.ipynb (generated)
 ├── Dockerfile                the API container
-├── docker/                   Dockerfile.worker, nginx/
+├── docker/                   Dockerfile.worker, Dockerfile.gpu, nginx/
 ├── monitoring/               prometheus config + alerts, grafana provisioning
-├── scripts/                  prepare_models, download_datasets, checklist
+├── scripts/                  prepare_models, download_datasets, checklist,
+│                             smoke_test_api, fetch_artifacts
 ├── samples/                  three photos so the doc examples run as written
 ├── benchmarks/               baselines and generated reports
 ├── docs/                     API, TECHNICAL, ASSUMPTIONS, DEPLOYMENT, openapi
+├── alembic.ini               migration config
 ├── .gitattributes            Git LFS rules
-└── .github/workflows/        CI pipeline
+└── .github/workflows/        ci, release, drift-watch
 ```
 
 Two paths are generated rather than hand-edited:
@@ -666,10 +750,9 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 ### Next, in priority order
 
 1. Calibrate confidence with temperature scaling
-2. Move the similarity index to a shared store (pgvector or FAISS)
-3. Benchmark TensorRT at larger batch sizes, where INT8 should finally beat
+2. Benchmark TensorRT at larger batch sizes, where INT8 should finally beat
    fp16 on latency rather than only on size
-4. Measure accuracy against the real ImageNet and COCO validation sets
-5. Add OpenTelemetry tracing
-6. Restore least-connections balancing at the gateway
-7. Alert when the rate limiter is running on local buckets rather than Redis
+3. Measure accuracy against the real ImageNet and COCO validation sets
+4. Add OpenTelemetry tracing
+5. Restore least-connections balancing at the gateway
+6. Alert when the rate limiter is running on local buckets rather than Redis

@@ -4,9 +4,15 @@ Plain English:
     The manual pass a reviewer would do by hand, written down so it is
     repeatable. Start the stack, run this, read the table.
 
-It goes through the gateway rather than the API's own port, so nginx, routing,
-body limits and the whole middleware stack are in the path. Hitting port 8000
-directly would skip all of that and test less than it appears to.
+By default it goes through the gateway on port 80, so nginx, routing, body
+limits and the whole middleware stack are in the path. That is the deployment
+a caller actually talks to, which is why it is the default.
+
+`--target direct` skips nginx and hits the API's own port 8000 instead. Use it
+when you only want to know whether the application works, or when the gateway
+is not running. If the two disagree, the difference is nginx: its body limit,
+its timeouts or its proxy headers. `--target both` runs the suite twice and
+reports each separately, which is the quickest way to find that out.
 
 Refusing correctly counts as passing. A 401 where 200 was expected is a
 failure; a 401 where 401 was expected is the system working, so the bad-key
@@ -22,7 +28,13 @@ Usage::
     docker compose up -d
     python scripts/smoke_test_api.py
 
-    # against something else
+    # the API alone, no gateway in front
+    python scripts/smoke_test_api.py --target direct
+
+    # both, to see whether nginx changes any answer
+    python scripts/smoke_test_api.py --target both
+
+    # somewhere else entirely
     python scripts/smoke_test_api.py --base-url https://api.example.com --api-key KEY
 
 Exit code is 0 when every check passes, 1 otherwise, so it can gate a deploy.
@@ -42,52 +54,42 @@ import httpx
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-results: list[tuple[str, str, bool, str]] = []
+GATEWAY_URL = "http://localhost"
+DIRECT_URL = "http://localhost:8000"
+
+# (target, group, check, ok, detail)
+results: list[tuple[str, str, str, bool, str]] = []
+
+BASE = ""
+KEY = ""
+TARGET = ""
 
 
 def check(name: str, ok: bool, detail: str = "", group: str = "") -> None:
-    results.append((group, name, ok, detail))
+    results.append((TARGET, group, name, ok, detail))
     mark = "PASS" if ok else "FAIL"
     print(f"  [{mark}] {name}" + (f"  {detail}" if detail else ""))
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--base-url",
-        default="http://localhost",
-        help="Gateway root, without /api/v1. Default: http://localhost",
-    )
-    parser.add_argument("--api-key", default="dev-key-pro")
-    parser.add_argument(
-        "--image",
-        type=Path,
-        default=None,
-        help="Image to send. Defaults to the first file in samples/.",
-    )
-    parser.add_argument("--timeout", type=float, default=120.0)
-    parser.add_argument(
-        "--report",
-        type=Path,
-        default=None,
-        help="Write the results as JSON here.",
-    )
-    args = parser.parse_args()
+def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: float) -> None:
+    """Run every check against one deployment.
 
-    global BASE, KEY
-    BASE = f"{args.base_url.rstrip('/')}/api/v1"
-    KEY = args.api_key
+    The suite is identical for the gateway and for the API's own port, which is
+    the point: any difference between the two runs is nginx, not the test.
+    """
+    global BASE, KEY, TARGET
+    TARGET = target
+    BASE = f"{base_url.rstrip('/')}/api/v1"
+    KEY = key
 
-    image_path = args.image or next(iter(sorted((REPO_ROOT / "samples").glob("*.jpg"))), None)
-    if image_path is None or not image_path.is_file():
-        print("no image to send: pass --image or add one to samples/", file=sys.stderr)
-        return 2
-    print(f"target: {BASE}")
-    print(f"image : {image_path.name}")
+    print(f"\n{'#' * 60}")
+    print(f"# {target}: {BASE}")
+    print("#" * 60)
+
     image = image_path.read_bytes()
     b64 = base64.b64encode(image).decode()
 
-    client = httpx.Client(timeout=args.timeout)
+    client = httpx.Client(timeout=timeout)
     hk = {"X-API-Key": KEY}
 
     # ---------------------------------------------------------------- health
@@ -303,25 +305,92 @@ def main() -> int:
 
     client.close()
 
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--target",
+        choices=("gateway", "direct", "both"),
+        default="gateway",
+        help=(
+            "gateway: through nginx on port 80, the default, which is what "
+            "callers use. direct: the API's own port 8000, no gateway. "
+            "both: run the suite against each in turn."
+        ),
+    )
+    parser.add_argument(
+        "--base-url",
+        default=None,
+        help=(
+            "Explicit root, without /api/v1, for a deployment that is not the "
+            "local compose stack. Overrides --target."
+        ),
+    )
+    parser.add_argument("--api-key", default="dev-key-pro")
+    parser.add_argument(
+        "--image",
+        type=Path,
+        default=None,
+        help="Image to send. Defaults to the first file in samples/.",
+    )
+    parser.add_argument("--timeout", type=float, default=120.0)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Write the results as JSON here.",
+    )
+    args = parser.parse_args()
+
+    if args.base_url:
+        targets = [("custom", args.base_url)]
+    elif args.target == "both":
+        targets = [("gateway", GATEWAY_URL), ("direct", DIRECT_URL)]
+    elif args.target == "direct":
+        targets = [("direct", DIRECT_URL)]
+    else:
+        targets = [("gateway", GATEWAY_URL)]
+
+    image_path = args.image or next(iter(sorted((REPO_ROOT / "samples").glob("*.jpg"))), None)
+    if image_path is None or not image_path.is_file():
+        print("no image to send: pass --image or add one to samples/", file=sys.stderr)
+        return 2
+    print(f"image : {image_path.name}")
+
+    for target, base_url in targets:
+        try:
+            run_suite(target, base_url, args.api_key, image_path, args.timeout)
+        except httpx.ConnectError as exc:
+            # Named rather than left as a traceback: the usual cause is that the
+            # stack is not up, or that only one of the two ports is published.
+            print(f"\ncannot reach {base_url}: {exc}", file=sys.stderr)
+            results.append((target, "connection", f"reach {base_url}", False, str(exc)))
+
     # ------------------------------------------------------------------ summary
-    passed = sum(1 for _, _, ok, _ in results if ok)
+    passed = sum(1 for row in results if row[3])
     total = len(results)
-    print(f"\n{'=' * 60}\n{passed}/{total} checks passed")
-    failures = [(g, n, d) for g, n, ok, d in results if not ok]
+    print(f"\n{'=' * 60}")
+    if len(targets) > 1:
+        for target, _ in targets:
+            rows = [row for row in results if row[0] == target]
+            print(f"{target:>8}: {sum(1 for row in rows if row[3])}/{len(rows)} passed")
+    print(f"{passed}/{total} checks passed")
+    failures = [(t, g, n, d) for t, g, n, ok, d in results if not ok]
     if failures:
         print("\nFailures:")
-        for group, name, detail in failures:
-            print(f"  [{group}] {name}: {detail}")
+        for target, group, name, detail in failures:
+            print(f"  [{target}/{group}] {name}: {detail}")
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(
             json.dumps(
                 {
-                    "target": BASE,
+                    "targets": dict(targets),
                     "passed": passed,
                     "total": total,
                     "checks": [
-                        {"group": g, "check": n, "ok": ok, "detail": d} for g, n, ok, d in results
+                        {"target": t, "group": g, "check": n, "ok": ok, "detail": d}
+                        for t, g, n, ok, d in results
                     ],
                 },
                 indent=2,
