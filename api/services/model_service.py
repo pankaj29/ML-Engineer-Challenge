@@ -409,15 +409,33 @@ class TensorRTBackend:
             return
         self._closed = True
 
-        # The execution context holds a reference to the engine, so freeing
-        # the engine first leaves it pointing at freed memory.
-        self.context = None
-        self.engine = None
+        context = getattr(self, "_context", None)
+
+        # Destroy the TensorRT objects with the CUDA context current.
+        #
+        # Dropping the last reference runs their destructors immediately, and
+        # those destructors talk to CUDA. With no context current, TensorRT
+        # acquires one itself and leaves it on the stack, which is what
+        # PyCUDA complains about at interpreter shutdown:
+        #
+        #     PyCUDA ERROR: The context stack was not empty upon module
+        #     cleanup ... The program will be aborted now.
+        #
+        # The execution context holds a reference to the engine, so it goes
+        # first; freeing the engine first leaves it pointing at freed memory.
+        if context is not None:
+            context.push()
+        try:
+            self.context = None
+            self.engine = None
+        finally:
+            if context is not None:
+                with contextlib.suppress(Exception):
+                    context.pop()
 
         # Release our reference to the primary context. Retained, not
         # created, so this decrements a refcount rather than destroying a
         # context another part of the process may still be using.
-        context = getattr(self, "_context", None)
         if context is not None:
             with contextlib.suppress(Exception):
                 context.detach()

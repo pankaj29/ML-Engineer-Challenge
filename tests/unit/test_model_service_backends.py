@@ -468,6 +468,41 @@ class TestTensorRTBackend:
 
         assert fake.context.depth == 0
 
+    def test_the_engine_is_destroyed_under_a_live_context(
+        self, engine_file: Path, monkeypatch
+    ) -> None:
+        """TensorRT destructors talk to CUDA.
+
+        With no context current they acquire one themselves and leave it on
+        the stack, and PyCUDA aborts at interpreter shutdown with "the context
+        stack was not empty upon module cleanup". Seen on a real A100 after
+        the request path was already correct.
+        """
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+
+        depth_when_destroyed: list[int] = []
+
+        class _Watched:
+            """Records the context depth at the moment it is collected."""
+
+            def __del__(self) -> None:
+                depth_when_destroyed.append(fake.context.depth)
+
+        backend.engine = _Watched()
+        backend.context = None
+        backend.close()
+
+        assert depth_when_destroyed, "the engine was never released"
+        assert depth_when_destroyed[0] > 0, "the engine was destroyed with no CUDA context current"
+
+    def test_close_leaves_the_context_stack_empty(self, engine_file: Path, monkeypatch) -> None:
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+        backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+        backend.close()
+        assert fake.context.depth == 0
+
     def test_close_releases_the_primary_context(self, engine_file: Path, monkeypatch) -> None:
         """Detach, not destroy: it is retained, and something else in the
         process may still hold it."""
