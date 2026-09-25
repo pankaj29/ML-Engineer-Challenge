@@ -205,7 +205,7 @@ through the same `ModelService` the API uses. Nine of nine checks pass:
 | Inference errors | Pass, 0 of 2,000 samples failed |
 | Accuracy | Pass, top-1 78.60%, top-5 91.95% on 2,000 samples |
 | Calibration | Pass, ECE 0.1244 against a 0.15 threshold |
-| Latency | Pass, p95 33.8 ms on CPU against a 1,000 ms budget |
+| Latency | Pass, p95 84.4 ms on CPU against a 1,000 ms budget |
 
 ONNX export fidelity against PyTorch: max abs diff 3.81e-06, mean 3.88e-07,
 identical top-1 prediction, dynamic batching verified at batch 4.

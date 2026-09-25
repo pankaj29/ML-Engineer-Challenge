@@ -93,15 +93,16 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only.
 | Format | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | ONNX fp32 | 1 | **49.6 ms** | 62.3 ms | 63.1 ms | 22.9 img/s | 89.6 MB |
-| ONNX fp32 | 4 | 302.7 ms | 420.7 ms | 453.6 ms | 12.7 img/s | 89.6 MB |
+| ONNX fp32 | 4 | 178.2 ms | 244.7 ms | 354.2 ms | 21.4 img/s | 89.6 MB |
 | ONNX INT8 (static) | 1 | 77.6 ms | 104.8 ms | 129.5 ms | 12.9 img/s | **22.9 MB** |
-| ONNX INT8 (static) | 4 | 567.8 ms | 791.0 ms | 892.4 ms | 7.1 img/s | 22.9 MB |
+| ONNX INT8 (static) | 4 | 217.7 ms | 285.5 ms | 311.1 ms | 17.7 img/s | 22.9 MB |
 
-The unusually wide p50-to-p95 gap at batch 1 (49.6 ms to 62.3 ms) is measurement
-noise from a busy development machine, not model behaviour; the INT8 row,
-measured in the same run, shows a normal spread.
+An earlier run showed a wide p50-to-p95 gap here, 43 ms against 278 ms, which
+looked like model behaviour and was not. Re-measuring with the Docker stack
+stopped gives 49.6 ms against 62.3 ms, a normal spread. The first numbers were
+measuring the other containers.
 
-p99 at batch 1 is 388 ms, inside the 1-second budget.
+p99 at batch 1 is 63 ms, inside the 1-second budget.
 
 ### Search latency
 
@@ -140,7 +141,7 @@ unmeasured. Measure it before relying on a similarity threshold.
 | Batch invariance | Pass |
 | Output sanity | Pass |
 | ONNX export fidelity | Pass, max abs diff vs PyTorch 1.9e-07 |
-| Latency | Pass, p95 189 ms |
+| Latency | Pass, p95 109.5 ms |
 
 ---
 

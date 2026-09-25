@@ -104,11 +104,11 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
 | Format | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | ONNX fp32 | 1 | **97.1 ms** | 154.4 ms | 166.1 ms | 9.6 img/s | 12.1 MB |
-| ONNX fp32 | 4 | 437.6 ms | 740.9 ms | 1097.3 ms | 8.6 img/s | 12.1 MB |
+| ONNX fp32 | 4 | 325.8 ms | 444.5 ms | 473.7 ms | 12.2 img/s | 12.1 MB |
 | ONNX INT8 (static) | 1 | 223.6 ms | 309.4 ms | 337.6 ms | 4.4 img/s | **3.4 MB** |
-| ONNX INT8 (static) | 4 | 1431.8 ms | 1841.6 ms | 2071.4 ms | 2.8 img/s | 3.4 MB |
+| ONNX INT8 (static) | 4 | 887.5 ms | 1133.0 ms | 1140.2 ms | 4.3 img/s | 3.4 MB |
 
-p99 at batch 1 is 235 ms, inside the 1-second budget.
+p99 at batch 1 is 166 ms, inside the 1-second budget.
 Note that **batch 4 at p99 exceeds 1 second**, batching detection trades
 per-image efficiency for worse tail latency, which is why the batch endpoint
 is asynchronous instead of synchronous.
@@ -140,7 +140,7 @@ coordinates, and the fp32 and INT8 variants agree exactly.
 | Determinism | Pass, identical output across 3 runs |
 | Batch invariance | **Pass, after a fix.** The first export had a fixed batch dimension and crashed on any batch > 1. The validation pipeline caught it; the export now uses `dynamic=True`. |
 | Output sanity | Pass, no NaN/Inf |
-| Latency | Pass, p95 177 ms |
+| Latency | Pass, p95 116.1 ms |
 
 The batch-invariance failure deserves a mention: it would have made the
 `/api/v1/batch` endpoint fail for every detection job, and nothing else in the

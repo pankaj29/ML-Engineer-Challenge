@@ -158,7 +158,7 @@ From `python -m models.validation.validate`, all checks pass:
 | Batch invariance | Pass, a prediction does not depend on batch position |
 | Output sanity | Pass, no NaN/Inf, probabilities sum to 1 |
 | Robustness | Pass, 0% of predictions flip under imperceptible noise (σ=0.01) |
-| Latency | Pass, p95 95.4 ms, well under the 1,000 ms budget |
+| Latency | Pass, p95 64.1 ms, well under the 1,000 ms budget |
 | ONNX export fidelity | Pass, max abs diff vs PyTorch 2.4e-06 |
 
 ---

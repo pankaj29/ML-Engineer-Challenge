@@ -965,7 +965,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Postman collection or OpenAPI spec": (
         "DONE",
         "docs/openapi.json",
-        "OpenAPI 3.1, 18 paths / 37 schemas. Importable directly into Postman.",
+        "OpenAPI 3.1, 19 paths / 40 schemas. Importable directly into Postman.",
     ),
     "Documentation for deployment and scaling": (
         "DONE",

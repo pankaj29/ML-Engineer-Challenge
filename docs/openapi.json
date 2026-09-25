@@ -6,6 +6,68 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/auth/token": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Exchange an API key for a bearer token",
+        "description": "Mint a JWT for the caller identified by an API key.\n\nThe key is verified the same way the auth middleware verifies it, so a key\nthat cannot reach the API cannot mint a token either. The token carries the\nkey's own tier, so a free-tier key issues a free-tier token and the rate\nlimits that go with it.",
+        "operationId": "issue_token_api_v1_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key was not recognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No signing secret is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/classify": {
       "post": {
         "tags": [
@@ -236,7 +298,7 @@
           "Detection"
         ],
         "summary": "Detect objects in an image (JSON body)",
-        "description": "Detect objects in a single image supplied as base64 or a URL.\n\nTwo thresholds control the output:\n\n* ``confidence_threshold`` \u2014 drop boxes the model is unsure about. Raise\n  it to reduce false positives, lower it to catch more objects.\n* ``iou_threshold`` \u2014 how much two boxes may overlap before the lower\n  scoring one is treated as a duplicate of the same object.\n\nExample response::\n\n    {\n      \"detections\": [\n        {\n          \"class_id\": 0,\n          \"label\": \"person\",\n          \"confidence\": 0.91,\n          \"box\": {\"x1\": 34.0, \"y1\": 120.5, \"x2\": 210.2, \"y2\": 480.0}\n        }\n      ],\n      \"count\": 1,\n      \"image_width\": 640,\n      \"image_height\": 480\n    }\n\nBox coordinates are absolute pixels in the original uploaded image, with\n``x1,y1`` the top-left corner and ``x2,y2`` the bottom-right.",
+        "description": "Detect objects in a single image supplied as base64 or a URL.\n\nTwo thresholds control the output:\n\n* ``confidence_threshold`` — drop boxes the model is unsure about. Raise\n  it to reduce false positives, lower it to catch more objects.\n* ``iou_threshold`` — how much two boxes may overlap before the lower\n  scoring one is treated as a duplicate of the same object.\n\nExample response::\n\n    {\n      \"detections\": [\n        {\n          \"class_id\": 0,\n          \"label\": \"person\",\n          \"confidence\": 0.91,\n          \"box\": {\"x1\": 34.0, \"y1\": 120.5, \"x2\": 210.2, \"y2\": 480.0}\n        }\n      ],\n      \"count\": 1,\n      \"image_width\": 640,\n      \"image_height\": 480\n    }\n\nBox coordinates are absolute pixels in the original uploaded image, with\n``x1,y1`` the top-left corner and ``x2,y2`` the bottom-right.",
         "operationId": "detect_api_v1_detect_post",
         "requestBody": {
           "content": {
@@ -664,7 +726,7 @@
           "Similarity"
         ],
         "summary": "Find visually similar images",
-        "description": "Find the indexed images most similar to the supplied image.\n\nScores are cosine similarities: ``1.0`` is an identical direction, ``0.0``\nunrelated, ``-1.0`` opposite. In practice, near-duplicates score above\n0.95 and \"same kind of thing\" lands somewhere around 0.7-0.9 \u2014 the right\n``min_similarity`` depends on your images and is worth tuning on real data\nrather than guessing.\n\nAn empty ``results`` list with ``index_size: 0`` means nothing has been\nindexed yet, not that nothing matched.",
+        "description": "Find the indexed images most similar to the supplied image.\n\nScores are cosine similarities: ``1.0`` is an identical direction, ``0.0``\nunrelated, ``-1.0`` opposite. In practice, near-duplicates score above\n0.95 and \"same kind of thing\" lands somewhere around 0.7-0.9 — the right\n``min_similarity`` depends on your images and is worth tuning on real data\nrather than guessing.\n\nAn empty ``results`` list with ``index_size: 0`` means nothing has been\nindexed yet, not that nothing matched.",
         "operationId": "search_api_v1_similarity_search_post",
         "requestBody": {
           "content": {
@@ -876,7 +938,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Index Stats Api V1 Similarity Stats Get"
                 }
@@ -892,7 +953,7 @@
           "Batch"
         ],
         "summary": "Submit a batch of images for background processing",
-        "description": "Queue a batch of images and return a job id immediately.\n\nThe response is HTTP 202, meaning \"accepted for processing\" \u2014 not\n\"finished\". Poll ``status_url`` until ``status`` becomes ``completed`` or\n``failed``.\n\nPer-tier batch caps: free 5, basic 16, pro 32, enterprise 64.\n\nExample response::\n\n    {\n      \"job_id\": \"9f2c8a1e-...\",\n      \"status\": \"pending\",\n      \"total_items\": 20,\n      \"status_url\": \"/api/v1/batch/9f2c8a1e-...\",\n      \"estimated_seconds\": 2.4\n    }",
+        "description": "Queue a batch of images and return a job id immediately.\n\nThe response is HTTP 202, meaning \"accepted for processing\" — not\n\"finished\". Poll ``status_url`` until ``status`` becomes ``completed`` or\n``failed``.\n\nPer-tier batch caps: free 5, basic 16, pro 32, enterprise 64.\n\nExample response::\n\n    {\n      \"job_id\": \"9f2c8a1e-...\",\n      \"status\": \"pending\",\n      \"total_items\": 20,\n      \"status_url\": \"/api/v1/batch/9f2c8a1e-...\",\n      \"estimated_seconds\": 2.4\n    }",
         "operationId": "submit_batch_api_v1_batch_post",
         "requestBody": {
           "content": {
@@ -1039,7 +1100,7 @@
           "Batch"
         ],
         "summary": "Cancel a queued or running batch job",
-        "description": "Cancel a batch job.\n\nA job that has not started is simply removed from the queue. A running job\nis terminated, so any images it had already finished are lost \u2014 the result\nis not partially retrievable after cancellation.",
+        "description": "Cancel a batch job.\n\nA job that has not started is simply removed from the queue. A running job\nis terminated, so any images it had already finished are lost — the result\nis not partially retrievable after cancellation.",
         "operationId": "cancel_batch_api_v1_batch__job_id__delete",
         "parameters": [
           {
@@ -1061,7 +1122,6 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true,
                   "title": "Response Cancel Batch Api V1 Batch  Job Id  Delete"
                 }
               }
@@ -1235,7 +1295,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Reload Registry Api V1 Models Reload Post"
                 }
@@ -1291,7 +1350,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Liveness Api V1 Health Live Get"
                 }
@@ -1315,7 +1373,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Readiness Api V1 Health Ready Get"
                 }
@@ -1419,7 +1476,6 @@
           "result": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1432,7 +1488,6 @@
           "error": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -1460,7 +1515,7 @@
           "success"
         ],
         "title": "BatchItemResult",
-        "description": "Outcome for one image inside a batch.\n\nA per-item ``error`` field means one bad image does not fail the whole\nbatch \u2014 the other 63 images still return their results."
+        "description": "Outcome for one image inside a batch.\n\nA per-item ``error`` field means one bad image does not fail the whole\nbatch — the other 63 images still return their results."
       },
       "BatchRequest": {
         "properties": {
@@ -2611,7 +2666,6 @@
             "description": "Friendly, user-facing explanation."
           },
           "details": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Details"
           },
@@ -2831,7 +2885,6 @@
           "metadata": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2845,7 +2898,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "IndexImageRequest",
-        "description": "Body for ``POST /api/v1/similarity/index`` \u2014 add an image to the index."
+        "description": "Body for ``POST /api/v1/similarity/index`` — add an image to the index."
       },
       "IndexResponse": {
         "properties": {
@@ -2940,6 +2993,14 @@
             ],
             "title": "Input Shape",
             "description": "Expected input tensor shape, e.g. [1, 3, 224, 224]."
+          },
+          "available_runtimes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Available Runtimes",
+            "description": "Every runtime this model can be served with, e.g. ['onnx', 'onnx_int8']. Pass one as `runtime` on an inference request to select it. Without this a caller has no way to discover that a quantised variant exists."
           },
           "metrics": {
             "anyOf": [
@@ -3058,6 +3119,30 @@
             ],
             "title": "Top5 Accuracy",
             "description": "Top-5 accuracy, 0 to 1."
+          },
+          "top1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top1",
+            "description": "Top-1 accuracy as a percentage."
+          },
+          "top5": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top5",
+            "description": "Top-5 accuracy as a percentage."
           },
           "map50": {
             "anyOf": [
@@ -3229,7 +3314,6 @@
           "metadata": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3491,6 +3575,91 @@
         ],
         "title": "TimingInfo",
         "description": "Latency breakdown in milliseconds, for performance debugging.\n\nSplitting preprocessing from inference matters: if total latency rises,\nthese numbers say immediately whether the model got slower or whether the\nsystem is spending its time decoding and resizing images."
+      },
+      "TokenRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 8,
+            "title": "Api Key",
+            "description": "An API key the server recognises. Verified the same way the auth middleware verifies it."
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes",
+            "description": "Restrict the token to these permissions. Omit for a token with the same access as the key. Scopes only ever narrow: a token cannot do anything the key could not."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "TokenRequest",
+        "description": "Body for ``POST /api/v1/auth/token`` - exchange an API key for a JWT."
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "Signed JWT. Send as `Authorization: Bearer <token>`."
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "description": "Always `bearer`.",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Seconds until the token expires."
+          },
+          "tier": {
+            "$ref": "#/components/schemas/UserTier",
+            "description": "Tier the token carries, copied from the API key."
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes",
+            "description": "Permissions on the token. Empty means the same access as the key."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in",
+          "tier"
+        ],
+        "title": "TokenResponse",
+        "description": "Response for ``POST /api/v1/auth/token``.\n\nShaped like an OAuth 2.0 token response (RFC 6749) so existing clients and\nHTTP libraries can consume it without special handling."
+      },
+      "UserTier": {
+        "type": "string",
+        "enum": [
+          "free",
+          "basic",
+          "pro",
+          "enterprise"
+        ],
+        "title": "UserTier",
+        "description": "Subscription tiers, which drive rate limits and batch size caps."
       },
       "ValidationError": {
         "properties": {

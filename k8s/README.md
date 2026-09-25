@@ -237,9 +237,15 @@ fixed-size sample, and its share of the comparison drifts mid-experiment.
 
 **No gateway container.** The Ingress controller already terminates TLS, caps
 body size and rate limits at the edge, so the nginx container would be a
-second proxy in series for no benefit. The body cap is set to 10 MB to match
-the API's own image limit, so oversized uploads are rejected before crossing
-the cluster.
+second proxy in series for no benefit. The body cap is 10 MB, matching the
+API's own image limit, so oversized uploads are rejected before crossing the
+cluster.
+
+That differs from the Compose gateway on purpose, and it changes what a caller
+sees. `docker/nginx/nginx.conf` allows 12 MB so an 11 MB upload reaches the API
+and gets its JSON `IMAGE_TOO_LARGE` error; here the same upload gets the
+ingress controller's plain HTML 413. Compose favours the clearer message, the
+cluster favours not carrying rejected bytes across the network.
 
 **Redis is not persisted.** It holds the cache and the rate-limit buckets, and
 both rebuild in seconds. A single-replica Redis on a PVC is a slower restart,

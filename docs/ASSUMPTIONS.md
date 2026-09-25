@@ -123,7 +123,7 @@ on 2000 held-out images. Nine of nine checks pass:
 | robustness | 0.0% of predictions flip under σ=0.01 noise |
 | output sanity | no NaN or infinite values |
 | artefact integrity | all artefacts present |
-| latency | p50 25.6 ms, p95 33.8 ms on CPU |
+| latency | p95 84.4 ms on CPU, against a 1,000 ms budget |
 
 78.60% against 78.91% is the 2000-sample subset versus the full 10,000-image
 validation set. Ordinary sampling variance.

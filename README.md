@@ -114,7 +114,7 @@ see [If something goes wrong](#if-something-goes-wrong).
 
 ## Using the API
 
-One worked example below. The full reference for all 18 endpoints, in both
+One worked example below. The full reference for all 19 endpoints, in both
 shells, is in [`docs/API.md`](docs/API.md).
 
 > On Windows the `curl` examples here are bash and will not run in PowerShell:
