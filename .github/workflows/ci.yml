@@ -392,7 +392,107 @@ jobs:
           docker rm -f api-smoke
 
   # ---------------------------------------------------------------------------
-  # 5. Real models
+  # 5. End to end, against the deployed stack
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: End-to-end (deployed stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # After lint only. This job builds images and starts seven services, which
+    # is too expensive to spend on code that does not lint, but it does not
+    # need the unit suite to finish first - the two are independent and run in
+    # parallel.
+    needs: [lint]
+
+    steps:
+      - uses: actions/checkout@v4
+        # The e2e suite compares what the container serves against the
+        # artifacts in the working tree, so both sides need the real files.
+        # With LFS pointers the comparison would pass by matching two
+        # placeholders.
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        # The suite drives the stack over HTTP, but the staleness check also
+        # loads the local ONNX to compare predictions, so the runner needs the
+        # inference stack too. CPU-only torch: no GPU here.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+                      -r requirements-dev.txt
+
+      - name: Start the stack
+        run: |
+          docker compose up -d --build
+          docker compose ps
+
+      - name: Wait for every service to report healthy
+        # Polling the gateway is not enough: nginx answers before the API has
+        # loaded its models, and an e2e failure at that point looks like a
+        # broken endpoint rather than a slow start.
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost/api/v1/health/live >/dev/null 2>&1; then
+              echo "gateway is live after ${i}s"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "::error::the stack did not come up within 60s"
+              docker compose ps
+              docker compose logs --tail 80
+              exit 1
+            fi
+            sleep 1
+          done
+
+          echo "--- waiting for the API to finish loading models ---"
+          for i in $(seq 1 90); do
+            status=$(curl -fsS http://localhost/api/v1/health | \
+                     python -c "import json,sys; print(json.load(sys.stdin)['status'])" \
+                     2>/dev/null || echo pending)
+            if [ "$status" = "healthy" ]; then
+              echo "healthy after ${i}s"
+              break
+            fi
+            if [ "$i" = "90" ]; then
+              echo "::warning::health is '$status' rather than 'healthy' after 90s"
+              curl -fsS http://localhost/api/v1/health | python -m json.tool || true
+            fi
+            sleep 1
+          done
+
+      - name: Run the end-to-end suite
+        # No --skip guard here on purpose. The tests skip themselves when the
+        # gateway is unreachable, which is right on a laptop and wrong in CI:
+        # a stack that failed to start would turn into 28 silent skips and a
+        # green build. The wait step above fails loudly instead.
+        run: pytest tests/e2e -v --tb=short
+
+      - name: Container logs
+        # Only on failure, and only the tail: an e2e failure is usually
+        # explained by something the API or the worker logged, and hunting for
+        # it by re-running locally wastes the run that already reproduced it.
+        if: failure()
+        run: |
+          echo "=== ml-api ==="
+          docker compose logs --tail 120 ml-api
+          echo "=== worker ==="
+          docker compose logs --tail 60 worker
+          echo "=== api-gateway ==="
+          docker compose logs --tail 40 api-gateway
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
+  # 6. Real models
   # ---------------------------------------------------------------------------
   models:
     name: Real model export and validation
@@ -465,7 +565,7 @@ jobs:
     runs-on: ubuntu-latest
     # A single job to require in branch protection, rather than listing every
     # job by name and having to update the rule whenever one is added.
-    needs: [lint, test, security, docker]
+    needs: [lint, test, security, docker, e2e]
     if: always()
 
     steps:
@@ -475,10 +575,12 @@ jobs:
           echo "test:     ${{ needs.test.result }}"
           echo "security: ${{ needs.security.result }}"
           echo "docker:   ${{ needs.docker.result }}"
+          echo "e2e:      ${{ needs.e2e.result }}"
 
           if [ "${{ needs.test.result }}" != "success" ] \
              || [ "${{ needs.lint.result }}" != "success" ] \
-             || [ "${{ needs.docker.result }}" != "success" ]; then
+             || [ "${{ needs.docker.result }}" != "success" ] \
+             || [ "${{ needs.e2e.result }}" != "success" ]; then
             echo "::error::CI failed"
             exit 1
           fi
