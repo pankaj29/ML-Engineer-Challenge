@@ -40,5 +40,5 @@ Picsum id each was fetched by, so any of them can be re-downloaded:
 curl -L -o samples/dog.jpg https://picsum.photos/id/237/640/480
 ```
 
-Each is 640x480 and around 50 KB, so they are committed directly rather than
+Each is 640x480 and around 50 KB, so they are committed directly instead of
 through Git LFS.

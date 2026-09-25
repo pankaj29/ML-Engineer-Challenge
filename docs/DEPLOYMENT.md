@@ -23,7 +23,7 @@ How to run this system for real, and what to do when it misbehaves.
 
 * Docker with Compose v2
 * Python 3.11+ (only to prepare the models; the services run in containers)
-* ~4 GB free disk for model artifacts
+* ~4 GB free disk for model artefacts
 
 ### First run
 
@@ -132,7 +132,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
       `AUTH_ENABLED=false` in this mode)
 * [ ] TLS terminated at the gateway or a load balancer in front
 * [ ] `CORS_ORIGINS` set to your actual origins, not `*`
-* [ ] Model artifacts on a persistent, backed-up volume
+* [ ] Model artefacts on a persistent, backed-up volume
 * [ ] Postgres backups scheduled (see §8)
 * [ ] Prometheus retention and disk sized
 * [ ] Alert routing configured in Alertmanager
@@ -151,7 +151,7 @@ gateway on HTTP inside the private network. The second is usually simpler.
 ## 3. Scaling
 
 Everything in this section scales one host. Past that, or as soon as you
-want the replica count to follow load rather than a person, go to
+want the replica count to follow load instead of a person, go to
 [section 4](#4-kubernetes).
 
 ### Scale the API
@@ -166,7 +166,7 @@ Nginx discovers the replicas through Docker's DNS. No configuration change.
 latency rising while inference latency stays flat (meaning time is spent
 queueing).
 
-> Scale out rather than raising `MAX_CONCURRENT_INFERENCES`. Inference is
+> Scale out instead of raising `MAX_CONCURRENT_INFERENCES`. Inference is
 > CPU-bound: a higher limit on the same cores makes every request slower
 > without increasing throughput.
 
@@ -276,14 +276,14 @@ It exits non-zero on any failure, so it works as a post-deploy gate.
 | --- | --- | --- |
 | Replica count | `--scale`, by hand | HPA, 2-10 on CPU at 70% |
 | Edge | `api-gateway` nginx container | Ingress controller; no gateway container |
-| Model artifacts | Baked in or bind-mounted | Fetched by an init container, checksum-verified |
+| Model artefacts | Baked in or bind-mounted | Fetched by an init container, checksum-verified |
 | Schema | Created by the app in non-production | `alembic upgrade head` in an init container |
 | Similarity index | In-process by default | `SIMILARITY_BACKEND=pgvector`, not optional |
 | Drift checks | Run on demand | Weekly CronJob, inside the namespace with the data |
 
 Two of those bite if you miss them. **The similarity index** must be pgvector:
 with a per-process index, every replica holds different vectors and searches
-quietly miss instead of erroring. **Postgres is a single StatefulSet** in
+miss instead of erroring. **Postgres is a single StatefulSet** in
 these manifests, which is fine for a demo and not for production. Use a
 managed database or an operator such as CloudNativePG.
 
@@ -296,9 +296,9 @@ rollout does not shed capacity. Roll back the usual way:
 kubectl -n mlcv rollout undo deployment/ml-api
 ```
 
-Rolling back a *model* rather than the code is a different move: set
+Rolling back a *model* instead of the code is a different move: set
 `ARTIFACT_SOURCE` back to the previous versioned prefix and restart. That is
-why the prefix is versioned rather than overwritten in place.
+why the prefix is versioned instead of overwritten in place.
 
 For a new model version, [`k8s/overlays/canary`](../k8s/overlays/canary) runs
 a second deployment on 5% of traffic, writing to the same inference log so the
@@ -313,7 +313,7 @@ A/B machinery can compare them on real requests. Section 5 of
 | `fetch-artifacts` init container fails on a checksum | The artifacts and `models/artifacts_manifest.json` disagree. Regenerate the manifest; do not retry, it downloads the same bytes. |
 | `kubectl get hpa` shows `<unknown>` | `metrics-server` is missing or not ready. The HPA holds at `minReplicas` until it is. |
 | Every ReplicaSet rejected at admission | Something in the pod spec violates the restricted Pod Security Standard. `hostPath` is the usual one. |
-| `/health` reports every model unhealthy | The artifact fetch succeeded but the registry is missing or points at absent files. Check `models/registry.json` is in the image. |
+| `/health` reports every model unhealthy | The artefact fetch succeeded but the registry is missing or points at absent files. Check `models/registry.json` is in the image. |
 | Similarity searches miss images you indexed | `SIMILARITY_BACKEND` is not `pgvector`, so each replica has its own index. |
 
 ---
@@ -341,7 +341,7 @@ Eleven rules in `monitoring/prometheus/alerts.yml`, split by severity:
   `ElevatedClientErrors`
 * **info**, `HighRateLimitRejections`
 
-Every rule alerts on a **symptom** (users are affected) rather than a cause
+Every rule alerts on a **symptom** (users are affected) instead of a cause
 (CPU is busy), and every one carries a description saying what to do. Rules
 that only produce "huh, weird" are noise, and noise trains people to ignore
 the alerts that matter.
@@ -368,7 +368,7 @@ every API log line, the worker, and the row in Postgres.
 
 ## 6. Shipping a new model
 
-Model artifacts are mounted as a volume, **not** baked into the image, so new
+Model artefacts are mounted as a volume, **not** baked into the image, so new
 weights do not require rebuilding and redeploying the service.
 
 ```bash
@@ -402,15 +402,15 @@ promote a model that is 0.2% more accurate and 300 ms slower.
 
 ### Replacing weights under an existing version
 
-Register a new version rather than overwriting an existing one. Versions are
+Register a new version instead of overwriting an existing one. Versions are
 how callers pin a model, how the A/B comparison identifies each side, and how
 a rollback names what to go back to, overwriting throws all of that away.
 
 If you do overwrite weights in place, the result cache handles it: the cache
-key carries a content hash of the artifact, so different bytes produce a
+key carries a content hash of the artefact, so different bytes produce a
 different key and the stale entries are simply never read again. You do not
 need to flush Redis. Restoring the original file restores its hash, so entries
-computed from it become live again rather than being discarded.
+computed from it become live again instead of being discarded.
 
 That safety net exists because the alternative fails silently. Without it, a
 weight swap under an unchanged version leaves the cache serving predictions
@@ -419,7 +419,7 @@ answers from the wrong model until the TTL expires.
 
 On a bind-mounted development stack, check the container actually sees the
 new file before trusting a test. Docker Desktop on Windows does not reliably
-propagate a bind-mounted file that was *replaced* rather than edited in place:
+propagate a bind-mounted file that was *replaced* instead of edited in place:
 
 ```bash
 docker compose exec ml-api md5sum models/artifacts/<model>.onnx
@@ -463,7 +463,7 @@ docker logs mlcv-api --tail 50
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `registry_missing` | Models not prepared | `python scripts/prepare_models.py` |
-| `model_load_failed` | Artifact missing from the volume | `python -m models.registry validate` |
+| `model_load_failed` | Artefact missing from the volume | `python -m models.registry validate` |
 | Unhealthy during startup | Still loading models | Wait, `start_period` is 90 s |
 | `JWT_SECRET must be set` | Production without secrets | Working as designed; set them |
 
@@ -552,6 +552,6 @@ gunzip -c backup.sql.gz | docker compose exec -T postgres psql -U mluser mldb
 ```
 
 The deliberate property here: **the system can be rebuilt from git plus one
-command.** Model artifacts are regenerated by `prepare_models.py` rather than
+command.** Model artefacts are regenerated by `prepare_models.py` instead of
 being irreplaceable binaries, and every dashboard, alert rule and data source
 is provisioned from files in the repository.

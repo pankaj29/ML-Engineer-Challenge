@@ -39,7 +39,7 @@ Render without applying: `kubectl kustomize k8s/base`.
 |---|---|
 | `base/namespace.yaml` | Namespace, with the restricted Pod Security Standard enforced |
 | `base/config.yaml` | ConfigMap and a placeholder Secret |
-| `base/data.yaml` | Redis, Postgres (StatefulSet), the model artifacts PVC |
+| `base/data.yaml` | Redis, Postgres (StatefulSet), the model artefacts PVC |
 | `base/api.yaml` | API Deployment, Service, PodDisruptionBudget, HPA |
 | `base/worker.yaml` | Celery worker Deployment and HPA |
 | `base/ingress.yaml` | Ingress and a NetworkPolicy fencing off Postgres |
@@ -54,7 +54,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 kubectl -n mlcv get hpa    # TARGETS shows <unknown> until metrics-server is up
 ```
 
-70% rather than 90% because a new pod takes about 20 seconds to load its
+70% instead of 90% because a new pod takes about 20 seconds to load its
 models. Scaling at 90% means the replacement capacity arrives after the
 overload has already hurt.
 
@@ -102,7 +102,7 @@ container api                   reads the emptyDir, read-only
 ```
 
 `ARTIFACT_SOURCE` in the ConfigMap says where from: `s3://bucket/prefix`,
-`https://host/path`, or `file:///path`. Version the prefix rather than
+`https://host/path`, or `file:///path`. Version the prefix instead of
 overwriting it in place, so rolling a model back is changing that string back.
 
 Three alternatives were considered.
@@ -122,7 +122,7 @@ on one node, which defeats the autoscaler.
 
 The cost of the current approach is a download per pod start. The fetch script
 skips files already present with a matching checksum, so a restart on a warm
-volume is a checksum pass rather than a re-download.
+volume is a checksum pass instead of a re-download.
 
 ### Checksums are the point
 
@@ -139,11 +139,11 @@ python scripts/fetch_artifacts.py \
 ```
 
 A test asserts the committed manifest matches the files on disk, so forgetting
-this fails CI rather than every pod start.
+this fails CI instead of every pod start.
 
 ## Scheduled drift checks
 
-`drift-watch` is a CronJob rather than a GitHub Action, and the reason is
+`drift-watch` is a CronJob instead of a GitHub Action, and the reason is
 data. Drift is computed from the inference log, and the database is in this
 namespace. A runner outside the cluster can only read a committed snapshot,
 which means deciding on stale data.
@@ -166,8 +166,8 @@ kubectl -n mlcv logs job/drift-now
 ## Serving on a GPU
 
 `k8s/overlays/gpu` runs the API through TensorRT instead of ONNX on CPU. On an
-A100 that is 0.92 ms against roughly 15 ms, which is the reason the
-optimisation work exists.
+A100 that is 0.92 ms against 11.50 ms on the same host's CPU, which is the
+reason the optimisation work exists.
 
 ```bash
 docker build -f docker/Dockerfile.gpu -t your-registry/mlcv-api-gpu:1.0.0 .
@@ -183,13 +183,13 @@ Three things in it are not obvious.
 TensorRT engine is compiled for one GPU architecture and one TensorRT version:
 one built on an A100 will not load on an L4, and one built with 11.3 will not
 load under 11.4. So it cannot go in the image or come from a bucket. A
-`build-engine` init container runs after the artifact fetch and compiles the
+`build-engine` init container runs after the artefact fetch and compiles the
 INT8 QDQ graph. Budget about 25 to 90 seconds, which is why the startup probe
 allows 600.
 
 **It scales on GPU utilisation, not CPU.** A GPU pod's CPU sits near idle
 while the accelerator saturates, so the base's CPU target would never fire and
-the deployment would silently never scale. The metric is
+the deployment would never scale. The metric is
 `DCGM_FI_DEV_GPU_UTIL`. Without dcgm-exporter it is unavailable and the HPA
 holds at `minReplicas`, which is the safe failure.
 
@@ -220,7 +220,7 @@ where a model usually disappoints.
 
 Both deployments write to the same inference log with their model version
 recorded, so after a canary period the existing A/B machinery compares them on
-real traffic rather than on a benchmark:
+real traffic instead of on a benchmark:
 
 ```bash
 python -m models.validation.ab_test --champion 1.0.0 --challenger 1.1.0
@@ -296,7 +296,7 @@ Labrador retriever at 0.397 for `samples/dog.jpg`.
 
 What else the run confirmed:
 
-- **The init container fetches and verifies.** All 11 artifacts pulled over
+- **The init container fetches and verifies.** All 11 artefacts pulled over
   HTTP from the in-cluster store, every checksum checked, 382.5 MB. The retry
   path fired for real: the first request hit connection-refused before the
   server was ready, and the retry succeeded.
@@ -329,10 +329,10 @@ similarity degraded. Schema setup now tolerates losing that race inside a
 savepoint, and still propagates anything else, such as a permissions error.
 
 **`hostPath` is forbidden by the restricted Pod Security Standard.** An earlier
-version of this overlay mounted the repo's artifacts directly and every
+version of this overlay mounted the repo's artefacts directly and every
 ReplicaSet was rejected at admission. That is the control working. Serving the
 files over HTTP from an in-cluster pod keeps the security posture identical to
-production and exercises the real network fetch path rather than a `file://`
+production and exercises the real network fetch path instead of a `file://`
 shortcut.
 
 An earlier run also confirmed why the `ReadOnlyMany` PVC had to go: on
@@ -342,9 +342,9 @@ it.
 ### What this did not verify
 
 A single node cannot exercise the multi-node behaviour the base targets, and
-TensorRT is not involved: these are the CPU ONNX runtimes. The artifact store
+TensorRT is not involved: these are the CPU ONNX runtimes. The artefact store
 here is a pod serving static files, not S3, so the `s3://` branch of the fetch
-script is covered by unit tests rather than by this run.
+script is covered by unit tests instead of by this run.
 
 ## Verifying changes
 

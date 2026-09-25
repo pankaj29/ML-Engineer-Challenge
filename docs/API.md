@@ -369,20 +369,20 @@ EOF
 ```json
 {
   "predictions": [
-    { "class_id": 654, "label": "minibus",    "confidence": 0.190, "rank": 1 },
-    { "class_id": 874, "label": "trolleybus", "confidence": 0.081, "rank": 2 },
-    { "class_id": 829, "label": "streetcar",  "confidence": 0.061, "rank": 3 }
+    { "class_id": 208, "label": "Labrador retriever",    "confidence": 0.397, "rank": 1 },
+    { "class_id": 205, "label": "flat-coated retriever", "confidence": 0.017, "rank": 2 },
+    { "class_id": 227, "label": "kelpie",                "confidence": 0.014, "rank": 3 }
   ],
-  "top_prediction": { "class_id": 654, "label": "minibus", "confidence": 0.190, "rank": 1 },
+  "top_prediction": { "class_id": 208, "label": "Labrador retriever", "confidence": 0.397, "rank": 1 },
   "model":  { "name": "resnet50", "version": "1.0.0", "task": "classification",
               "runtime": "onnx", "device": "cpu" },
   "timing": { "preprocess_ms": 12.4, "inference_ms": 69.9,
-              "postprocess_ms": 0.3, "total_ms": 97.5 },
+              "postprocess_ms": 0.3, "total_ms": 82.6 },
   "correlation_id": "3803dbb1d6274a2e9f1c...",
   "cached": false,
   "image_id": null,
   "degraded": false,
-  "warnings": ["image resized from 810x1080 to 224x224 using center_crop"]
+  "warnings": ["image resized from 640x480 to 224x224 using center_crop"]
 }
 ```
 
@@ -413,14 +413,12 @@ Find objects and where they are.
 ```json
 {
   "detections": [
-    { "class_id": 0, "label": "person", "confidence": 0.90,
-      "box": { "x1": 671.0, "y1": 385.0, "x2": 810.0, "y2": 880.0 } },
-    { "class_id": 5, "label": "bus", "confidence": 0.84,
-      "box": { "x1": 31.0, "y1": 231.0, "x2": 801.0, "y2": 778.0 } }
+    { "class_id": 0, "label": "person", "confidence": 0.647,
+      "box": { "x1": 157.9, "y1": 40.1, "x2": 522.0, "y2": 423.1 } }
   ],
-  "count": 2,
-  "image_width": 810,
-  "image_height": 1080,
+  "count": 1,
+  "image_width": 640,
+  "image_height": 480,
   "model": { "name": "yolov8n", "version": "1.0.0", "task": "detection",
              "runtime": "onnx", "device": "cpu" },
   "timing": { "preprocess_ms": 18.2, "inference_ms": 97.1,
@@ -615,7 +613,7 @@ currently-resident models.
 ```
 
 The `limitations` come straight from the model cards, so the caveats travel
-with the model rather than living in a document nobody reads.
+with the model instead of living in a document nobody reads.
 
 ### `GET /api/v1/models/{name}`, one model, `?version=` to pin.
 
@@ -740,8 +738,8 @@ By default you get each task's current default model. To pin:
 `model_version: "latest"` (or omitting it) takes the highest version of that
 model.
 
-A typo gives a 404 rather than a silent substitution. Asking for a model that does
-not exist returns `MODEL_NOT_FOUND` rather than quietly serving something
+A typo gives a 404 instead of a silent substitution. Asking for a model that does
+not exist returns `MODEL_NOT_FOUND` instead of serving something
 else, being handed predictions from a different model than you asked for is
 worse than an error.
 

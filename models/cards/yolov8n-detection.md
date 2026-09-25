@@ -31,7 +31,7 @@ several instances of the same class.
 **YOLOv8n** ("nano"): ~3.2 M parameters, 12.1 MB as ONNX.
 
 YOLO, "You Only Look Once", predicts every box in a single forward pass,
-rather than the older two-stage approach of proposing regions and then
+instead of the older two-stage approach of proposing regions and then
 classifying each one. One pass instead of hundreds is why it is fast enough to
 run on a CPU at all.
 
@@ -43,8 +43,8 @@ ourselves in `api/services/inference_service.py`.
 
 Why the nano variant:
 
-* **Detection is expensive.** Even nano is the slowest of the three models
-  here at 121 ms p50. YOLOv8m would be roughly 4x that, pushing a batch of
+* **Detection is expensive.** Even nano is the slowest model here at 97.1 ms
+  p50. YOLOv8m would be roughly 4x that, pushing a batch of
   four past the latency budget on CPU.
 * **It exports cleanly to ONNX.** This is not a given. DETR-family detectors
   and several two-stage architectures need custom operators or tracing
@@ -70,7 +70,7 @@ generalise to real photographs better than models trained on isolated objects.
 The weights are Ultralytics' published COCO checkpoint. **No fine-tuning was
 performed for this project**; the brief asks for a detector on a COCO subset,
 and the pretrained COCO weights are exactly that, evaluated on the full set
-rather than a subset.
+instead of a subset.
 
 ### Preprocessing (must match exactly)
 
@@ -91,7 +91,7 @@ that maps boxes back to original coordinates lives in
 Note also that YOLO expects **un-normalised** 0-1 input. Applying ImageNet
 mean/std here, the reflex from the classification path, silently wrecks the
 output. This is why preprocessing config travels with each model in the
-registry rather than being global.
+registry instead of being global.
 
 ---
 
@@ -111,7 +111,7 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
 p99 at batch 1 is 235 ms, inside the 1-second budget.
 Note that **batch 4 at p99 exceeds 1 second**, batching detection trades
 per-image efficiency for worse tail latency, which is why the batch endpoint
-is asynchronous rather than synchronous.
+is asynchronous instead of synchronous.
 
 INT8 is 3.55x smaller and 2.3x slower here; fp32 remains the default.
 
@@ -136,13 +136,13 @@ coordinates, and the fp32 and INT8 variants agree exactly.
 
 | Check | Result |
 | --- | --- |
-| Artifact integrity | Pass |
+| Artefact integrity | Pass |
 | Determinism | Pass, identical output across 3 runs |
 | Batch invariance | **Pass, after a fix.** The first export had a fixed batch dimension and crashed on any batch > 1. The validation pipeline caught it; the export now uses `dynamic=True`. |
 | Output sanity | Pass, no NaN/Inf |
 | Latency | Pass, p95 177 ms |
 
-The batch-invariance failure is worth calling out: it would have made the
+The batch-invariance failure deserves a mention: it would have made the
 `/api/v1/batch` endpoint fail for every detection job, and nothing else in the
 suite would have noticed.
 
@@ -214,7 +214,7 @@ formality. The options are:
    output layout is a registry change.
 3. **Comply with the AGPL** and publish your source.
 
-Flagged here rather than buried, because licence problems are cheap to fix at
+Flagged here instead of buried, because licence problems are cheap to fix at
 the design stage and expensive to fix after launch.
 
 ---

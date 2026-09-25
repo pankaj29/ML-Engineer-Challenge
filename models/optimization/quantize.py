@@ -137,20 +137,22 @@ def _compare_or_note(
 
     Quantization and verification are separate steps, and only the first one
     produced the artifact. A quantized model that will not load is a real and
-    useful finding - ONNX Runtime's CPU provider has no `ConvInteger` kernel,
-    so dynamically quantizing a convolutional model yields exactly that - but
-    letting the load error propagate discards the compression numbers too, and
-    reports a crash where the honest answer is "smaller, unverifiable".
+    useful finding - dynamically quantizing a convolutional model yields
+    exactly that, for the reason in the note below - but letting the load error
+    propagate discards the compression numbers too, and reports a crash where
+    the honest answer is "smaller, unverifiable".
     """
     try:
         return _compare_onnx_models(original, quantized, samples)
     except Exception as exc:  # any load or run failure is reportable, not fatal
         notes.append(
             f"accuracy NOT verified: the quantized model could not be executed "
-            f"({type(exc).__name__}). The file was still written. A common cause "
-            f"is dynamic quantization of a convolutional model, which emits "
-            f"ConvInteger - unsupported by the ONNX Runtime CPU provider. Use "
-            f"static quantization for convolutional models."
+            f"({type(exc).__name__}). The file was still written. The usual cause "
+            f"is dynamic quantization of a convolutional model: "
+            f"DynamicQuantizeLinear emits uint8 activations by spec, weight_type "
+            f"defaults to int8, and ONNX Runtime registers ConvInteger for "
+            f"uint8 x uint8 only, so kernel resolution fails. QUInt8 weights "
+            f"avoid it; static quantization is the better answer for conv nets."
         )
         return 0.0, 0.0, 0.0
 

@@ -58,17 +58,17 @@ All 200 classes and all 100,000 training images were used.
 
 ### Why 224 × 224 for a 64 × 64 dataset
 
-This looks wrong, so it is worth explaining.
+This looks wrong, so here is the explanation.
 
-ResNet-50's stem is a stride-2 7×7 convolution followed by a stride-2 maxpool,
-which reduces its input 4× before the first residual block. Feed it 64px and
-`layer1` sees a 16×16 map with far too little spatial detail. The usual fix is
-to replace the stem with a stride-1 3×3 and drop the maxpool, but that throws
+ResNet-50's stem is a stride-2 7x7 convolution followed by a stride-2 maxpool,
+which reduces its input 4x before the first residual block. Feed it 64px and
+`layer1` sees a 16x16 map with far too little spatial detail. The usual fix is
+to replace the stem with a stride-1 3x3 and drop the maxpool, but that throws
 away pretrained stem weights and leaves every later layer running at four
 times the spatial area.
 
 A larger input through the original stem uses the network as pretrained. All
-three configurations were measured rather than guessed:
+three configurations were measured instead of guessed:
 
 | Configuration | s/epoch | Top-1 |
 | --- | ---: | ---: |
@@ -77,7 +77,7 @@ three configurations were measured rather than guessed:
 | **224px, original stem, 60 epochs, lr 3e-4, EMA** | **96** | **78.91%** |
 
 The native resolution is the worst of the three and the second slowest. Going
-from 128 to 224 buys 1.25 points for 2.5× the compute, which is a small
+from 128 to 224 buys 1.25 points for 2.5x the compute, which is a small
 return: upsampling adds no information, so the ceiling is the dataset rather
 than the input size.
 
@@ -138,10 +138,10 @@ The rightmost panel of the chart marks the seven epochs where the raw weights
 won.
 
 Non-finite gradients occurred in 8 of the 60 epochs (12, 18, 25, 30, 40, 43,
-49, 59). That is normal fp16 behaviour rather than a fault: `GradScaler`
+49, 59). That is normal fp16 behaviour instead of a fault: `GradScaler`
 detects the overflow, skips that optimiser step and halves the loss scale. It
 is recorded here because an `inf` in a training log looks alarming and is
-worth being able to dismiss with evidence.
+easier to dismiss with evidence.
 
 Total training time: 1.6 hours, 96 s per epoch.
 
@@ -163,18 +163,19 @@ xychart-beta
 | TensorRT | int8 | 0.920 ms | 1.017 ms | 1068 img/s | 24.1 MB |
 | TensorRT | fp16 | 0.990 ms | 1.008 ms | 1066 img/s | 46.0 MB |
 | TensorRT | fp32 | 1.298 ms | 1.336 ms | 822 img/s | 91.5 MB |
-| ONNX Runtime | fp32 | 14.84 ms | 15.73 ms | 66.4 img/s | 91.2 MB |
-| ONNX Runtime | INT8 static | 24.80 ms | 26.84 ms | 40.0 img/s | 23.3 MB |
+| ONNX Runtime | fp32 | 11.50 ms | 11.64 ms | 86.9 img/s | 91.2 MB |
+| ONNX Runtime | INT8 static | 17.09 ms | 17.51 ms | 58.5 img/s | 23.3 MB |
 
 The two ONNX Runtime rows are CPU numbers, not GPU, **and they are the GPU
-host's CPU**, not the development laptop's. That host is considerably faster:
-the same model measures 34.3 ms on the laptop. Do not compare these rows with
-the CPU tables elsewhere in the repository, which are all laptop numbers. The run requested CUDA but
+host's CPU**, not the development laptop's, and they come from
+`BENCHMARKS_GPU.md`. That host is considerably faster: the same model measures
+34.3 ms on the laptop. Do not compare these rows with the CPU tables elsewhere
+in the repository, which are all laptop numbers. The run requested CUDA but
 `onnxruntime-gpu` had no usable CUDAExecutionProvider, and ONNX Runtime falls
 back to CPU without raising. The tell is INT8 being slower than fp32, which is
 the CPU signature; on a GPU INT8 is faster. Only the TensorRT rows are GPU
 figures. The benchmark script detects this and names the report
-`BENCHMARKS_GPU_CPU_FALLBACK.md` rather than publishing CPU timings under a
+`BENCHMARKS_GPU_CPU_FALLBACK.md` instead of publishing CPU timings under a
 GPU filename.
 
 ### Size
@@ -196,7 +197,7 @@ through the same `ModelService` the API uses. Nine of nine checks pass:
 
 | Check | Result |
 | --- | --- |
-| Artifact integrity | Pass, all artifacts present |
+| Artefact integrity | Pass, all artefacts present |
 | Determinism | Pass, max diff 0.00e+00 across 3 runs |
 | Batch invariance | Pass, max diff 0.00e+00 |
 | Output sanity | Pass, no NaN or infinite values |
@@ -222,12 +223,12 @@ in docs/TECHNICAL.md.
 
 ### INT8 is smaller, slower, and less accurate
 
-Static QDQ quantization calibrated on 200 real validation images, then
+Static QDQ quantisation calibrated on 200 real validation images, then
 measured on 500 held-out images:
 
 | | fp32 | INT8 static |
 | --- | ---: | ---: |
-| Size | 91.2 MB | 23.3 MB (3.91× smaller) |
+| Size | 91.2 MB | 23.3 MB (3.91x smaller) |
 | CPU p50, batch 1 | 34.3 ms | 46.9 ms |
 | Top-1 | 80.0% | 63.0% |
 | Agreement with fp32 | — | 67.0% |
@@ -254,14 +255,14 @@ This has to match exactly.
 | Normalise | Tiny-ImageNet mean/std (`TINY_IMAGENET_MEAN`, `TINY_IMAGENET_STD`) |
 
 A direct resize, not a centre crop, matching the training `EvalTransform`.
-This matters more than it looks: a centre crop at `crop_pct=0.875` against a
+A centre crop at `crop_pct=0.875` against a
 training pipeline that resizes directly measures 4.28 apart in normalised
-units on identical input, with no error and no crash, just quietly worse
+units on identical input, with no error and no crash, just worse
 accuracy in production than in validation.
 
 `tests/unit/test_preprocessing_parity.py` (17 tests) reads its expected size
-from `TINY_IMAGENET_PREPROCESS` rather than hard-coding a number, so changing
-the training resolution cannot silently desync the two.
+from `TINY_IMAGENET_PREPROCESS` instead of hard-coding a number, so changing
+the training resolution cannot desync the two.
 
 ---
 
@@ -273,7 +274,7 @@ The label set is 200 Tiny-ImageNet classes. Anything outside them is forced
 into the nearest one with a confident-looking score. There is no "I don't
 know" output.
 
-Less obviously, it was fine-tuned on 64×64 source images upsampled to 224px.
+Less obviously, it was fine-tuned on 64x64 source images upsampled to 224px.
 Its idea of a "dog" is built from thumbnails. Shown a high-resolution
 photograph, it sees a rescaled version that is sharper and differently
 distributed from anything it trained on.
@@ -301,7 +302,7 @@ data. Temperature scaling would fix this and has not been applied.
 
 Not evaluated on medical or satellite imagery, artwork or line drawings, heavy
 motion blur, or adversarial inputs. Robustness was tested only against σ=0.01
-Gaussian noise, which is a smoke test rather than an adversarial guarantee.
+Gaussian noise, which is a smoke test instead of an adversarial guarantee.
 
 ---
 

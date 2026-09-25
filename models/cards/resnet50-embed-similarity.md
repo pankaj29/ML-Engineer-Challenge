@@ -37,23 +37,23 @@ before it decided on a class. That description is what we want: it encodes
 shapes, textures and parts, without having collapsed everything down to one of
 1,000 labels.
 
-L2 normalisation is baked into the exported graph rather than applied in
-Python afterwards. The artifact is therefore self-contained, anyone who runs
+L2 normalisation is baked into the exported graph instead of applied in
+Python afterwards. The artefact is therefore self-contained, anyone who runs
 it gets unit vectors without having to remember an extra step, and the API and
 the index cannot disagree about whether normalisation happened.
 
-Why this rather than a purpose-built embedding model:
+Why this instead of a purpose-built embedding model:
 
 * **It reuses a model already being downloaded.** The classifier and the
   embedder share one backbone, so the system serves three tasks from two
   downloads. On a CPU-first deployment that is real memory saved.
 * **It is genuinely good at "same kind of thing".** ImageNet features are
   strong semantic features.
-* **It is fast**: 43 ms p50, the quickest of the three models.
+* **It is fast**: 49.6 ms p50.
 
 The trade-off: a model trained with a contrastive objective
 ,  CLIP, DINOv2, produces materially better embeddings for retrieval, because
-they are trained to make similar images close rather than having that emerge
+they are trained to make similar images close instead of having that emerge
 as a side effect of classification. CLIP also allows text-to-image search,
 which this cannot do at all. They were not chosen here because CLIP ViT-B/32
 is ~350 MB against reusing a backbone already in memory, and the brief's
@@ -97,7 +97,7 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only.
 | ONNX INT8 (static) | 1 | 77.6 ms | 104.8 ms | 129.5 ms | 12.9 img/s | **22.9 MB** |
 | ONNX INT8 (static) | 4 | 567.8 ms | 791.0 ms | 892.4 ms | 7.1 img/s | 22.9 MB |
 
-The unusually wide p50-to-p95 gap at batch 1 (43 ms → 278 ms) is measurement
+The unusually wide p50-to-p95 gap at batch 1 (49.6 ms to 62.3 ms) is measurement
 noise from a busy development machine, not model behaviour; the INT8 row,
 measured in the same run, shows a normal spread.
 
@@ -135,7 +135,7 @@ unmeasured. Measure it before relying on a similarity threshold.
 
 | Check | Result |
 | --- | --- |
-| Artifact integrity | Pass |
+| Artefact integrity | Pass |
 | Determinism | Pass |
 | Batch invariance | Pass |
 | Output sanity | Pass |

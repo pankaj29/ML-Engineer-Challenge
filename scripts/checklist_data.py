@@ -734,7 +734,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
         "benchmarks/reports/BENCHMARKS.md",
         "fp32 ONNX vs INT8 static, batch 1 and 4, all 4 models, p50/p95/p99 with "
         "environment recorded, plus fp32/fp16/int8 TensorRT engines on an A100. Key "
-        "findings: dynamic INT8 will not even load on this CPU (no ConvInteger kernel), "
+        "findings: dynamic INT8 will not load as configured (uint8 activations against "
+        "int8 weights is not a registered ConvInteger kernel; QUInt8 weights fix it), "
         "static QDQ is 1.07x to 2.30x slower depending on the model and 3.9x smaller, "
         "and on GPU int8 matches fp16 on latency while halving engine size.",
     ),

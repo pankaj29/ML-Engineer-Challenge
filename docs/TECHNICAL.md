@@ -23,15 +23,20 @@ it, see [`API.md`](API.md). For what was assumed or left undone, see
 
 ## 1. Model selection rationale
 
-Three models, chosen under one constraint that dominated everything else: CPU
-inference under one second per image. That shaped the choices more than
-accuracy did.
+Three tasks, four models, chosen under one constraint that dominated
+everything else: CPU inference under one second per image. That shaped the
+choices more than accuracy did.
 
 | Task | Model | Params | p50 (CPU) | Size |
 | --- | --- | ---: | ---: | ---: |
 | Classification | ResNet-50 | 25.6 M | 69.9 ms | 97.4 MB |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 25.6 M | 34.3 ms | 91.2 MB |
 | Detection | YOLOv8n | 3.2 M | 97.1 ms | 12.1 MB |
 | Similarity | ResNet-50 (headless) | 23.5 M | 49.6 ms | 89.6 MB |
+
+The two classifiers share an architecture and differ only in their head and
+their label space, which is why the fine-tuned one is faster: 200 classes
+instead of 1000.
 
 ### Classification: ResNet-50
 
@@ -41,17 +46,17 @@ A Vision Transformer at comparable accuracy needs roughly 3-4x the compute.
 ConvNeXt or EfficientNetV2 would be 2-4 points more accurate at similar
 parameter counts. That accuracy was traded for latency headroom.
 
-The second reason matters more than it sounds. Every ResNet operation has a
+The second reason is the bigger one. Every ResNet operation has a
 well-supported ONNX equivalent, and it quantizes without special handling.
 Several more modern architectures need per-operator workarounds to export at
 all. When reproducibility is a deliverable, an architecture that exports in
-one call is worth real accuracy.
+one call buys real accuracy.
 
 ### Detection: YOLOv8n
 
 Detection is the expensive task here, and nano is what fits the budget.
 
-At 120 ms it is already the slowest of the three. YOLOv8m would be about 4x
+At 97 ms it is already the slowest of them. YOLOv8m would be about 4x
 that, pushing a batch of four past budget. The cost is accuracy: 37.3
 mAP50-95 against roughly 50.2 for the medium variant, and the loss falls
 exactly where it hurts, on small, distant and occluded objects.
@@ -73,13 +78,13 @@ image feature, and it costs one download instead of two.
 
 The trade-off: CLIP or DINOv2 would produce better embeddings, because they
 are trained contrastively, optimised to put similar images close together
-rather than having that emerge as a side effect
+instead of letting that emerge as a side effect
 of classification. CLIP also enables text-to-image search, which this cannot
 do. It was not chosen because CLIP ViT-B/32 is ~350 MB on top of a backbone
 already loaded, and the brief's priority is a working similarity capability
 within budget.
 
-Consequence worth knowing: these features encode **"what object is this"**
+One consequence: these features encode **"what object is this"**
 much more strongly than style or colour. Two different red cars score higher
 than the same building in different light.
 
@@ -100,7 +105,7 @@ flowchart LR
     style EI stroke-width:3px
 ```
 
-Every path here was built, verified and measured. Two INT8 graphs rather than
+Every path here was built, verified and measured. There are two INT8 graphs, not
 one, because a single file cannot serve both runtimes; the TensorRT subsection
 explains why.
 
@@ -109,22 +114,22 @@ explains why.
 
 Converting from PyTorch to ONNX removes the Python interpreter from the hot
 path and lets ONNX Runtime fuse operations and fold constants. Numerical
-fidelity was verified rather than assumed, **max absolute difference vs
-PyTorch under 4e-06 for all three models.**
+fidelity was verified, **max absolute difference vs
+PyTorch under 4e-06 for both exported classifiers.**
 
 The trap: torch 2.9 defaults to the new "dynamo" exporter, which
 
 1. **ignored `dynamic_axes`**, baking in a batch size of 1, so the exported
    graph crashed on any batch other than one; and
 2. split weights into a sidecar `.onnx.data` file, turning one self-contained
-   artifact into two files that must travel together.
+   artefact into two files that must travel together.
 
 Both were caught by the export script's own verification, not by inspection.
 The fix is to opt out of the dynamo exporter explicitly.
 
-### INT8 quantization
+### INT8 quantisation
 
-The brief asks for INT8 quantization on all models. It is applied to all
+The brief asks for INT8 quantisation on all models. It is applied to all
 four, and measurement showed the obvious approach is dramatically wrong.
 
 ResNet-50, batch 1, same machine:
@@ -132,41 +137,49 @@ ResNet-50, batch 1, same machine:
 | Variant | p50 latency | Size |
 | --- | ---: | ---: |
 | ONNX float32 | **69.9 ms** | 97.4 MB |
-| INT8 **dynamic** | **will not load** | 24.5 MB |
+| INT8 **dynamic** | **will not load as configured** | 24.5 MB |
 | INT8 **static QDQ** | **74.5 ms** | 24.9 MB |
 
-Dynamic quantization does not merely run badly. It produces a model this
-runtime cannot execute:
+The dynamic model does not run badly. It does not open:
 
 ```
 NOT_IMPLEMENTED : Could not find an implementation for
 ConvInteger(10) node with name '/conv1/Conv_quant'
 ```
 
-Dynamic quantization computes activation scales on every call, and for
-convolutions ONNX Runtime represents that as `ConvInteger`, for which the CPU
-provider ships no kernel. The session fails to open, so there is no latency to
-quote. That is tolerable for a transformer dominated by large matrix
-multiplies, which quantize to `MatMulInteger`; for a convolutional network it
-is a dead end. The size reduction is real and worth nothing if the file cannot
-be loaded.
+That message invites the wrong conclusion, which is that ONNX Runtime has no
+`ConvInteger` kernel. It has one, registered for uint8 activations against
+uint8 weights. Two things collide here. `DynamicQuantizeLinear`, which dynamic
+quantisation inserts ahead of every conv, is defined by the ONNX spec to emit
+**uint8** and has no other option. `quantize_dynamic` defaults to
+`QuantType.QInt8` for weights. So all 53 conv nodes end up asking for uint8 x
+int8, which is not a registered combination, and kernel resolution fails at
+session creation.
 
-Static QDQ quantization measures those activation ranges once, ahead of time,
-from real calibration images (100 images from Tiny-ImageNet), and produces a
-graph of ordinary `QuantizeLinear`/`DequantizeLinear` pairs the runtime does
-support. The pipeline prefers it automatically, falling back to dynamic only
-when no calibration data is available, and saying so.
+I confirmed this with two single-node models: uint8 x uint8 loads and runs,
+uint8 x int8 raises the error above. Re-quantising the real
+model with `weight_type=QUInt8` produces a graph that loads and runs at
+57.8 ms against 40.2 ms for fp32, measured in the same session.
+
+So dynamic quantisation is available. It is not what ships, and the reason is
+not the error. Dynamic computes activation scales from each individual call's
+own tensor, so the quantisation of an image depends on what it is batched
+with, and two identical requests can return different numbers. Static QDQ
+measures those ranges once, ahead of time, from real calibration images (100
+from Tiny-ImageNet), and produces ordinary `QuantizeLinear`/`DequantizeLinear`
+pairs. It is faster and it is reproducible. The pipeline prefers it
+automatically, falling back to dynamic only when no calibration data is
+available, and saying so.
 
 Static INT8 costs almost nothing in latency for this model, 1.07x, while being
 3.9x smaller. Across the four models the latency penalty ranges from 1.07x
-(resnet50) to 2.30x (yolov8n), so it is worth measuring per model rather than
-assuming.
+(resnet50) to 2.30x (yolov8n), so measure it per model.
 
 So float32 ONNX is the serving default. INT8 is registered alongside it and
 selectable per request for memory-constrained deployments.
 
 This is the one place where following the brief literally would have produced
-a worse system. Quantization is applied, measured, documented, and not
+a worse system. Quantisation is applied, measured, documented, and not
 enabled by default, because the measurement says not to.
 
 > **Where INT8 *would* win:** a CPU with VNNI instructions properly engaged, a
@@ -195,9 +208,10 @@ Tiny-ImageNet classifier at 224x224, batch 1:
 | fp16 | 45.6 MB | 46.0 MB | 29 s | 0.990 ms | 1.008 ms | 1066 img/s | 1.31x |
 | int8 | 23.1 MB | 24.1 MB | 24 s | 0.920 ms | 1.017 ms | 1068 img/s | 1.41x |
 
-The same model through ONNX Runtime on CPU runs at about 15 ms, so TensorRT on
-an A100 is roughly **16x faster**. That gap is what justifies a compiled,
-hardware-specific runtime existing in the codebase at all.
+The same model through ONNX Runtime on that host's CPU runs at 11.50 ms, so
+TensorRT INT8 on its A100 is **12.5x faster** and fp16 **11.6x**. Both figures
+compare the same machine; see `BENCHMARKS_GPU.md`. That gap is what justifies a
+compiled, hardware-specific runtime existing in the codebase at all.
 
 INT8 and fp16 run at the same speed at batch 1. Across four runs they traded
 places between 0.87 and 1.00 ms, which is contention on a shared A100 rather
@@ -225,7 +239,7 @@ guess is exactly the thing that keeps being wrong.
 fp16 requires an fp16 graph. Since TensorRT 11 reads precision from ONNX
 dtypes, `convert_onnx_to_fp16()` rewrites the model first, with
 `keep_io_types=True` so inputs and outputs stay fp32 and no caller needs to
-change. It uses `onnxruntime.transformers.float16` rather than the more
+change. It uses `onnxruntime.transformers.float16` instead of the more
 obvious `onnxconverter-common`, which hard-pins `protobuf==3.20.2` and would
 drag protobuf below the `>=6.31.1` that onnx requires.
 
@@ -238,15 +252,15 @@ previous one was fixed:
 | # | Constraint | How it announced itself |
 | --- | --- | --- |
 | 1 | `DequantizeLinear` takes only 8- and 4-bit inputs | parse error at `fc.bias_DequantizeLinear`: *"input has type Int32"* |
-| 2 | Symmetric quantization only, every zero point 0 | parse error at `input_QuantizeLinear`: *"Non-zero zero point is not supported"* |
-| 3 | MinMax calibration collapses once symmetric | nothing at all: a valid engine, quietly 18% faithful |
+| 2 | Symmetric quantisation only, every zero point 0 | parse error at `input_QuantizeLinear`: *"Non-zero zero point is not supported"* |
+| 3 | MinMax calibration collapses once symmetric | nothing at all: a valid engine, 18% faithful |
 | 4 | INT8 convolutions need input channels divisible by 4 | build error: *"Could not find any implementation for node ... /conv1/Conv"* |
 
 On (1): ONNX Runtime quantizes biases to INT32, which is correct, since a bias
 scale is `input_scale * weight_scale` and int8 would overflow. `QuantizeBias:
 False` leaves them in fp32, dropping 54 of 182 DequantizeLinear nodes.
 
-On (3), the one worth remembering. Symmetric quantization makes each range
+On (3). Symmetric quantisation makes each range
 `[-max|x|, +max|x|]`, so a post-ReLU activation, which is never negative,
 spends half its 256 levels on values that cannot occur, and with MinMax one
 outlier stretches the rest. Measured on 200 held-out validation images,
@@ -269,16 +283,16 @@ catches it. ResNet's stem convolution takes 3 channels and has no INT8 tactic.
 `convs_without_int8_kernels()` finds such layers by weight shape and excludes
 them - one node here, 52 of 53 convolutions still quantized. Leaving the first
 layer in higher precision is standard practice anyway: it sees raw pixels, is
-the most quantization-sensitive, and is a negligible share of the compute.
+the most quantisation-sensitive, and is a negligible share of the compute.
 
 Constraints (1) and (2) are properties of the file, so `check_trt_qdq_graph()`
 reports both at once before any GPU work begins. TensorRT's parser stops at the
 first offending node, so discovering them one at a time cost a GPU session
 each.
 
-The result is a second artifact, `<name>_int8_trt.onnx`, alongside
+The result is a second artefact, `<name>_int8_trt.onnx`, alongside
 `<name>_int8_static.onnx`. One file cannot serve both runtimes, and the CPU
-INT8 figures were measured against the latter - silently changing what that
+INT8 figures were measured against the latter, changing what that
 name contains would have invalidated them.
 
 #### Verifying an engine
@@ -294,12 +308,12 @@ difference as a fraction of the reference's peak magnitude:
 
 Relative, not absolute. Logit scale is a property of the model - this one spans
 about -6.7 to +6.7 - so an absolute bound means something different on every
-model and tightens silently as outputs grow. An earlier absolute version failed
+model and tightens as outputs grow. An earlier absolute version failed
 the fp32 and fp16 engines of a perfectly good build while passing INT8.
 
 The comparison runs on a real photograph from `samples/`, not random noise.
 Noise broke the check in both directions at once: it produces smaller logits
-(peak 2.63 against 5.61) and larger quantization error (0.710 against 0.125),
+(peak 2.63 against 5.61) and larger quantisation error (0.710 against 0.125),
 because the INT8 ranges were calibrated on photographs and noise falls outside
 all of them. That put the ratio at 27% against the real image's 2.2%, and since
 the noise was redrawn each run, the same engine verified on one build and
@@ -315,7 +329,7 @@ against; the GPU numbers exist because the brief asks for TensorRT.
 
 CPU environment: Intel Core Ultra 7 155H, 22 logical cores, 64 GB RAM,
 CPU only. ONNX Runtime 1.20.1, Python 3.13. 50 iterations after 10 warmups,
-with the Docker stack stopped. That last part matters more than it sounds: on
+with the Docker stack stopped. That last part changes the result: on
 a machine running the seven-container stack the same models measure 20 to 40%
 slower, and the measurement is then partly of the other containers.
 
@@ -407,7 +421,8 @@ file named for a device it did not use is exactly the sort of artefact that
 gets quoted months later.
 
 So the only true GPU figures here are the TensorRT rows. Against the same
-model on CPU ONNX Runtime, TensorRT fp16 is roughly **17x faster**.
+model on the same host's CPU, 11.50 ms, TensorRT fp16 is **11.6x faster** and
+INT8 **12.5x**.
 
 ### Fine-tuned classifier accuracy
 
@@ -432,7 +447,7 @@ sigma=0.01 noise.
 The gap between the two top-1 figures is the 2000-sample subset against the
 full validation set - ordinary sampling variance.
 
-Two results worth recording from getting there, both counter-intuitive:
+Two results from getting there, both counter-intuitive:
 
 * **The native resolution is the worst choice.** Tiny-ImageNet is 64x64, but
   ResNet-50's stem downsamples 4x, so at 64px the stem has to be replaced -
@@ -471,7 +486,7 @@ Reproduce: `locust -f tests/performance/locustfile.py --host http://localhost --
 | Property | Measured |
 | --- | --- |
 | Concurrency ceiling respected | Peak in-flight 4 against a limit of 4 |
-| No memory leak | +2.8 MB over the second 50 inferences vs +? over the first, growth decelerates |
+| No memory leak | +0.3 MB over the first 50 inferences, +0.0 MB over the second; growth decelerates to nothing |
 | No degradation under sustained load | p50 8.3 ms (first half) → 7.0 ms (second half) |
 | Invalid input is cheap to reject | 0.019 ms per malformed image |
 | Cache effective | Repeat request served from Redis, verified live |
@@ -487,7 +502,7 @@ cheaply with garbage than with real traffic.
 ```
                     ┌──────────────┐
    client ─────────▶│  api-gateway │  Nginx
-                    │              │  · least_conn load balancing
+                    │              │  · round-robin load balancing
                     │              │  · edge rate limit (30 r/s per IP)
                     │              │  · 12 MB body cap
                     │              │  · /metrics internal-only
@@ -547,7 +562,7 @@ Response ←  Monitoring  ←  CORS  ←  Auth  ←  RateLimit  ←  route
 
 This is what makes the same inference logic usable from both the API and the
 Celery worker without duplication, and what makes swapping ONNX for TensorRT a
-config change rather than a rewrite.
+config change instead of a rewrite.
 
 ---
 
@@ -563,18 +578,18 @@ It is also small, diffable in a pull request, and versionable in git.
 Registrations are *also* written to PostgreSQL for audit history, but that
 path is never on the startup critical path.
 
-### 5.2 Three different failure policies
+### 5.2 Failure policy is chosen per component
 
 | Component | Policy | Why |
 | --- | --- | --- |
 | **Authentication** | Fail **closed** | No credentials configured → reject everything. There is no default password. |
 | **Cache** | Fail **soft** | Redis down → cache miss. Slower, never wrong. |
 | **Rate limiter** | Fail **open** | Redis down → allow traffic, with a per-process bucket as partial backstop. A cache outage must not become a total outage. |
-| **Database** | Fail **soft** | Logging an inference is not worth failing the user's request over. |
+| **Database** | Fail **soft** | Logging an inference should not fail the user's request. |
 | **Models** | Fail **over** | Runtime chain, then task default, marked `degraded: true`. |
 
-The rate limiter failing open is the one worth defending. It is a chosen
-availability-over-enforcement trade. It is logged loudly so the gap is visible.
+The rate limiter failing open is the one I would defend in review. It trades
+enforcement for availability, and it is logged loudly so the gap is visible.
 
 ### 5.3 Fallback applies to failures, not typos
 
@@ -582,7 +597,7 @@ A pinned model that cannot **load** falls back to the task default and marks
 the response `degraded: true`. A pinned model that **does not exist** returns
 404.
 
-The distinction matters: silently serving different predictions than the
+The distinction matters: serving different predictions from the
 caller asked for, because they typed the name wrong, is worse than an error.
 
 Degraded results are **never cached**, so a fallback cannot outlive the
@@ -591,7 +606,7 @@ incident that caused it.
 ### 5.4 Concurrency is capped, and excess is shed quickly
 
 Inference is CPU-bound. Past the limit, more concurrency makes everything
-slower rather than anything faster. A semaphore caps in-flight inferences;
+slower, not anything faster. A semaphore caps in-flight inferences;
 callers wait at most 2 seconds for a slot, then get a 503.
 
 Failing fast is kinder than timing out slowly. A prompt 503 lets a client
@@ -651,9 +666,9 @@ search, hundreds of microseconds against tens for the in-memory path, which is
 irrelevant next to 15 ms of inference. The Kubernetes config sets it, because
 an autoscaled API with a per-process index is silently broken.
 
-Postgres rather than FAISS or a dedicated vector database: no new service, no
+I chose Postgres over FAISS or a dedicated vector database: no new service, no
 new failure mode, nothing extra to back up. For tens of millions of vectors
-that stops being true and Qdrant or Weaviate earns its keep.
+that stops being true and Qdrant or Weaviate becomes the better option.
 
 Search is **exact brute force** in both backends: linear in index size, fast
 and exact to roughly a million vectors. pgvector offers HNSW and IVFFlat
@@ -673,15 +688,14 @@ req/s end-to-end through the full stack with a realistic cache hit rate.
 | 100-500 req/s | 8-10 API replicas, 4 workers, Redis with more memory |
 | > 500 req/s | GPU inference; revisit the CPU-first assumptions entirely |
 
-The single largest lever is GPU inference, and it is measured rather than
-estimated. The TensorRT engines in section 3 run the fine-tuned classifier at
+The single largest lever is GPU inference, and I measured it. The TensorRT engines in section 3 run the fine-tuned classifier at
 822 to 1068 img/s on an A100, against roughly 13/s on this CPU. That is close
 to two orders of magnitude, and it is the reason the TensorRT path exists.
 Deploying it means building the engine on the serving host, since an engine is
 tied to one GPU architecture and TensorRT version.
 
 The second largest is **the cache**. At a high hit rate, throughput is bounded
-by Redis rather than by the model, which is a much cheaper thing to scale.
+by Redis, not by the model, which is much cheaper to scale.
 
 ### Beyond one host
 
@@ -692,7 +706,7 @@ and one host eventually runs out. The Kubernetes manifests in
 that Compose got to duck.
 
 **The replica count becomes a control loop.** An HPA runs the API from 2 to 10
-replicas at 70% CPU, the worker from 1 to 6 at 75%. 70% rather than 90%
+replicas at 70% CPU, the worker from 1 to 6 at 75%. I chose 70% over 90%
 because a new pod needs about 20 seconds to load its models: scaling at 90%
 means the capacity arrives after the overload has already cost you. Scale-down
 is deliberately slow for the same reason, since pods here are expensive to
@@ -707,9 +721,9 @@ metrics-server installed.
 TLS, caps body size and rate limits at the edge. Keeping the nginx container
 behind it would be two proxies in series for no benefit. The body cap is set
 to match the API's own image limit, so an oversized upload is rejected at the
-edge rather than after crossing the cluster.
+edge, before it crosses the cluster.
 
-**Model artifacts stop living in the image.** Baking them in is 380 MB and
+**Model artefacts stop living in the image.** Baking them in is 380 MB and
 welds the model version to the image version, so shipping new weights means
 redeploying the service and rolling back a code change also rolls back the
 model. Those move on different schedules here, so an init container fetches
@@ -717,7 +731,7 @@ them and verifies every checksum before the API is allowed to start. A shared
 read-only volume would have been the other option, and it needs a filesystem
 volume type most clusters do not have by default.
 
-The checksum is the point rather than a formality. Serving the wrong weights
+The checksum does real work here. Serving the wrong weights
 produces plausible predictions and no error anywhere, so a mismatch has to
 stop the pod starting; that is the only place it is still cheap to catch.
 
@@ -729,13 +743,12 @@ transaction, so replicas that lose the race find the migration already
 applied.
 
 One decision the cluster does not get to defer is the similarity index. The
-per-process default is silently wrong under an HPA, for the reasons above, so
-`SIMILARITY_BACKEND=pgvector` is set in the ConfigMap rather than left to an
+per-process default is wrong under an HPA, for the reasons above, so
+`SIMILARITY_BACKEND=pgvector` is set in the ConfigMap, not left for an
 operator to remember.
 
-This is not a paper design. The manifests were applied to a kind cluster and
-served a real request end to end, and that run is what found three bugs no
-amount of reading the YAML would have: a registry file missing from the image,
+I applied the manifests to a kind cluster and served a real request end to
+end. That run found three bugs no amount of reading the YAML would have: a registry file missing from the image,
 a `CREATE EXTENSION IF NOT EXISTS` race between replicas, and a `hostPath`
 mount the restricted Pod Security Standard rejects at admission. The evidence
 and the full topology are in [`k8s/README.md`](../k8s/README.md).
@@ -781,7 +794,7 @@ This table is what drift detection reads, what the canary comparison splits by
 version, and what the A/B test scores. It is the input to everything in this
 section.
 
-It is worth saying plainly that for a long time nothing wrote to it. The
+For a long time nothing wrote to it. The
 table, the ORM model and a `log_inference` method all existed and no route
 called it, so drift read an empty table, found nothing, and the loop concluded
 there was no work to do. Nothing errored at any layer. The guard against a
@@ -790,7 +803,7 @@ router has a `record_prediction` beside it.
 
 ### Deciding not to retrain
 
-The decision is the part worth getting right. Retraining on every drift signal
+The decision is the hard part. Retraining on every drift signal
 makes a model worse: drift is noisy, a chi-square test on a quiet week will
 trip, and a retrain on unrepresentative data replaces something that works.
 
@@ -818,7 +831,7 @@ promotion.
 
 **Regression** asks a different question, whether it is worse than the model
 already serving. Validation cannot answer that, and it is the check that stops
-a retrain from quietly costing accuracy. No baseline yet is not a failure; the
+a retrain from costing accuracy unnoticed. No baseline yet is not a failure; the
 first model has nothing to regress against.
 
 If either gate refuses, the current model keeps serving and the run is
@@ -876,7 +889,7 @@ arbitrary code in production. Promotion is left to Argo CD, Flux or a person.
 | Traffic spike | Concurrency limiter sheds with 503 | Some requests rejected quickly, service stays up |
 | Corrupt image in a batch | That item fails, others complete | One item's error, not a failed batch |
 
-### Properties worth knowing
+### Properties of the running system
 
 * **Liveness depends on nothing external.** A database blip must not restart
   every container simultaneously.
@@ -884,6 +897,6 @@ arbitrary code in production. Promotion is left to Argo CD, Flux or a person.
   but kept running, so it can recover.
 * **`degraded` is healthy enough to serve**, both return HTTP 200.
 * **Batch jobs use `acks_late`**, so a worker killed mid-task returns the job
-  to the queue rather than losing it.
+  to the queue instead of losing it.
 * **Graceful shutdown**: 30 s for the API, 60 s for the worker, so in-flight
-  work finishes rather than being cut off mid-deploy.
+  work finishes instead of being cut off mid-deploy.

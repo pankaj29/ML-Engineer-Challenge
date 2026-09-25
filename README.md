@@ -27,8 +27,9 @@ files and is not committed. CI downloads and caches it, and that step is
 non-fatal so an external host being down cannot turn the build red.
 
 Progress against the brief is tracked in
-[`DELIVERABLES_CHECKLIST.xlsx`](DELIVERABLES_CHECKLIST.xlsx), generated from
-`scripts/checklist_data.py`.
+[`DELIVERABLES_CHECKLIST.xlsx`](DELIVERABLES_CHECKLIST.xlsx). Run
+`scripts/generate_checklist.py` to rebuild it; the entries themselves live in
+`scripts/checklist_data.py`, which is the file to edit.
 
 ---
 
@@ -169,15 +170,23 @@ $r.predictions | Format-Table rank, label, confidence -AutoSize
 ```json
 {
   "predictions": [
-    {"class_id": 101, "label": "tusker",           "confidence": 0.309, "rank": 1},
-    {"class_id": 386, "label": "African elephant", "confidence": 0.243, "rank": 2}
+    {"class_id": 208, "label": "Labrador retriever",    "confidence": 0.397, "rank": 1},
+    {"class_id": 205, "label": "flat-coated retriever", "confidence": 0.017, "rank": 2},
+    {"class_id": 227, "label": "kelpie",                "confidence": 0.014, "rank": 3},
+    {"class_id": 234, "label": "Rottweiler",            "confidence": 0.009, "rank": 4},
+    {"class_id": 852, "label": "tennis ball",           "confidence": 0.007, "rank": 5}
   ],
-  "top_prediction": {"class_id": 101, "label": "tusker", "rank": 1},
-  "model":  {"name": "resnet50", "version": "1.0.0", "runtime": "onnx"},
-  "timing": {"preprocess_ms": 3.1, "inference_ms": 11.4, "total_ms": 15.2},
-  "correlation_id": "0f3c...", "cached": false
+  "top_prediction": {"class_id": 208, "label": "Labrador retriever", "rank": 1},
+  "model":  {"name": "resnet50", "version": "1.0.0", "runtime": "onnx", "device": "cpu"},
+  "timing": {"preprocess_ms": 17.1, "inference_ms": 323.0, "total_ms": 346.8},
+  "warnings": ["image resized from 640x480 to 224x224 using center_crop"],
+  "correlation_id": "f3facd...", "cached": false
 }
 ```
+
+The confidence sits at 0.397 because ImageNet-1k contains 120 dog breeds and
+the runners-up are also retrievers. The model is spreading probability across a
+genuinely ambiguous call.
 
 Besides the answer you get which model version produced it, a per-stage timing
 breakdown, a `correlation_id` for finding this request in the logs, and
@@ -207,11 +216,11 @@ the code: <http://localhost:8000/docs>.
 | `ModelLoadError` or `503` on every request | The model files are LFS placeholders. Run `git lfs pull`. |
 | A service shows as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
 | Port 80 already in use | `GATEWAY_PORT=8080 docker compose up -d`, then use `http://localhost:8080`. |
-| The container serves an old model after you replace a file | Docker Desktop on Windows does not always propagate a bind-mounted file that was replaced rather than edited. Compare `docker compose exec ml-api md5sum models/artifacts/<file>` against the host, and rebuild if they differ. |
+| The container serves an old model after you replace a file | Docker Desktop on Windows does not always propagate a bind-mounted file that was replaced instead of edited. Compare `docker compose exec ml-api md5sum models/artifacts/<file>` against the host, and rebuild if they differ. |
 | PowerShell: "The term 'base64' is not recognized" | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("samples\dog.jpg"))`. |
 | PowerShell: "Could not find file" naming the **wrong folder** | The file exists but `[IO.File]` resolves relative paths against .NET's current directory, which `cd` does not change. Wrap the path: `(Resolve-Path "samples\dog.jpg").Path`. |
 | `Argument list too long` from curl | The base64 is too big for a command-line argument. Use the `/upload` endpoint, or pipe the JSON through stdin with `-d @-`, as shown in [Classify an image](#classify-an-image). |
-| PowerShell: "Cannot bind parameter 'Headers'" | `curl` is an alias for `Invoke-WebRequest`, which takes a dictionary rather than `-H` strings. Use `curl.exe`, or `Invoke-RestMethod` with `-Headers @{...}` as above. |
+| PowerShell: "Cannot bind parameter 'Headers'" | `curl` is an alias for `Invoke-WebRequest`, which expects a dictionary and does not accept `-H` strings. Use `curl.exe`, or `Invoke-RestMethod` with `-Headers @{...}` as above. |
 
 ---
 
@@ -233,8 +242,7 @@ the code: <http://localhost:8000/docs>.
 
 There are two deployment targets. Docker Compose is what the quick start
 brings up and what the end-to-end tests drive. Kubernetes is the one that
-scales, and it is a different topology, so it gets its own diagram below
-rather than being drawn as a variant of the first.
+scales, and it is a different topology, so it gets its own diagram below.
 
 ### Docker Compose
 
@@ -309,23 +317,24 @@ vectors.
                                                        validation
 ```
 
-Details worth knowing before applying it:
+A few things to know before applying it:
 
-- **Artifacts are not baked into the image.** An init container fetches them
+- Model artefacts are not baked into the image. An init container fetches them
   and verifies each SHA-256, so a new model version does not need a rebuild.
-- **The pods run under the restricted Pod Security Standard**: non-root,
-  read-only root filesystem, all capabilities dropped, no `hostPath`.
-- **A NetworkPolicy** keeps Postgres reachable only from the API and worker.
-- **Migrations run in an init container**, not from the app, because in
-  production the API does not create tables. Several replicas running Alembic
-  at once is safe: Postgres applies DDL transactionally and stamps
-  `alembic_version` in the same transaction, so the losers find the migration
-  already applied.
-- **Overlays**: `kind` for local verification, `gpu` for TensorRT serving on a
-  GPU node, `canary` and `canary-kind` for progressive delivery.
+- The pods run under the restricted Pod Security Standard: non-root, read-only
+  root filesystem, all capabilities dropped, no `hostPath`.
+- A NetworkPolicy keeps Postgres reachable only from the API and the worker.
+- Migrations run in an init container, because in production the API does not
+  create tables. Several replicas running Alembic at once is safe. Postgres
+  applies DDL transactionally and stamps `alembic_version` in the same
+  transaction, so the replicas that lose the race find the migration already
+  applied.
+- The overlays are `kind` for local verification, `gpu` for TensorRT serving on
+  a GPU node, and `canary` plus `canary-kind` for progressive delivery.
 
-Verified on a kind cluster rather than asserted: with the overlay's floor of
-1 replica, the HPA scaled `ml-api` to 2 under a forced target. That run is what surfaced the missing
+I applied these to a kind cluster instead of only rendering them. With the
+overlay's floor of 1 replica, the HPA scaled `ml-api` to 2 under a forced
+target. That run is what surfaced the missing
 registry file in the image, the `CREATE EXTENSION` race between replicas and
 the `hostPath` the restricted policy rejects.
 
@@ -336,7 +345,9 @@ Reasoning in [TECHNICAL.md](docs/TECHNICAL.md); the manifests have their own
 
 ## The models
 
-Four models covering three tasks:
+Three tasks, four models. Three load at startup, one per task; the fine-tuned
+classifier is registered alongside the ImageNet one and loads when a request
+pins it.
 
 | Task | Model | p50 (CPU) | Size | Endpoint |
 | --- | --- | ---: | ---: | --- |
@@ -354,40 +365,47 @@ usefully, its limitations.
 
 ---
 
-## Quantization: the result worth reading
+## Quantisation
 
-The brief asks for INT8 quantization. It is applied to all four models, and
+The brief asks for INT8 quantisation. It is applied to all four models, and
 measurement showed the obvious approach makes things much worse:
 
 | ResNet-50, batch 1 | p50 latency | Size |
 | --- | ---: | ---: |
 | ONNX float32 | 69.9 ms | 97.4 MB |
-| INT8 dynamic | does not run | 24.5 MB |
+| INT8 dynamic | will not load as configured | 24.5 MB |
 | INT8 static QDQ | 74.5 ms | 24.9 MB |
 
-Dynamic quantization does not produce a usable model here at all. It emits
-`ConvInteger`, which the ONNX Runtime CPU provider has no kernel for, so the
-session fails to open:
+Dynamic quantisation, with the settings the pipeline uses, produces a model
+that will not open:
 
 ```
 NOT_IMPLEMENTED : Could not find an implementation for
 ConvInteger(10) node with name '/conv1/Conv_quant'
 ```
 
-That is a property of convolutional networks rather than a bug: dynamic
-quantization suits transformers dominated by large matrix multiplies. The
-pipeline therefore prefers static, falls back to dynamic only when no
+The message is misleading. There is a `ConvInteger` kernel; it is registered
+for uint8 activations against uint8 weights. `DynamicQuantizeLinear` always
+emits uint8 by spec, and the quantiser defaults to int8 weights, so all 53
+conv nodes ask for a uint8 x int8 combination that is not registered. Quantise
+with `weight_type=QUInt8` instead and the same model loads and runs, at 57.8 ms
+against 40.2 ms for fp32 in the same session.
+
+So dynamic is possible. I still ship static, and the error is not the reason.
+Dynamic recomputes activation scales from each individual call, so the same
+image can quantise differently depending on what it is batched with. Static
+calibrates once on 100 real images and bakes the scales in, which is both
+faster and reproducible. The pipeline falls back to dynamic only when no
 calibration data exists, and says so when it does.
 
-Static QDQ, calibrated on 100 real images, runs. It is 3.9× smaller and, on
-this CPU, 1.07× slower. The cost is accuracy rather than speed: it agrees with
-float32 on 67% of top-1 predictions, measured on 500 held-out images with the
-API's own preprocessing.
+Static QDQ, calibrated on 100 real images, runs. It is 3.9x smaller and, on
+this CPU, 1.07x slower. The cost is accuracy. It agrees with float32 on 67% of
+top-1 predictions, measured on 500 held-out images through the API's own
+preprocessing.
 
 So float32 is the serving default, with INT8 registered alongside and
-selectable per request. Shipping a model that loses 17 points of top-1, or one
-that will not load at all, because the brief said to apply quantization, would
-have been the wrong call.
+selectable per request. Shipping a model that loses 17 points of top-1 because
+the brief said to apply quantisation would have been the wrong call.
 
 Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked-and-what-did-not).
 
@@ -396,7 +414,7 @@ Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked
 ## The fine-tuned classifier
 
 ResNet-50 on Tiny-ImageNet: 200 classes, all 100,000 training images, 60
-epochs at 224×224 on an A100-SXM4-40GB. **78.91% top-1, 92.12% top-5** against
+epochs at 224x224 on an A100-SXM4-40GB. **78.91% top-1, 92.12% top-5** against
 a 0.5% random baseline, in 1.6 hours.
 
 ![Loss, validation accuracy, the learning-rate schedule, and raw versus EMA weights](docs/images/training-curves.png)
@@ -411,14 +429,14 @@ warmup into cosine decay).
 Reading the accuracy panel: transfer learning from ImageNet-1k reaches 75.1%
 by epoch 2, and the remaining 58 epochs add 3.8 points. About half of that
 arrives after epoch 40, when the cosine anneal drops the learning rate by two
-orders of magnitude. The long schedule earns its place, which was not obvious
-in advance.
+orders of magnitude. I kept the long schedule because of that, not because I
+expected it to help.
 
 The rightmost panel is weight averaging. EMA beat the live weights in 53 of 60
 epochs, and the shipped checkpoint is an EMA one.
 
 More detail, including the three input resolutions measured and why the native
-64×64 is the worst of them, is in
+64x64 is the worst of them, is in
 [`models/cards/resnet50-tiny-imagenet.md`](models/cards/resnet50-tiny-imagenet.md).
 
 ### TensorRT on the same GPU
@@ -435,7 +453,7 @@ TensorRT 11.3.0.99, batch 1.
 INT8 buys size here, not speed. It and fp16 are the same within noise at batch
 1, trading places between 0.87 and 1.00 ms across four runs, but the INT8
 engine is half the size. At batch 1 a ResNet-50 on an A100 is bound by memory
-traffic rather than arithmetic, so halving the precision of the arithmetic
+traffic, so halving the precision of the arithmetic
 changes little. Larger batches are where INT8 would pay off.
 
 Getting the INT8 engine to build took four separate fixes. They are written up
@@ -503,9 +521,9 @@ Reproduce with `python -m models.optimization.benchmark`.
   RandomResizedCrop, RandomErasing, MixUp, CutMix
 - ONNX export verified numerically against PyTorch, max diff 3.81e-06 for
   the fine-tuned classifier and 2.86e-06 for the ImageNet ResNet-50
-- INT8 quantization, static and dynamic, with the accuracy cost measured
+- INT8 quantisation, static and dynamic, with the accuracy cost measured
 - TensorRT fp32, fp16 and INT8 all built, verified and benchmarked on an
-  A100: INT8 at 0.920 ms p50 and 1068 img/s, 1.41× faster than fp32 and a
+  A100: INT8 at 0.920 ms p50 and 1068 img/s, 1.41x faster than fp32 and a
   quarter of its size
 - Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration, latency
@@ -534,12 +552,12 @@ Reproduce with `python -m models.optimization.benchmark`.
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed
-- Integration tests use the real thing: real ONNX artifacts, and real
+- Integration tests use the real thing: real ONNX artefacts, and real
   PostgreSQL and Redis when reachable. That is what catches a
   dialect-specific query or a Lua script that is not actually atomic
 - End-to-end tests drive the deployed stack over HTTP, so they cross nginx,
   the container image, Redis, PostgreSQL and the Celery worker. That is what
-  catches a container serving a stale artifact, which every in-process test
+  catches a container serving a stale artefact, which every in-process test
   passes straight over
 - Every integration and end-to-end test skips cleanly when its dependency is
   missing, including unfetched Git LFS pointers, naming the remedy
@@ -555,7 +573,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 - Multi-stage builds, non-root user (uid 10001), slim base images
 - Seven services, all with health checks
 - Production overlay: replicas, no exposed ports, read-only root filesystems,
-  rolling updates, and secrets that are required rather than defaulted
+  rolling updates, and secrets that are required with no defaults
 - Three segmented networks, DNS service discovery, no hardcoded IPs
 - Prometheus with 11 alert rules; Grafana auto-provisioned with a 22-panel
   dashboard
@@ -569,7 +587,7 @@ stops being true the moment you need a second machine.
   and a NetworkPolicy, verified on a kind cluster
 - pgvector as a shared similarity index, so replicas agree on what has been
   indexed
-- Alembic migrations, applied by a Job rather than at API startup
+- Alembic migrations, applied by an init container instead of at API startup
 - Canary releases: a second deployment on a new model version taking 5% of
   traffic, compared against stable on real predictions
 - GPU serving overlay: TensorRT, engine built on the serving node, autoscaling
@@ -609,7 +627,7 @@ stops being true the moment you need a second machine.
 ├── db/                       SQLAlchemy models, Alembic migrations, init SQL
 ├── k8s/                      base manifests, overlays (kind, gpu, canary),
 │                             artifact-server component
-├── tests/                    unit, integration, performance
+├── tests/                    unit, integration, e2e, performance
 ├── notebooks/                colab_gpu_pipeline.ipynb (generated)
 ├── Dockerfile                the API container
 ├── docker/                   Dockerfile.worker, Dockerfile.gpu, nginx/
@@ -624,7 +642,7 @@ stops being true the moment you need a second machine.
 └── .github/workflows/        ci, release, drift-watch
 ```
 
-Two paths are generated rather than hand-edited:
+Two paths are generated. Do not edit them by hand:
 
 - `notebooks/colab_gpu_pipeline.ipynb` comes from
   `scripts/build_colab_notebook.py`. Editing the notebook directly gets
@@ -638,8 +656,8 @@ with `git lfs pull` as the stated remedy.
 
 Two files extend the brief's prescribed structure: `api/config.py`, required
 by "environment-based configuration" and "no hardcoded secrets", and
-`api/dependencies.py`, so image extraction is defined once rather than per
-router. The extra routers exist because the brief requires those endpoints.
+`api/dependencies.py`, so image extraction is defined once instead of once
+per router. The extra routers exist because the brief requires those endpoints.
 
 ---
 
@@ -665,7 +683,7 @@ pytest tests/e2e -v        # drives the deployed stack over HTTP
 ```
 
 The status table at the top of this file is checked in CI against the actual
-suite, so the numbers cannot quietly rot:
+suite, so they stay current:
 
 ```bash
 python scripts/check_readme_stats.py         # report drift
@@ -708,8 +726,8 @@ Measured CPU cost on an Intel Core Ultra 7 155H (16 threads):
 | resnet18, original stem | 75.0 | 23 min | 11.5 h |
 
 The 64px stem adaptation dominates the cost: it is correct for 64px input, but
-every layer after it then runs at 16× the spatial area. A GPU is roughly
-30-60× faster.
+every layer after it then runs at 16x the spatial area. A GPU is roughly
+30-60x faster.
 
 For a long run on a hosted GPU, pass `--mirror-dir` pointing at mounted cloud
 storage so checkpoints outlive the container.
@@ -731,8 +749,8 @@ storage so checkpoints outlive the container.
   any pixel buffer is allocated.
 - Format detected from magic bytes, never from a filename or a client-declared
   content type.
-- TorchScript rather than pickle, because loading a pickled checkpoint would
-  execute arbitrary code from the artifact.
+- TorchScript instead of pickle, because loading a pickled checkpoint would
+  execute arbitrary code from the artefact.
 - JWT algorithm pinning, so an `alg: none` forgery is rejected.
 - Non-root containers, read-only root filesystems in production,
   `no-new-privileges`.
@@ -748,7 +766,7 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
    conv takes 3 channels and TensorRT's INT8 kernels need the input channel
    count divisible by 4, so it has no INT8 tactic at all. 52 of 53
    convolutions are quantized. This is also normal practice: the first layer
-   sees raw pixels and is the most quantization-sensitive, for a negligible
+   sees raw pixels and is the most quantisation-sensitive, for a negligible
    share of the compute.
 2. **Accuracy for the ImageNet-1k and COCO models is cited, not re-measured.**
    That needs the ImageNet and COCO validation sets. Behavioural correctness
@@ -758,10 +776,10 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
    what the Kubernetes config does. The default is kept because it needs no
    database and is faster for a single instance.
 4. **Confidence is not calibrated.** The fine-tuned classifier measures ECE
-   0.1244 and the ImageNet-1k model 0.22. Use the ranking rather than the
-   absolute scores unless you have measured otherwise on your own data.
+   0.1244 and the ImageNet-1k model 0.22. Use the ranking; the absolute
+   scores mean little unless you have measured them on your own data.
 5. **YOLOv8 is AGPL-3.0**, which matters for commercial use.
-6. **The gateway round-robins rather than least-connections.** nginx caches an
+6. **The gateway load-balances round-robin.** nginx caches an
    upstream's DNS answer at startup, so an `upstream` block pointed at a
    container that is later rebuilt keeps calling a dead IP. The fix resolves
    per request through a variable, which cannot reference an upstream block,
@@ -772,8 +790,8 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 
 1. Calibrate confidence with temperature scaling
 2. Benchmark TensorRT at larger batch sizes, where INT8 should finally beat
-   fp16 on latency rather than only on size
+   fp16 on latency as well as on size
 3. Measure accuracy against the real ImageNet and COCO validation sets
 4. Add OpenTelemetry tracing
 5. Restore least-connections balancing at the gateway
-6. Alert when the rate limiter is running on local buckets rather than Redis
+6. Alert when the rate limiter falls back to local buckets instead of Redis

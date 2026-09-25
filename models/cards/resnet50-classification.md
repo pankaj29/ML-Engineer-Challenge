@@ -33,24 +33,24 @@ location and counting, use `POST /api/v1/detect` instead.
 **ResNet-50**: a 50-layer residual convolutional network, ~25.6 M parameters.
 
 The defining idea is the *residual connection*: each block learns a small
-adjustment to its input rather than a whole new representation, and adds it
+adjustment to its input instead of a whole new representation, and adds it
 on. Before residual connections, networks past about 20 layers got *worse*
 with depth because the training signal faded before reaching the early layers.
 Residual connections give that signal a direct path, which is what made
 50-layer networks trainable at all.
 
-Why this rather than something newer:
+Why this instead of something newer:
 
 * **Accuracy per millisecond on CPU.** A Vision Transformer of comparable
   accuracy needs roughly 3-4x the compute, and this system is CPU-first. At
-  85 ms p50 for a single image, ResNet-50 leaves comfortable headroom under
+  69.9 ms p50 for a single image, ResNet-50 leaves comfortable headroom under
   the project's 1-second requirement.
 * **It exports cleanly.** Every operation has a well-supported ONNX
   equivalent, and it quantizes without special handling. Several more modern
   architectures need per-operator workarounds to export at all, which is a
   real cost when the pipeline must be reproducible.
 * **It is thoroughly characterised.** Its failure modes are documented across
-  a decade of literature, which is worth a lot when writing a section like
+  a decade of literature, which helps a lot when writing a section like
   section 6 of this card.
 
 The trade-off: a ConvNeXt or an EfficientNetV2 would be 2-4 points
@@ -90,7 +90,7 @@ registry change.
 | Normalise | mean `(0.485, 0.456, 0.406)`, std `(0.229, 0.224, 0.225)` |
 
 These constants are not decorative. They are the statistics the model was
-trained with, and using different ones silently costs several points of
+trained with, and using different ones costs several points of
 accuracy with no error message. They live in `api/utils/image_processing.py`
 as `CLASSIFICATION_PREPROCESS` and travel with the model through the registry.
 
@@ -116,10 +116,10 @@ p99 at batch 1 is 146 ms, roughly 7x inside budget.
 
 INT8 is not the default. It is 3.92x smaller but about 1.4x
 *slower* on this CPU. The reasoning, and the much worse result from dynamic
-quantization, are in `docs/TECHNICAL.md`. INT8 is registered and selectable
+quantisation, are in `docs/TECHNICAL.md`. INT8 is registered and selectable
 per request (`"runtime": "onnx_int8"`) for memory-constrained deployments.
 
-### Quantization fidelity
+### Quantisation fidelity
 
 Static INT8, calibrated on 100 real images:
 
@@ -153,7 +153,7 @@ From `python -m models.validation.validate`, all checks pass:
 
 | Check | Result |
 | --- | --- |
-| Artifact integrity | Pass, both artifacts present and non-empty |
+| Artefact integrity | Pass, both artefacts present and non-empty |
 | Determinism | Pass, identical output across 3 runs (max diff 0.0) |
 | Batch invariance | Pass, a prediction does not depend on batch position |
 | Output sanity | Pass, no NaN/Inf, probabilities sum to 1 |
@@ -185,7 +185,7 @@ Error of 0.22**, badly calibrated.
 Practical consequence: do not build a business rule on a raw confidence
 threshold without calibrating first (temperature scaling on a held-out set is
 the standard remedy). Use the *ranking* of predictions, which is reliable,
-rather than the absolute values, which are not.
+instead of the absolute values, which are not.
 
 ### Demographic and geographic bias
 
