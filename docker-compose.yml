@@ -89,7 +89,12 @@ services:
 
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       API_KEYS: ${API_KEYS:-dev-key-free:free,dev-key-pro:pro}
-      JWT_SECRET: ${JWT_SECRET:-}
+      # A development default, so POST /auth/token works out of the box.
+      # Overridden by JWT_SECRET in the environment, and it cannot reach
+      # production: api/config.py refuses to start in staging or production
+      # unless the secret is at least 32 characters and this one is
+      # recognisably not a real key.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-jwt-secret-do-not-deploy}
 
       PREFERRED_RUNTIME: ${PREFERRED_RUNTIME:-onnx}
       DEVICE: ${DEVICE:-auto}
