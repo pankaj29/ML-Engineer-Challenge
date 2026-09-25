@@ -1,0 +1,71 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Single-node overlay, used to verify the base manifests actually come up.
+# `kubectl apply -k k8s/overlays/kind` on a kind cluster brings the whole
+# stack to Ready.
+#
+# The base targets a real cluster: a ReadOnlyMany volume the API and worker
+# both mount, and more replicas than one node wants. Neither holds here, so
+# this patches the two things a single node cannot provide and nothing else.
+
+namespace: mlcv
+
+resources:
+  - ../../base
+
+patches:
+  # A local-path provisioner only supports ReadWriteOnce. ReadOnlyMany leaves
+  # the claim Pending forever, and both workloads sit unschedulable behind it.
+  # RWO is fine on one node, where every pod mounting it lands on that node
+  # anyway.
+  - target:
+      kind: PersistentVolumeClaim
+      name: model-artifacts
+    patch: |-
+      - op: replace
+        path: /spec/accessModes
+        value: ["ReadWriteOnce"]
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 1Gi
+
+  # One API replica. Two is right in production and pointless on one node,
+  # and the PodDisruptionBudget's minAvailable of 1 would block eviction of
+  # the only pod during a drain.
+  - target:
+      kind: Deployment
+      name: ml-api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: ml-api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+
+  # Postgres asks for 20Gi, which a laptop running kind does not need to give.
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 2Gi
+
+  # Models are not baked into the image and there is no shared volume here, so
+  # eager loading finds nothing and startup fails. Lazy loading lets the
+  # process come up; the point of this overlay is proving the manifests
+  # schedule and pass their probes, not serving predictions.
+  - target:
+      kind: ConfigMap
+      name: mlcv-config
+    patch: |-
+      - op: replace
+        path: /data/EAGER_MODEL_LOAD
+        value: "false"

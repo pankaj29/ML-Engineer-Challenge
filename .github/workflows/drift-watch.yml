@@ -1,0 +1,158 @@
+# Scheduled drift check.
+#
+# This is the trigger that turns the MLOps tools into a loop. Weekly, it asks
+# the pipeline whether the current drift picture warrants retraining, and
+# opens an issue if it does.
+#
+# It does not retrain. Training needs a GPU and the dataset, neither of which
+# a GitHub runner has, and a job that retrains unattended on data it cannot
+# inspect is how a good model gets replaced by a worse one. The decision is
+# automated; committing to it stays a human call.
+#
+# Run it by hand from the Actions tab to see the current answer.
+name: Drift watch
+
+on:
+  schedule:
+    # 07:00 UTC on Mondays. Weekly rather than nightly because the pipeline's
+    # own cooldown is 24 hours and drift on this system moves slowly; a
+    # nightly check would mostly report the same thing six more times.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      cooldown_hours:
+        description: "Hours since the last retrain before another is allowed"
+        required: false
+        default: "24"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  assess:
+    name: Assess drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+                      -r requirements.txt
+
+      # The history is what the cooldown reads. Without it every run looks
+      # like the first one and the cooldown never applies.
+      - name: Restore the pipeline history
+        uses: actions/cache/restore@v4
+        with:
+          path: benchmarks/reports/retraining_history.json
+          key: retraining-history-${{ github.run_id }}
+          restore-keys: retraining-history-
+
+      - name: Decide
+        id: decide
+        run: |
+          python -m models.pipeline.retraining \
+            --model resnet50-tiny-imagenet \
+            --drift-report benchmarks/reports/drift_report.json \
+            --cooldown-hours "${{ github.event.inputs.cooldown_hours || '24' }}" \
+            --report retraining_run.json \
+            | tee decision.txt
+
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          run = json.load(open("retraining_run.json"))
+          decision = run["decision"]
+          print(f"should_retrain={str(decision['should_retrain']).lower()}")
+          print(f"severity={decision['severity']}")
+          print(f"reason={decision['reason']}")
+          PY
+
+      - name: Save the history
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: benchmarks/reports/retraining_history.json
+          key: retraining-history-${{ github.run_id }}
+
+      - name: Summarise
+        run: |
+          {
+            echo "## Drift watch"
+            echo
+            echo "Retrain recommended: **${{ steps.decide.outputs.should_retrain }}**"
+            echo
+            echo "Severity: ${{ steps.decide.outputs.severity }}"
+            echo
+            echo "Reason: ${{ steps.decide.outputs.reason }}"
+            echo
+            echo '```'
+            cat decision.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Raise an issue when retraining is warranted
+        if: steps.decide.outputs.should_retrain == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reason = ${{ toJSON(steps.decide.outputs.reason) }};
+            const severity = ${{ toJSON(steps.decide.outputs.severity) }};
+            const title = `Drift: retraining recommended (${severity})`;
+
+            // One open issue at a time. Drift persists, and a weekly job that
+            // files a fresh issue every Monday is one nobody reads by March.
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'drift',
+            });
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: open.data[0].number,
+                body: `Still recommended as of ${new Date().toISOString()}.\n\n${reason}`,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              labels: ['drift'],
+              body: [
+                `The scheduled drift check recommends retraining.`,
+                ``,
+                `**Severity:** ${severity}`,
+                `**Reason:** ${reason}`,
+                ``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                ``,
+                `### To act on this`,
+                ``,
+                `On a machine with the dataset and a GPU:`,
+                ``,
+                '```bash',
+                `python -m models.pipeline.retraining \\`,
+                `  --model resnet50-tiny-imagenet \\`,
+                `  --drift-report benchmarks/reports/drift_report.json \\`,
+                `  --execute`,
+                '```',
+                ``,
+                `The new model is promoted only if it passes validation and does`,
+                `not regress against the baseline. If either gate fails the`,
+                `current model keeps serving and this issue stays open.`,
+              ].join('\n'),
+            });

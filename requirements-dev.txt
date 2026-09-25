@@ -17,3 +17,8 @@ ruff~=0.8.0
 black~=24.10.0
 mypy~=1.13.0
 types-requests
+
+# Experiment tracking. Needed so the MLflow round-trip test actually runs in
+# CI rather than skipping, which would make it green whether or not the
+# tracker works.
+mlflow~=3.1

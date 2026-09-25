@@ -100,6 +100,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
+    # Postgres with pgvector, for the similarity index integration tests.
+    # Those tests skip when nothing is listening, and a suite that skips is
+    # green whether the code works or not, so without this service the SQL in
+    # pgvector_index.py would never execute in CI.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U testuser -d testdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     strategy:
       # Run every version even if one fails, so a 3.12-only problem is visible
       # in the same run rather than one version at a time.
@@ -157,6 +176,10 @@ jobs:
         # AUTH_ENABLED, API_KEYS and JWT_SECRET itself, and the tests hard-code
         # the key names. Exporting a different API_KEYS here made every
         # authenticated request 401 and turned the whole suite red.
+        #
+        # PGVECTOR_TEST_URL is not set either: its default already points at
+        # localhost:55432, which is where the postgres service above is
+        # published.
         run: |
           pytest tests/ \
             --ignore=tests/e2e \
@@ -167,7 +190,7 @@ jobs:
             -v
 
       - name: Enforce the coverage floor
-        # 92, against an actual 95.8% on api/. The gap is on purpose: if the
+        # 92, against an actual 94.1% on api/. The gap is on purpose: if the
         # Git LFS fetch fails, the artifact-dependent tests skip and coverage
         # drops a point or two. A gate set at the achieved number turns an
         # infrastructure hiccup into a coverage failure, which sends the next

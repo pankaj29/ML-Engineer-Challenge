@@ -14,8 +14,8 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,193: 1007 unit, 143 integration, 28 end-to-end, 15 performance |
-| Coverage | 95.8% on `api/`; cache, database and rate limiting at 100% |
+| Tests | 1,277: 1080 unit, 154 integration, 28 end-to-end, 15 performance |
+| Coverage | 95.6% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
 | Classifier | 78.91% top-1 on Tiny-ImageNet, 9 of 9 validation checks pass |
@@ -424,7 +424,11 @@ Reproduce with `python -m models.optimization.benchmark`.
 - Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration, latency
 - Experiment tracking through MLflow, optional and off by default
-- Kubernetes manifests with horizontal pod autoscaling for the API and worker
+- Kubernetes manifests with horizontal pod autoscaling, verified on a kind
+  cluster
+- A retraining loop that decides from drift, then gates promotion on
+  validation and a regression check
+- Release workflow publishing signed, scanned images on a version tag
 - A/B testing with a paired McNemar test and confidence intervals
 - Drift detection with KS test, chi-square and PSI, requiring both statistical
   significance and a meaningful effect size
@@ -445,7 +449,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,193 tests: 1007 unit, 143 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,277 tests: 1080 unit, 154 integration, 28 end-to-end, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed

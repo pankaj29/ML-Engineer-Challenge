@@ -11,5 +11,10 @@ resources:
   - worker.yaml
   - ingress.yaml
 
-commonLabels:
-  app.kubernetes.io/part-of: mlcv
+labels:
+  # includeSelectors: false on purpose. Adding a label to a Deployment's
+  # selector makes it immutable-field-conflict on the next apply, because
+  # selectors cannot be changed in place.
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: mlcv

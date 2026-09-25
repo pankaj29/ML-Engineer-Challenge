@@ -1,0 +1,218 @@
+# Publish images on a version tag.
+#
+# Separate from ci.yml on purpose. CI answers "is this commit good?" and runs
+# on every push; this answers "ship this exact commit", runs only on a tag,
+# and is the only workflow with credentials to write to the registry. Keeping
+# them apart means a pull request from a fork cannot reach a push token.
+#
+# Tag to release:
+#
+#     git tag v1.2.0 && git push origin v1.2.0
+#
+# There is no deploy step. Pushing an image and rolling a cluster are
+# different privileges, and a repository that can do both is one compromised
+# action away from arbitrary code in production. The images land in the
+# registry with an immutable digest; whatever promotes them (Argo CD, Flux, a
+# human running kubectl) does that separately.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+  packages: write
+  # Needed to attach a provenance attestation to the published image.
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Refuse to ship a tag that does not pass its own tests
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verify the tagged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U testuser -d testdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+                      -r requirements-dev.txt
+
+      # A tag can be pushed to any commit, including one CI never saw green.
+      # Re-running here is a few minutes against the cost of publishing an
+      # image nobody tested.
+      - name: Tests
+        run: pytest tests/ --ignore=tests/e2e -m "not performance" -q
+
+      - name: Lint
+        run: |
+          ruff check api/ models/ worker/ db/ scripts/ tests/
+          black --check api/ models/ worker/ db/ scripts/ tests/
+
+  # ---------------------------------------------------------------------------
+  # 2. Build and push
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: [verify]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            context: .
+            dockerfile: Dockerfile
+          - image: worker
+            context: .
+            dockerfile: docker/Dockerfile.worker
+          - image: gateway
+            context: docker/nginx
+            dockerfile: docker/nginx/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}
+          # v1.2.0 publishes 1.2.0, 1.2 and 1. Someone tracking `1` gets patch
+          # releases; someone pinning 1.2.0 gets exactly what they tested.
+          # No `latest`: it is the tag that makes a rollback ambiguous.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          labels: |
+            org.opencontainers.image.title=mlcv-${{ matrix.image }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          provenance: true
+          sbom: true
+
+      # Records that this digest was built by this workflow from this commit.
+      # It is what lets someone later answer "where did this image come from?"
+      # with evidence rather than a tag that could have been moved.
+      - name: Attest the build
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Scan the published image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.image }}@${{ steps.push.outputs.digest }}
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+          severity: HIGH,CRITICAL
+          # Report, do not fail. The image is already published by this point,
+          # so failing here would leave a red run and a live image, which is
+          # the worst of both. The SARIF goes to the security tab.
+          exit-code: "0"
+
+      - name: Upload the scan
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.image }}.sarif
+          category: image-${{ matrix.image }}
+
+  # ---------------------------------------------------------------------------
+  # 3. Say what was published
+  # ---------------------------------------------------------------------------
+  summary:
+    name: Release summary
+    runs-on: ubuntu-latest
+    needs: [publish]
+    if: always()
+
+    steps:
+      - name: Write the summary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "## Release ${GITHUB_REF_NAME}"
+            echo
+            if [ "${{ needs.publish.result }}" != "success" ]; then
+              echo "Publishing failed. Nothing was released."
+              exit 0
+            fi
+            echo "Published to \`${{ env.REGISTRY }}/${{ github.repository }}\`:"
+            echo
+            for image in api worker gateway; do
+              echo "- \`${{ env.REGISTRY }}/${{ github.repository }}/\$image:\${VERSION}\`"
+            done
+            echo
+            echo "### Deploy"
+            echo
+            echo '```bash'
+            echo "kubectl -n mlcv set image deployment/ml-api \\"
+            echo "  api=${{ env.REGISTRY }}/${{ github.repository }}/api:\${VERSION}"
+            echo "kubectl -n mlcv set image deployment/worker \\"
+            echo "  worker=${{ env.REGISTRY }}/${{ github.repository }}/worker:\${VERSION}"
+            echo "kubectl -n mlcv rollout status deployment/ml-api"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

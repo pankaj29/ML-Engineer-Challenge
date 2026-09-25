@@ -138,6 +138,51 @@ hiccups.
 `/health/ready`, which does check dependencies. A pod that cannot reach its
 database should leave the load-balancer pool without being restarted.
 
+## Verified on a cluster
+
+These are not manifests that only render. On 25 September 2026 the base plus
+the `kind` overlay was applied to a kind cluster (Kubernetes v1.33.1) and the
+whole stack reached Ready.
+
+```
+pod/ml-api-57b8c54b9b-ljxfx   1/1   Running
+pod/ml-api-57b8c54b9b-rjh4z   1/1   Running
+pod/postgres-0                1/1   Running
+pod/redis-6cdbfb94bf-4lzs9    1/1   Running
+pod/worker-658b4c84b4-qt79m   1/1   Running
+
+horizontalpodautoscaler/ml-api   cpu: 0%/70%, memory: 3%/80%   1  10  2
+horizontalpodautoscaler/worker   cpu: 11%/75%                  1   6  1
+```
+
+What that run actually confirmed, beyond "it applied":
+
+- **The HPA scales.** With metrics-server installed the targets resolve, and
+  dropping the memory target to 1% as a live patch took ml-api from 1 pod to 2
+  within a minute. Restored afterwards; the manifest was not touched.
+- **The rollout strategy works.** `kubectl set image` replaced the API pod
+  with `maxUnavailable: 0`, and the old pod only terminated after the new one
+  was Ready.
+- **In-cluster service discovery works.** `/api/v1/health` reported cache and
+  database healthy, so the Services, the Secret wiring and the NetworkPolicy
+  all resolve.
+- **pgvector provisions itself.** The API created `similarity_vectors` with a
+  `vector(2048)` column against the in-cluster Postgres at startup, on
+  extension version 0.8.6.
+- **Token issuance works.** `POST /api/v1/auth/token` returned a signed
+  pro-tier JWT.
+
+And what it found, which is why doing this mattered: the base `model-artifacts`
+PVC is `ReadOnlyMany`, and on kind's local-path provisioner it never binds.
+Both the API and the worker sat Pending behind it. That is the caveat already
+written in the Storage section above, confirmed rather than theorised, and it
+is the single reason the `kind` overlay exists.
+
+Two things this did not verify. Inference was not exercised, because no model
+artifacts were on the volume and the overlay sets `EAGER_MODEL_LOAD=false`. And
+a single-node cluster cannot test the multi-node behaviour the base targets,
+which is exactly where `ReadWriteOnce` would stop being adequate.
+
 ## Verifying changes
 
 `tests/unit/test_k8s_manifests.py` renders these and checks the

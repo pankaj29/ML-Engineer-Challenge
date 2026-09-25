@@ -669,7 +669,95 @@ by Redis rather than by the model, which is a much cheaper thing to scale.
 
 ---
 
-## 7. Failure modes and resilience
+## 7. The retraining loop
+
+Drift detection, training, validation, A/B testing and regression checks each
+existed on their own, and somebody had to notice a problem and run the rest by
+hand. `models/pipeline/retraining.py` joins them.
+
+```
+drift ──▶ decide ──▶ retrain ──▶ validate ──▶ regression ──▶ promote
+             │                       │             │
+             └── skip                └── stop      └── stop
+                 (the serving model stays live in every case)
+```
+
+### Deciding not to retrain
+
+The decision is the part worth getting right. Retraining on every drift signal
+makes a model worse: drift is noisy, a chi-square test on a quiet week will
+trip, and a retrain on unrepresentative data replaces something that works.
+
+Three filters, each for a failure seen in practice:
+
+| Filter | Stops | Why |
+| --- | --- | --- |
+| Effect-size floor (0.1) | Statistically significant but trivial shifts | With enough samples everything is significant. Without this the detector becomes an alarm nobody reads. |
+| Confirmation for `moderate` | A single moderate reading | One moderate signal is usually noise. The same signal twice is not. `high` acts immediately. |
+| 24-hour cooldown | Repeat retrains on the same drift | Drift persists for days. Without a cooldown the pipeline retrains every run for as long as it lasts. |
+
+Only actual training starts a cooldown. A skipped run or a dry run does not,
+because otherwise one quiet check suppresses the next day of real signals.
+
+Every decision is recorded, including the refusals. A "no" has to be auditable
+or nobody can tell a working policy from a broken detector.
+
+### Gates
+
+Nothing promotes itself. After training:
+
+**Validation** asks whether the model is internally sound: determinism, batch
+invariance, output sanity, calibration, latency. A failure here stops the
+promotion.
+
+**Regression** asks a different question, whether it is worse than the model
+already serving. Validation cannot answer that, and it is the check that stops
+a retrain from quietly costing accuracy. No baseline yet is not a failure; the
+first model has nothing to regress against.
+
+If either gate refuses, the current model keeps serving and the run is
+recorded as failed.
+
+### Running it
+
+Dry run by default. `--execute` is required to train or promote, because a
+scheduled job that retrains by accident is worse than one that never runs.
+
+```bash
+# What would it do?
+python -m models.pipeline.retraining --model resnet50-tiny-imagenet \
+    --drift-report benchmarks/reports/drift_report.json
+
+# Actually do it
+python -m models.pipeline.retraining --model resnet50-tiny-imagenet \
+    --drift-report benchmarks/reports/drift_report.json --execute
+```
+
+`.github/workflows/drift-watch.yml` runs the decision weekly and opens an
+issue when retraining is warranted. It does not retrain: a GitHub runner has
+no GPU and no dataset, and a job that retrains unattended on data it cannot
+inspect is the failure this whole section is designed to avoid. The decision
+is automated, committing to it is not.
+
+### Releasing
+
+`.github/workflows/release.yml` publishes images on a `v*.*.*` tag. It is
+separate from CI because CI answers "is this commit good?" on every push,
+while this answers "ship this exact commit" and is the only workflow holding a
+registry token.
+
+It re-runs the tests first, because a tag can be pushed at any commit
+including one CI never saw green. It publishes `1.2.0`, `1.2` and `1`, and
+deliberately no `latest`, which is the tag that makes a rollback ambiguous.
+Each image gets a provenance attestation and a Trivy scan.
+
+There is no deploy step. Pushing an image and rolling a cluster are different
+privileges, and a repository holding both is one compromised action away from
+arbitrary code in production. Promotion is left to Argo CD, Flux or a person.
+
+---
+
+## 8. Failure modes and resilience
 
 | Failure | Behaviour | User impact |
 | --- | --- | --- |
