@@ -1117,32 +1117,29 @@ for k, v in sorted(report.metrics.items()):
 Sections 8 and 9 time the engine directly. This is a different question: can
 the API actually serve from it?
 
-The gap matters. `TensorRTBackend` exists, the registry accepts a `tensorrt`
-artifact, and `PREFERRED_RUNTIME=tensorrt` puts it first in the runtime chain
-— and none of that had ever been exercised, because the machines those tests
-run on have no GPU.
+The gap matters. `TensorRTBackend`, the registry's `tensorrt` artifact type
+and `PREFERRED_RUNTIME=tensorrt` had all existed for a long time without ever
+being exercised end to end, because the machines the test suite runs on have
+no GPU.
 
-The engine is registered as its own version carrying **only** a `tensorrt`
-artifact. That is deliberate. With ONNX also present the chain would be
-`['tensorrt', 'onnx']`, and a TensorRT that failed to load would quietly serve
-from ONNX: a correct answer, a 200, and no indication the accelerator was
-never used. With TensorRT alone the chain is `['tensorrt']` and a failure is
-an error, which is the only way this run can prove anything.
+Two details make this a real check rather than a green tick.
 
-So: register the engine, send a real image, and read back which runtime
-served it.
+**The engine is registered as its own version carrying only a `tensorrt`
+artifact.** With ONNX alongside, the runtime chain would be `['tensorrt',
+'onnx']`, and a TensorRT that failed to load would quietly serve from ONNX:
+a correct answer, a 200, and no sign the accelerator went unused. With
+TensorRT alone the chain is `['tensorrt']`, so a failure is an error.
+
+**It runs in a separate process.** `api.config` builds its settings singleton
+the first time it is imported, and by this point the export and validation
+cells have already imported `api.*`. Setting `PREFERRED_RUNTIME` here would do
+nothing at all — the first attempt at this reported `preferred_runtime: onnx`
+while the environment said `tensorrt`. `scripts/verify_tensorrt_serving.py`
+sets the environment above its own imports and is invoked with `!python`, so
+the settings are built correctly or the script refuses to continue.
 """),
     code("""
-import os
 from pathlib import Path
-
-# Set before importing the app: api.config builds its settings at import time.
-os.environ["PREFERRED_RUNTIME"] = "tensorrt"
-os.environ["DEVICE"] = "cuda"
-os.environ["EAGER_MODEL_LOAD"] = "false"
-os.environ["AUTH_ENABLED"] = "false"
-os.environ["CACHE_ENABLED"] = "false"
-os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 engine = Path("models/artifacts/resnet50-tiny-imagenet_int8_trt.int8.engine")
 if not engine.exists():
@@ -1155,10 +1152,10 @@ if engine is None:
 else:
     print(f"engine: {engine.name}  ({engine.stat().st_size / 1e6:.1f} MB)")
 
-    # Register it as a new version rather than overwriting 1.0.0. The engine
-    # is not portable, so a registry entry pointing at it is only valid on
-    # this machine; keeping it on its own version means the committed
-    # registry still makes sense everywhere else.
+    # A separate version, not an overwrite of 1.0.0. The engine only loads on
+    # this GPU and this TensorRT build, so a registry entry pointing at it is
+    # valid nowhere else; keeping it on its own version leaves the committed
+    # registry correct everywhere.
     !python -m models.registry register \
         --name resnet50-tiny-imagenet --version 1.1.0-trt --task classification \
         --tensorrt {engine.name} \
@@ -1166,111 +1163,27 @@ else:
         --num-classes 200 --preprocess imagenet_224 --overwrite
 """),
     code("""
-import json
-import time
-
-from fastapi.testclient import TestClient
-
-from api.main import create_app
-
-# Through the real application: middleware, validation, preprocessing, the
-# model service and its fallback chain. Nothing is stubbed. TestClient rather
-# than uvicorn only because a notebook cannot hold a server open.
-with TestClient(create_app()) as client:
-    image = sorted(Path("samples").glob("*.jpg"))[0]
-    with open(image, "rb") as fh:
-        response = client.post(
-            "/api/v1/classify/upload",
-            files={"file": (image.name, fh, "image/jpeg")},
-            data={"model_name": "resnet50-tiny-imagenet", "model_version": "1.1.0-trt"},
-        )
-
-    print("status:", response.status_code)
-    body = response.json()
-    if response.status_code != 200:
-        print(json.dumps(body, indent=2)[:1200])
-    else:
-        runtime = body["model"]["runtime"]
-        print(f"model   : {body['model']['name']} {body['model']['version']}")
-        print(f"runtime : {runtime}")
-        print(f"top     : {body['predictions'][0]['label']} "
-              f"{body['predictions'][0]['confidence']:.3f}")
-        print(f"timing  : inference {body['timing']['inference_ms']} ms, "
-              f"total {body['timing']['total_ms']} ms")
-        print()
-        if runtime == "tensorrt":
-            print("SERVED BY TENSORRT")
-        else:
-            print(f"NOT TENSORRT: served by {runtime!r}, so this proves nothing.")
-            print("Check that the registered version carries only a tensorrt")
-            print("artifact; anything else gives the chain something to fall back to.")
+# A subprocess, for the reason in the note above. It exits non-zero if the
+# request was served by anything other than TensorRT, so a pass here cannot
+# be a false positive.
+!python scripts/verify_tensorrt_serving.py \
+    --model resnet50-tiny-imagenet \
+    --version 1.1.0-trt \
+    --iterations 100
 """),
     md("""
-### Latency through the API, not just the engine
+### Reading the result
 
-The engine benchmark in section 8 times `execute_v2` and nothing else. This
-includes decode, preprocessing, the middleware stack and serialisation, which
-is what a caller actually waits for. Expect it to be several times the raw
-engine number: at sub-millisecond inference, everything around it dominates.
+`end-to-end p50` is what a caller waits for: decode, preprocessing, the
+middleware stack, inference and serialisation. `model inference` is the part
+the engine is responsible for.
 
-That is a useful result in itself. It says where the remaining latency is, and
-it is no longer in the model.
-"""),
-    code("""
-import statistics
-import time
+Expect the gap between them to be large. At sub-millisecond inference almost
+all the latency is everything else, which is a useful finding in itself: it
+says the next optimisation belongs in preprocessing, not in the model.
 
-from fastapi.testclient import TestClient
-
-from api.main import create_app
-
-with TestClient(create_app()) as client:
-    image = sorted(Path("samples").glob("*.jpg"))[0]
-    payload = image.read_bytes()
-
-    def one_call():
-        started = time.perf_counter()
-        r = client.post(
-            "/api/v1/classify/upload",
-            files={"file": (image.name, payload, "image/jpeg")},
-            data={"model_name": "resnet50-tiny-imagenet", "model_version": "1.1.0-trt"},
-        )
-        elapsed = (time.perf_counter() - started) * 1000
-        return elapsed, r
-
-    for _ in range(10):  # warm up: first call loads the engine
-        one_call()
-
-    samples, runtimes, inference_ms = [], set(), []
-    for _ in range(100):
-        elapsed, r = one_call()
-        if r.status_code == 200:
-            samples.append(elapsed)
-            runtimes.add(r.json()["model"]["runtime"])
-            inference_ms.append(r.json()["timing"]["inference_ms"])
-
-    if not samples:
-        print("no successful calls")
-    else:
-        samples.sort()
-        print(f"runtime served    : {', '.join(sorted(runtimes))}")
-        print(f"calls             : {len(samples)}")
-        print(f"end-to-end p50    : {statistics.median(samples):.2f} ms")
-        print(f"end-to-end p95    : {samples[int(len(samples) * 0.95)]:.2f} ms")
-        print(f"model inference   : {statistics.median(inference_ms):.3f} ms (p50, as reported)")
-        print(f"overhead          : {statistics.median(samples) - statistics.median(inference_ms):.2f} ms")
-
-        record = {
-            "runtime": sorted(runtimes),
-            "calls": len(samples),
-            "end_to_end_p50_ms": round(statistics.median(samples), 2),
-            "end_to_end_p95_ms": round(samples[int(len(samples) * 0.95)], 2),
-            "model_inference_p50_ms": round(statistics.median(inference_ms), 3),
-        }
-        out = Path("benchmarks/reports/tensorrt_serving.json")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(record, indent=2), encoding="utf-8")
-        print(f"\\nwrote {out}")
+The numbers land in `benchmarks/reports/tensorrt_serving.json` and travel home
+with the bundle in the next section.
 """),
     md(
         "## 12. Download the results\n\nBrings the trained weights, exports and reports back to your machine."
