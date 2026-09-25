@@ -634,13 +634,29 @@ def build_engine(
 
 
 #: How far the engine may drift from the ONNX graph before the build is
-#: suspect. fp16 carries about three decimal digits, so 1e-2 is expected
-#: rounding. INT8 carries roughly two, and TensorRT and ONNX Runtime round
-#: and fuse the same QDQ graph differently, so a tight bound here would fail
-#: every honest build. The check is still worth running at 0.5: it catches a
-#: mis-parsed graph or a wrong optimisation profile, which produce garbage,
-#: not drift.
-_VERIFY_TOLERANCE = {"fp32": 1e-3, "fp16": 1e-2, "int8": 0.5}
+#: suspect, as a FRACTION of the reference output's peak magnitude.
+#:
+#: Relative, not absolute. These are logits, and their scale is a property of
+#: the model - this classifier's span about +-6.7 - so an absolute bound means
+#: something different on every model and silently tightens as the outputs
+#: grow. An earlier absolute version failed the fp32 and fp16 engines of a
+#: perfectly good build while passing INT8, which is exactly backwards.
+#:
+#: The values, and why each is where it is:
+#:
+#: * ``fp32`` 0.1% - not bit-exact, because TensorRT defaults to TF32 for fp32
+#:   matmuls on Ampere and later. TF32 keeps 10 mantissa bits against fp32's
+#:   23, so ~1e-3 relative error is the expected cost of the faster kernel.
+#:   Measured on an A100: 0.042%.
+#: * ``fp16`` 1% - half precision carries about three decimal digits.
+#:   Measured: 0.209%.
+#: * ``int8`` 10% - TensorRT and ONNX Runtime round and fuse the same QDQ
+#:   graph differently, so a tight bound fails every honest build. Measured:
+#:   3.305%.
+#:
+#: Loose as these are, they still catch what this check is for: a mis-parsed
+#: graph or a wrong optimisation profile produces garbage, not drift.
+_VERIFY_TOLERANCE = {"fp32": 1e-3, "fp16": 1e-2, "int8": 1e-1}
 
 
 def _verify_engine(
@@ -663,8 +679,15 @@ def _verify_engine(
     actual = backend.infer(sample)[0]
     backend.close()
 
-    max_diff = float(np.abs(reference.astype(np.float64) - actual.astype(np.float64)).max())
-    return max_diff, max_diff < _VERIFY_TOLERANCE.get(precision, 1e-2)
+    reference = reference.astype(np.float64)
+    max_diff = float(np.abs(reference - actual.astype(np.float64)).max())
+
+    # Scale by the reference's own magnitude so the bound means the same thing
+    # on any model. The guard against a degenerate all-zero reference keeps a
+    # broken engine from dividing its way to a pass.
+    peak = float(np.abs(reference).max())
+    relative = max_diff / peak if peak > 0 else float("inf")
+    return max_diff, relative < _VERIFY_TOLERANCE.get(precision, 1e-2)
 
 
 def benchmark_engine(
