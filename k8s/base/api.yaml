@@ -1,0 +1,207 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-api
+  namespace: mlcv
+  labels:
+    app.kubernetes.io/name: ml-api
+    app.kubernetes.io/component: api
+spec:
+  # No fixed count. The HPA owns this once it is running, and pinning it here
+  # would fight the autoscaler on every apply.
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ml-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Never drop below the current capacity during a rollout. Models take
+      # ~20s to load, so a pod that is Running is not yet a pod that serves.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ml-api
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /api/v1/metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas across nodes. Two pods on one node give the illusion
+      # of redundancy until that node reboots.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ml-api
+      containers:
+        - name: api
+          image: mlcv/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: mlcv-config
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            # requests, not just limits. The HPA computes utilisation as a
+            # percentage of the request, so without one it has nothing to
+            # scale on and reports <unknown>.
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Three probes, because they answer three different questions.
+          #
+          # startup: "has it finished loading models?" Until this passes the
+          # other two are suspended, so a 60s model load is not mistaken for a
+          # hang. failureThreshold x periodSeconds is the budget: 30 x 5s.
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          # liveness: "is the process wedged?" Restart is the only cure, so
+          # this points at the cheapest endpoint and is deliberately tolerant.
+          # A liveness probe that checks dependencies restarts healthy pods
+          # when Redis hiccups.
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # readiness: "should traffic come here?" This one does check
+          # dependencies: a pod that cannot reach its database should leave
+          # the load-balancer pool without being restarted.
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: models
+              mountPath: /app/models/artifacts
+              readOnly: true
+            # readOnlyRootFilesystem means anything that writes needs a mount.
+            - name: tmp
+              mountPath: /tmp
+          lifecycle:
+            preStop:
+              exec:
+                # Let in-flight requests finish. Kubernetes removes the pod
+                # from endpoints and sends SIGTERM at the same moment, so
+                # without this pause a request already in flight is cut off.
+                command: ["sleep", "5"]
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: model-artifacts
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-api
+  namespace: mlcv
+  labels:
+    app.kubernetes.io/name: ml-api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ml-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ml-api
+  namespace: mlcv
+spec:
+  # Keep at least one serving pod during voluntary disruption (node drain,
+  # cluster upgrade). Without this a drain can evict every replica at once.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ml-api
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ml-api
+  namespace: mlcv
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ml-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    # CPU, because inference is CPU-bound here. 70% leaves headroom for the
+    # ~20s a new pod needs before it serves; scaling at 90% means the new pod
+    # arrives after the overload.
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    # A request-rate or latency target would be better, since CPU is a proxy
+    # for what actually matters. That needs prometheus-adapter to expose
+    # http_request_duration_seconds as a custom metric; the metric is already
+    # published at /api/v1/metrics. See k8s/README.md.
+  behavior:
+    scaleUp:
+      # React quickly, but not to a single spike.
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      # Slowly. Model loading makes a pod expensive to replace, so flapping
+      # costs more here than carrying an idle replica for five minutes.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

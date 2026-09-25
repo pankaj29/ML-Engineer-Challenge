@@ -611,21 +611,29 @@ batch throughput are different problems with different cost curves.
 
 ### What does not scale yet
 
-The similarity index is per-process. It lives in one process's memory,
-persisted to `.npz`. With N replicas there are N independent indexes, so an
-image indexed on replica A is not findable on replica B.
+The similarity index has two backends, chosen by `SIMILARITY_BACKEND`.
 
-Fixing it, in increasing order of effort:
+The default, `memory`, keeps vectors in one process and persists them to
+`.npz`. It needs no database and a search is a NumPy dot product, so it is the
+faster option for a single instance. It does not survive scaling: with N
+replicas there are N independent indexes, and an image indexed on replica A is
+not findable on replica B. Nothing errors, searches simply miss.
 
-1. **pgvector**, a Postgres extension, so no new service. Good to ~1M vectors.
-2. **FAISS on a shared volume** with a single writer.
-3. **A dedicated vector database** (Qdrant, Weaviate) for tens of millions.
+`pgvector` puts the vectors in Postgres, which this stack already runs, so
+every replica reads and writes one index. It costs a network round trip per
+search, hundreds of microseconds against tens for the in-memory path, which is
+irrelevant next to 15 ms of inference. The Kubernetes config sets it, because
+an autoscaled API with a per-process index is silently broken.
 
-The interface in `api/services/similarity_index.py` is narrow, so
-this is a contained change.
+Postgres rather than FAISS or a dedicated vector database: no new service, no
+new failure mode, nothing extra to back up. For tens of millions of vectors
+that stops being true and Qdrant or Weaviate earns its keep.
 
-Note also that search is **exact brute force**: linear in index size, fast and
-exact to ~1M vectors, then needs an approximate index.
+Search is **exact brute force** in both backends: linear in index size, fast
+and exact to roughly a million vectors. pgvector offers HNSW and IVFFlat
+indexes past that, at the cost of approximate recall. No index is created
+here, because adding one before it is needed trades recall for speed nobody
+has asked for.
 
 ### Capacity planning
 
@@ -639,8 +647,12 @@ req/s end-to-end through the full stack with a realistic cache hit rate.
 | 100-500 req/s | 8-10 API replicas, 4 workers, Redis with more memory |
 | > 500 req/s | GPU inference; revisit the CPU-first assumptions entirely |
 
-The single largest lever is **GPU inference**, which is roughly an
-order of magnitude and would make the TensorRT path worth completing.
+The single largest lever is GPU inference, and it is measured rather than
+estimated. The TensorRT engines in section 3 run the fine-tuned classifier at
+822 to 1068 img/s on an A100, against roughly 13/s on this CPU. That is close
+to two orders of magnitude, and it is the reason the TensorRT path exists.
+Deploying it means building the engine on the serving host, since an engine is
+tied to one GPU architecture and TensorRT version.
 
 The second largest is **the cache**. At a high hit rate, throughput is bounded
 by Redis rather than by the model, which is a much cheaper thing to scale.

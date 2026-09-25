@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mlcv
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - data.yaml
+  - api.yaml
+  - worker.yaml
+  - ingress.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: mlcv

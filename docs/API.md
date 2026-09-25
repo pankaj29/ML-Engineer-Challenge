@@ -138,7 +138,7 @@ curl.exe -X POST http://localhost/api/v1/classify/upload `
 ## 1. Authentication
 
 Every endpoint requires credentials except `/health*`, `/metrics`, `/docs`,
-`/redoc`, `/openapi.json` and `/`.
+`/redoc`, `/openapi.json`, `/auth/token` and `/`.
 
 Two methods are accepted.
 
@@ -160,6 +160,43 @@ curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." http://localhost/api/v1/
 
 Short-lived, self-describing, and carries scopes. Tokens are verified with a
 pinned algorithm, a token declaring `"alg": "none"` is rejected.
+
+### Getting a token
+
+`POST /api/v1/auth/token` trades an API key for one. The key is the long-lived
+secret and belongs on a server; the token expires, so it is the safer thing to
+hand to a browser or a mobile client.
+
+```bash
+curl -X POST http://localhost/api/v1/auth/token   -H "Content-Type: application/json"   -d '{"api_key": "dev-key-pro"}'
+```
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "tier": "pro",
+  "scopes": []
+}
+```
+
+The token carries the key's own tier, so a free-tier key issues a free-tier
+token with the free-tier rate limits. It cannot be used to escalate.
+
+Pass `scopes` to restrict it further. Scopes only ever narrow, so a scoped
+token can do less than the key, never more:
+
+```bash
+curl -X POST http://localhost/api/v1/auth/token   -H "Content-Type: application/json"   -d '{"api_key": "dev-key-pro", "scopes": ["read"]}'
+```
+
+That token is refused by `POST /models/reload`, which requires `admin`.
+
+This endpoint is public, because it is how a caller obtains credentials in the
+first place. It is not unauthenticated: the body carries an API key, which is
+verified before anything is minted. A real deployment replaces it with an
+identity provider and the contract stays the same.
 
 ### Failures
 

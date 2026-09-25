@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlcv
+  namespace: mlcv
+  annotations:
+    # Replaces what nginx does in the compose stack: TLS termination, body
+    # size caps and edge rate limiting. The in-cluster gateway container is
+    # dropped here because the Ingress controller already is one, and running
+    # two proxies in series only adds a hop.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Matches the API's own 10 MB image cap, so an oversized upload is
+    # rejected at the edge instead of after crossing the cluster.
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: ml-api
+                port:
+                  number: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-app-only
+  namespace: mlcv
+spec:
+  # The compose stack puts Postgres on a backend-only network. This is the
+  # same idea: the database accepts connections from the API and the worker,
+  # and from nothing else in the namespace.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ml-api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlcv-config
+  namespace: mlcv
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  DEBUG: "false"
+
+  # Service discovery by DNS name, the same way compose does it. These resolve
+  # to the Services in this namespace.
+  REDIS_URL: "redis://redis:6379/0"
+  CELERY_BROKER_URL: "redis://redis:6379/1"
+  CELERY_RESULT_BACKEND: "redis://redis:6379/2"
+
+  PREFERRED_RUNTIME: "onnx"
+  DEVICE: "cpu"
+
+  # Load models at startup. The startupProbe below gives them time; without
+  # eager loading the first user of every new pod pays the load cost, which
+  # under an HPA is exactly when latency is already bad.
+  EAGER_MODEL_LOAD: "true"
+  MAX_CONCURRENT_INFERENCES: "4"
+
+  # pgvector, not the in-memory index. This is the setting that makes the API
+  # safe to autoscale: with the default backend each replica keeps its own
+  # index, so an image indexed through one pod is invisible to the others.
+  SIMILARITY_BACKEND: "pgvector"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mlcv-secrets
+  namespace: mlcv
+type: Opaque
+stringData:
+  # Replace before applying. These are placeholders, and the API refuses to
+  # start in production with a JWT secret under 32 characters, so a forgotten
+  # value fails loudly at boot rather than silently weakening auth.
+  #
+  # In a real cluster this Secret comes from External Secrets, Sealed Secrets
+  # or the cloud provider's secret store, and this file is not applied at all.
+  JWT_SECRET: "replace-me-with-at-least-32-characters-of-random"
+  API_KEYS: "replace-me-free:free,replace-me-pro:pro"
+  POSTGRES_USER: "mluser"
+  POSTGRES_PASSWORD: "replace-me"
+  POSTGRES_DB: "mldb"
+  DATABASE_URL: "postgresql+asyncpg://mluser:replace-me@postgres:5432/mldb"

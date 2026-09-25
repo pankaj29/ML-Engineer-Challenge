@@ -43,6 +43,9 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/similarity", tags=["Similarity"])
 
+# Either SimilarityIndex (in memory) or PgVectorSimilarityIndex, chosen by
+# settings.similarity_backend. Both expose the same async methods, so the
+# handlers below never learn which one they have.
 Index = Annotated[SimilarityIndex, Depends(get_similarity_index)]
 
 _ERROR_RESPONSES: dict[int | str, dict] = {
@@ -121,17 +124,19 @@ async def index_image(
     # The index sizes itself from the first vector it sees, so one embedding
     # model can be swapped for another with a different dimensionality
     # without editing configuration.
-    if index.size == 0 and index.dimension != vector.shape[0]:
-        index.dimension = int(vector.shape[0])
-        index.clear()
+    if await index.count() == 0 and index.dimension != vector.shape[0]:
+        await index.reset(dimension=int(vector.shape[0]))
 
-    item_id = index.add(vector, item_id=body.image_id, label=body.label, metadata=body.metadata)
+    item_id = await index.insert(
+        vector, item_id=body.image_id, label=body.label, metadata=body.metadata
+    )
+    size = await index.count()
     logger.info(
         "image_indexed",
-        extra={"item_id": item_id, "index_size": index.size, "label": body.label},
+        extra={"item_id": item_id, "index_size": size, "label": body.label},
     )
 
-    return IndexResponse(id=item_id, index_size=index.size, correlation_id=correlation_id)
+    return IndexResponse(id=item_id, index_size=size, correlation_id=correlation_id)
 
 
 @router.post(
@@ -170,12 +175,15 @@ async def search(
     vector = embed_response.embedding
 
     search_started = time.perf_counter()
-    if index.size == 0:
+    # Read once. Against pgvector this is a query, and it cannot change while
+    # the request is in flight.
+    index_size = await index.count()
+    if index_size == 0:
         hits: list[SimilarHit] = []
     else:
         import numpy as np
 
-        raw_hits = index.search(
+        raw_hits = await index.query(
             np.asarray(vector, dtype="float32"),
             top_k=body.top_k,
             min_similarity=body.min_similarity,
@@ -203,7 +211,7 @@ async def search(
     return SimilarityResponse(
         results=hits,
         count=len(hits),
-        index_size=index.size,
+        index_size=index_size,
         embedding=vector if body.include_embedding else None,
         model=embed_response.model,
         timing=TimingInfo(
@@ -244,13 +252,14 @@ async def search_upload(
     embed_response = await inference.embed(image_bytes, image_id=file.filename)
 
     search_started = time.perf_counter()
+    index_size = await index.count()
     raw_hits = (
-        index.search(
+        await index.query(
             np.asarray(embed_response.embedding, dtype="float32"),
             top_k=top_k,
             min_similarity=min_similarity,
         )
-        if index.size
+        if index_size
         else []
     )
     search_ms = (time.perf_counter() - search_started) * 1000
@@ -267,7 +276,7 @@ async def search_upload(
             for rank, (item, score) in enumerate(raw_hits, start=1)
         ],
         count=len(raw_hits),
-        index_size=index.size,
+        index_size=index_size,
         model=embed_response.model,
         timing=TimingInfo(
             preprocess_ms=embed_response.timing.preprocess_ms,
@@ -289,7 +298,7 @@ async def search_upload(
 )
 async def index_stats(principal: CurrentPrincipal, index: Index) -> dict:
     """Return index statistics."""
-    return index.stats()
+    return await index.snapshot()
 
 
 __all__ = ["router"]

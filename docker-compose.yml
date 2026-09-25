@@ -224,7 +224,11 @@ services:
   # PostgreSQL
   # ---------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector rather than plain postgres: it is the same
+    # Postgres with the vector extension available. SIMILARITY_BACKEND
+    # =pgvector needs `CREATE EXTENSION vector`, which plain postgres
+    # cannot do. Costs nothing when the extension is unused.
+    image: pgvector/pgvector:pg16
     container_name: mlcv-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-mluser}

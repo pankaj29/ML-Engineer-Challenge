@@ -50,6 +50,7 @@ from api.middleware.rate_limit import (
     set_rate_limiter,
 )
 from api.routers import (
+    auth as auth_router,
     batch,
     classification,
     detection,
@@ -116,6 +117,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_inference_service(inference_service)
     app.state.inference_service = inference_service
 
+    # --- Similarity index -------------------------------------------------
+    # Create the pgvector table at startup rather than on the first index
+    # call, so a missing extension shows up in the startup log instead of as a
+    # failed user request. ensure_schema() returns False rather than raising:
+    # similarity is one feature, and it should degrade without stopping boot.
+    similarity_ok = True
+    if settings.similarity_backend == "pgvector":
+        from api.services.similarity_index import get_similarity_index
+
+        similarity_ok = await get_similarity_index().ensure_schema()
+
     # --- Warm the models --------------------------------------------------
     if settings.eager_model_load:
         report = await model_service.warmup()
@@ -124,7 +136,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     degraded = [
         name
-        for name, ok in (("cache", cache_ok), ("database", db_ok), ("rate_limiter", limiter_ok))
+        for name, ok in (
+            ("cache", cache_ok),
+            ("database", db_ok),
+            ("rate_limiter", limiter_ok),
+            ("similarity_index", similarity_ok),
+        )
         if not ok
     ]
     logger.info(
@@ -188,6 +205,7 @@ def create_app(*, testing: bool = False) -> FastAPI:
 
     # --- Routes -----------------------------------------------------------
     prefix = settings.api_prefix
+    app.include_router(auth_router.router, prefix=prefix)
     app.include_router(classification.router, prefix=prefix)
     app.include_router(detection.router, prefix=prefix)
     app.include_router(similarity.router, prefix=prefix)

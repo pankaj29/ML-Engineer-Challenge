@@ -71,6 +71,7 @@ from models.training.augmentation import (
     mix_criterion,
 )
 from models.training.dataset import build_dataloaders, find_dataset_root, save_labels
+from models.training.tracking import get_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +151,15 @@ class TrainConfig:
     # than every epoch. The history JSON is a few KB and is copied every time,
     # so progress is always visible even between checkpoint mirrors.
     mirror_every: int = 10
+
+    # --- Experiment tracking ------------------------------------------------
+    # "none", "mlflow", or "auto" (mlflow when importable, otherwise nothing).
+    # Off by default: a run should not start writing into someone's tracking
+    # store because a default said so.
+    tracking: str = "none"
+    experiment_name: str = "tiny-imagenet-classification"
+    run_name: str | None = None
+    tracking_uri: str | None = None
 
     def resolve_device(self) -> str:
         if self.device != "auto":
@@ -824,9 +834,27 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    tracker = get_tracker(
+        config.tracking,
+        experiment=config.experiment_name,
+        tracking_uri=config.tracking_uri,
+    )
+
     print(f"device            : {device}")
     if device == "cuda":
         print(f"gpu               : {torch.cuda.get_device_name(0)}")
+
+    # The device and GPU go in as parameters too. A run that was 40% slower
+    # than another is usually explained by the hardware, and without this the
+    # comparison is guesswork.
+    tracker.start(
+        params={
+            **config_as_json(config),
+            "device": device,
+            "gpu": torch.cuda.get_device_name(0) if device == "cuda" else "cpu",
+        },
+        run_name=config.run_name,
+    )
 
     # --- Data --------------------------------------------------------------
     aug = AugmentationConfig(image_size=config.image_size, label_smoothing=config.label_smoothing)
@@ -996,6 +1024,23 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
         )
         history.epochs.append(asdict(result))
 
+        tracker.log_metrics(
+            {
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_top1": top1,
+                "val_top5": top5,
+                "learning_rate": lr,
+                "grad_norm": grad_norm,
+                "epoch_seconds": result.epoch_seconds,
+                # Logged because it is the evidence that mixed precision is
+                # actually on: the scale halves whenever a step overflows.
+                "scaler_scale": result.scaler_scale,
+                **({} if ema_top1 is None else {"ema_top1": ema_top1, "ema_top5": ema_top5}),
+            },
+            step=epoch,
+        )
+
         marker = ""
         if top1 > best_top1:
             best_top1 = top1
@@ -1083,6 +1128,21 @@ def train(config: TrainConfig, data_dir: Path, output_dir: Path) -> TrainingHist
 
     history_path = history_path_for(output_dir, config)
     history_path.write_text(json.dumps(asdict(history), indent=2), encoding="utf-8")
+
+    tracker.set_summary(
+        {
+            "best_top1": history.best_top1,
+            "best_epoch": history.best_epoch,
+            "epochs_run": len(history.epochs),
+            "stopped_early": history.stopped_early,
+            "total_seconds": history.total_seconds,
+            "weights_shipped": "ema" if config.ema else "raw",
+        }
+    )
+    # The history JSON travels with the run, so a tracked run is reproducible
+    # from the tracking store alone rather than needing the original machine.
+    tracker.log_artifact(history_path)
+    tracker.finish()
 
     if config.mirror_dir is not None:
         failures = mirror_files([history_path, best_path, last_path], config.mirror_dir)
@@ -1190,6 +1250,36 @@ def main() -> int:
             "rate-limited."
         ),
     )
+    parser.add_argument(
+        "--track",
+        default="none",
+        choices=["none", "auto", "mlflow"],
+        dest="tracking",
+        help=(
+            "Log parameters, per-epoch metrics and the history file to MLflow. "
+            "'auto' uses it when importable and does nothing otherwise, which is "
+            "what a hosted runtime wants."
+        ),
+    )
+    parser.add_argument(
+        "--experiment",
+        default="tiny-imagenet-classification",
+        dest="experiment_name",
+        help="MLflow experiment to log into.",
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Name for this run. Defaults to whatever MLflow generates.",
+    )
+    parser.add_argument(
+        "--tracking-uri",
+        default=None,
+        help=(
+            "MLflow tracking store. Defaults to a local sqlite:///mlflow.db, "
+            "which needs no server."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
@@ -1226,6 +1316,10 @@ def main() -> int:
         accumulation_steps=args.accumulation_steps,
         resume=not args.no_resume,
         adapt_stem=not args.no_stem_adapt,
+        tracking=args.tracking,
+        experiment_name=args.experiment_name,
+        run_name=args.run_name,
+        tracking_uri=args.tracking_uri,
     )
 
     train(config, args.data_dir, args.output_dir)

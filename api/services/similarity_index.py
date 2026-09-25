@@ -248,6 +248,44 @@ class SimilarityIndex:
         logger.info("similarity_index_loaded", extra={"count": len(self._items)})
         return True
 
+    # ----------------------------------------------------------- async --
+    # The router awaits these so it does not care which backend it holds.
+    # pgvector has to go to the database for all of them; this one does not,
+    # so they return immediately without yielding to the event loop.
+
+    async def insert(
+        self,
+        vector: np.ndarray,
+        *,
+        item_id: str | None = None,
+        label: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        return self.add(vector, item_id=item_id, label=label, metadata=metadata)
+
+    async def query(
+        self, vector: np.ndarray, top_k: int = 10, min_similarity: float = -1.0
+    ) -> list[tuple[IndexedItem, float]]:
+        return self.search(vector, top_k=top_k, min_similarity=min_similarity)
+
+    async def delete(self, item_id: str) -> bool:
+        return self.remove(item_id)
+
+    async def reset(self, dimension: int | None = None) -> None:
+        if dimension is not None:
+            self.dimension = int(dimension)
+            self._vectors = np.zeros((0, self.dimension), dtype=np.float32)
+            self._items.clear()
+            return
+        self.clear()
+
+    async def count(self) -> int:
+        return self.size
+
+    async def snapshot(self) -> dict[str, Any]:
+        return self.stats()
+
+    # ------------------------------------------------------------ report --
     def stats(self) -> dict[str, Any]:
         """Index statistics, surfaced through the health endpoint."""
         with self._lock:
@@ -256,6 +294,8 @@ class SimilarityIndex:
                 "dimension": self.dimension,
                 "memory_mb": round(self._vectors.nbytes / 1_048_576, 2),
                 "persisted": self._path.exists(),
+                "backend": "memory",
+                "shared": False,
             }
 
 
@@ -263,16 +303,26 @@ class SimilarityIndex:
 _index: SimilarityIndex | None = None
 
 
-def get_similarity_index() -> SimilarityIndex:
-    """FastAPI dependency returning the shared :class:`SimilarityIndex`."""
+def get_similarity_index() -> Any:
+    """FastAPI dependency returning whichever index backend is configured.
+
+    ``similarity_backend="pgvector"`` gives one index shared by every replica.
+    The default keeps vectors in this process, which is faster and needs no
+    database, but means N replicas hold N unrelated indexes.
+    """
     global _index
     if _index is None:
-        _index = SimilarityIndex()
-        _index.load()
+        if settings.similarity_backend == "pgvector":
+            from api.services.pgvector_index import PgVectorSimilarityIndex
+
+            _index = PgVectorSimilarityIndex()
+        else:
+            _index = SimilarityIndex()
+            _index.load()
     return _index
 
 
-def set_similarity_index(index: SimilarityIndex | None) -> None:
+def set_similarity_index(index: Any | None) -> None:
     """Replace the singleton. Used by the lifespan handler and by tests."""
     global _index
     _index = index

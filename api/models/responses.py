@@ -21,7 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.models.schemas import HealthStatus, JobStatus, RuntimeFormat, TaskType
+from api.models.schemas import HealthStatus, JobStatus, RuntimeFormat, TaskType, UserTier
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +191,23 @@ class IndexResponse(BaseModel):
     id: str = Field(description="Identifier assigned to the newly indexed image.")
     index_size: int = Field(description="Index size after the insert.")
     correlation_id: str
+
+
+class TokenResponse(BaseModel):
+    """Response for ``POST /api/v1/auth/token``.
+
+    Shaped like an OAuth 2.0 token response (RFC 6749) so existing clients and
+    HTTP libraries can consume it without special handling.
+    """
+
+    access_token: str = Field(description="Signed JWT. Send as `Authorization: Bearer <token>`.")
+    token_type: str = Field(default="bearer", description="Always `bearer`.")
+    expires_in: int = Field(description="Seconds until the token expires.")
+    tier: UserTier = Field(description="Tier the token carries, copied from the API key.")
+    scopes: list[str] = Field(
+        default_factory=list,
+        description="Permissions on the token. Empty means the same access as the key.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -393,4 +410,5 @@ __all__ = [
     "SimilarHit",
     "SimilarityResponse",
     "TimingInfo",
+    "TokenResponse",
 ]

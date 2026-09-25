@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: mlcv
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+        app.kubernetes.io/component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: mlcv/worker:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: mlcv-config
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # No HTTP server here, so the probe asks Celery whether this worker
+          # answers on the broker. A process-liveness check would pass while
+          # the worker sat disconnected from Redis, consuming nothing.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - celery -A worker.celery_app inspect ping -d celery@$HOSTNAME
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+          volumeMounts:
+            - name: models
+              mountPath: /app/models/artifacts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      # Long, on purpose. A batch job can take minutes, and SIGTERM tells
+      # Celery to stop accepting work and finish what it holds. Cutting that
+      # short turns a rolling update into lost jobs.
+      terminationGracePeriodSeconds: 120
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: model-artifacts
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker
+  namespace: mlcv
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleDown:
+      # Longer than the API's, because terminationGracePeriodSeconds is 120.
+      # Scaling down faster than a worker can drain just queues the same work
+      # onto fewer pods.
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 180

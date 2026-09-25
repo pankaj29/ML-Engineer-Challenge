@@ -52,7 +52,16 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/favicon.ico",
     }
 )
-PUBLIC_SUFFIXES: tuple[str, ...] = ("/health", "/health/live", "/health/ready", "/metrics")
+# /auth/token is public because it is how a caller obtains credentials. It
+# is not unauthenticated: the body carries an API key, which the handler
+# verifies before minting anything.
+PUBLIC_SUFFIXES: tuple[str, ...] = (
+    "/health",
+    "/health/live",
+    "/health/ready",
+    "/metrics",
+    "/auth/token",
+)
 
 
 @dataclass(frozen=True)

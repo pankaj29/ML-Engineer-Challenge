@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     preferred_runtime: Literal["onnx", "torch", "tensorrt"] = "onnx"
     device: Literal["auto", "cpu", "cuda"] = "auto"
 
+    # Where similarity vectors live. "memory" keeps them in this process,
+    # which is fast and needs nothing, but gives N replicas N unrelated
+    # indexes: an image indexed on one is not findable on another. "pgvector"
+    # puts them in Postgres, which is already running, so every replica reads
+    # and writes the same index.
+    similarity_backend: Literal["memory", "pgvector"] = "memory"
+    similarity_dimension: int = 2048
+
     # Load models when the process starts (production) instead of on the first
     # request (faster local iteration, but the first user pays the cost).
     eager_model_load: bool = True

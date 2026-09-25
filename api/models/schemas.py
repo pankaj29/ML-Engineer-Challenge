@@ -324,6 +324,38 @@ class IndexImageRequest(ImagePayload, ModelSelector):
     )
 
 
+class TokenRequest(BaseModel):
+    """Body for ``POST /api/v1/auth/token`` - exchange an API key for a JWT."""
+
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
+
+    api_key: str = Field(
+        min_length=8,
+        max_length=512,
+        description="An API key the server recognises. Verified the same way the "
+        "auth middleware verifies it.",
+    )
+    scopes: list[str] | None = Field(
+        default=None,
+        max_length=16,
+        description=(
+            "Restrict the token to these permissions. Omit for a token with the "
+            "same access as the key. Scopes only ever narrow: a token cannot do "
+            "anything the key could not."
+        ),
+    )
+
+    @field_validator("scopes")
+    @classmethod
+    def _clean_scopes(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = sorted({s.strip() for s in value if s and s.strip()})
+        if not cleaned:
+            raise ValueError("scopes was supplied but contained no usable values")
+        return cleaned
+
+
 __all__ = [
     "BatchItem",
     "BatchRequest",
@@ -338,5 +370,6 @@ __all__ = [
     "RuntimeFormat",
     "SimilarityRequest",
     "TaskType",
+    "TokenRequest",
     "UserTier",
 ]

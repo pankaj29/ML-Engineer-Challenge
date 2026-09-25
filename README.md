@@ -423,6 +423,8 @@ Reproduce with `python -m models.optimization.benchmark`.
   quarter of its size
 - Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration, latency
+- Experiment tracking through MLflow, optional and off by default
+- Kubernetes manifests with horizontal pod autoscaling for the API and worker
 - A/B testing with a paired McNemar test and confidence intervals
 - Drift detection with KS test, chi-square and PSI, requiring both statistical
   significance and a meaningful effect size
@@ -638,8 +640,10 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 2. **Accuracy for the ImageNet-1k and COCO models is cited, not re-measured.**
    That needs the ImageNet and COCO validation sets. Behavioural correctness
    was verified end to end.
-3. **The similarity index is per-process**, so it does not survive horizontal
-   scaling. Options are in TECHNICAL.md.
+3. **The similarity index defaults to per-process memory.** Set
+   `SIMILARITY_BACKEND=pgvector` to share one index across replicas, which is
+   what the Kubernetes config does. The default is kept because it needs no
+   database and is faster for a single instance.
 4. **Confidence is not calibrated.** The fine-tuned classifier measures ECE
    0.1244 and the ImageNet-1k model 0.22. Use the ranking rather than the
    absolute scores unless you have measured otherwise on your own data.
