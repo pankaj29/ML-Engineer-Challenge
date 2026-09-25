@@ -45,9 +45,7 @@ def drift_report() -> dict:
         "model": MODEL,
         "overall_severity": "high",
         "drifted": True,
-        "results": [
-            {"test": "ks", "feature": "confidence", "drifted": True, "effect_size": 0.45}
-        ],
+        "results": [{"test": "ks", "feature": "confidence", "drifted": True, "effect_size": 0.45}],
     }
 
 
@@ -81,9 +79,9 @@ class TestTheRealGates:
         )
 
         assert result.stage is not Stage.ASSESSED, "the pipeline stopped before training"
-        assert result.validation is not None, (
-            "validation returned nothing, so the pipeline could not reach the real validator"
-        )
+        assert (
+            result.validation is not None
+        ), "validation returned nothing, so the pipeline could not reach the real validator"
         assert "passed" in result.validation
         assert isinstance(result.validation.get("checks"), list)
 

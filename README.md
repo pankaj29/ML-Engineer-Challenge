@@ -14,7 +14,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,340: 1138 unit, 159 integration, 28 end-to-end, 15 performance |
+| Tests | 1,350: 1148 unit, 159 integration, 28 end-to-end, 15 performance |
 | Coverage | 94.2% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
@@ -429,6 +429,10 @@ Reproduce with `python -m models.optimization.benchmark`.
 - A retraining loop that decides from drift, then gates promotion on
   validation and a regression check
 - Release workflow publishing signed, scanned images on a version tag
+- GPU serving overlay: TensorRT, engine built on the serving node, autoscaling
+  on GPU utilisation
+- Canary releases: a second deployment on a new model version taking 5% of
+  traffic, compared against stable on real predictions
 - A/B testing with a paired McNemar test and confidence intervals
 - Drift detection with KS test, chi-square and PSI, requiring both statistical
   significance and a meaningful effect size
@@ -449,7 +453,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,340 tests: 1138 unit, 159 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,350 tests: 1148 unit, 159 integration, 28 end-to-end, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed

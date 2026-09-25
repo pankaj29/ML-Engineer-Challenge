@@ -163,6 +163,76 @@ kubectl -n mlcv create job --from=cronjob/drift-watch drift-now
 kubectl -n mlcv logs job/drift-now
 ```
 
+## Serving on a GPU
+
+`k8s/overlays/gpu` runs the API through TensorRT instead of ONNX on CPU. On an
+A100 that is 0.92 ms against roughly 15 ms, which is the reason the
+optimisation work exists.
+
+```bash
+docker build -f docker/Dockerfile.gpu -t your-registry/mlcv-api-gpu:1.0.0 .
+kubectl apply -k k8s/overlays/gpu
+```
+
+Needs a GPU node, the NVIDIA device plugin or GPU Operator, and for the HPA,
+dcgm-exporter behind prometheus-adapter.
+
+Three things in it are not obvious.
+
+**The engine is built at pod start, on the node that will serve it.** A
+TensorRT engine is compiled for one GPU architecture and one TensorRT version:
+one built on an A100 will not load on an L4, and one built with 11.3 will not
+load under 11.4. So it cannot go in the image or come from a bucket. A
+`build-engine` init container runs after the artifact fetch and compiles the
+INT8 QDQ graph. Budget about 25 to 90 seconds, which is why the startup probe
+allows 600.
+
+**It scales on GPU utilisation, not CPU.** A GPU pod's CPU sits near idle
+while the accelerator saturates, so the base's CPU target would never fire and
+the deployment would silently never scale. The metric is
+`DCGM_FI_DEV_GPU_UTIL`. Without dcgm-exporter it is unavailable and the HPA
+holds at `minReplicas`, which is the safe failure.
+
+**The node selector is load-bearing.** Without it the scheduler will place a
+pod on a CPU node, `PREFERRED_RUNTIME=tensorrt` falls back to ONNX CPU, and
+the pod is healthy and correct and fifteen times slower than the dashboard
+suggests.
+
+This overlay has not been run on hardware. It renders and is covered by
+structural tests, but no GPU was available.
+
+## Canary releases
+
+`k8s/overlays/canary` runs a second deployment on a different model version
+taking 5% of traffic.
+
+```bash
+kubectl apply -k k8s/overlays/canary
+
+# Hit the canary deliberately, before any real traffic reaches it
+curl -H "X-Canary: always" http://your-host/api/v1/health
+```
+
+This is the control the rest of the system lacks. Validation and the
+regression gate both run before a model is live, against held-out data.
+Neither can tell you how it behaves on the traffic you actually get, which is
+where a model usually disappoints.
+
+Both deployments write to the same inference log with their model version
+recorded, so after a canary period the existing A/B machinery compares them on
+real traffic rather than on a benchmark:
+
+```bash
+python -m models.validation.ab_test --champion 1.0.0 --challenger 1.1.0
+```
+
+Promote by setting `ARTIFACT_SOURCE` in `mlcv-config` to the canary's value,
+rolling `ml-api`, then deleting the overlay. Roll back by deleting the
+overlay: stable was never touched.
+
+The canary has no HPA on purpose. One that scales with traffic stops being a
+fixed-size sample, and its share of the comparison drifts mid-experiment.
+
 ## Differences from Compose
 
 **No gateway container.** The Ingress controller already terminates TLS, caps

@@ -682,6 +682,29 @@ drift ──▶ decide ──▶ retrain ──▶ validate ──▶ regression
                  (the serving model stays live in every case)
 ```
 
+### Where the data comes from
+
+Every prediction writes a row to `inference_logs`: model, version, runtime,
+top label, confidence, timings, and a SHA-256 of the image. The image itself
+is never stored; the hash is enough to spot the same picture twice and keeps
+user content out of a table kept for analytics.
+
+The write is fire-and-forget and cannot fail a request. The prediction is
+already computed and the user is waiting, so `record_prediction` schedules the
+insert and returns, and both building the record and writing it swallow their
+errors.
+
+This table is what drift detection reads, what the canary comparison splits by
+version, and what the A/B test scores. It is the input to everything in this
+section.
+
+It is worth saying plainly that for a long time nothing wrote to it. The
+table, the ORM model and a `log_inference` method all existed and no route
+called it, so drift read an empty table, found nothing, and the loop concluded
+there was no work to do. Nothing errored at any layer. The guard against a
+repeat is a test asserting that every Prometheus `record_inference` call in a
+router has a `record_prediction` beside it.
+
 ### Deciding not to retrain
 
 The decision is the part worth getting right. Retraining on every drift signal

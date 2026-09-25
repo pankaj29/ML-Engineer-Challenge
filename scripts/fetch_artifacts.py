@@ -43,6 +43,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -127,13 +128,38 @@ def build_manifest(artifacts_dir: Path, names: list[str] | None = None) -> dict:
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
+def _file_url_to_path(source: str) -> Path:
+    """Turn a file:// URL into a path, on Windows and on POSIX.
+
+    The two disagree about the leading slash. `file:///tmp/x` parses to
+    `/tmp/x`, which is correct and absolute. `file:///C:/x` parses to
+    `/C:/x`, which is not a path at all and needs the slash removed.
+
+    Stripping it unconditionally is the bug that produced this function: it
+    made every POSIX path relative, so the tests passed on Windows and every
+    fetch failed on Linux with "No such file or directory: 'tmp/...'".
+    """
+    parsed = urllib.parse.urlparse(source)
+    path = urllib.parse.unquote(parsed.path)
+
+    # A Windows drive letter, as /C:/... from the parser.
+    if re.match(r"^/[A-Za-z]:", path):
+        path = path[1:]
+
+    if parsed.netloc and parsed.netloc.lower() != "localhost":
+        # A two-slash form such as file://C:/models puts the drive in the
+        # host. Technically malformed, commonly written, and harmless to
+        # accept: a drive letter is never a hostname.
+        if re.fullmatch(r"[A-Za-z]:", parsed.netloc):
+            return Path(f"{parsed.netloc}{path}")
+        # Otherwise the host really is a host, so this is a UNC path.
+        return Path(f"//{parsed.netloc}{path}")
+
+    return Path(path)
+
+
 def _fetch_file(source: str, name: str, dest: Path) -> None:
-    src = Path(urllib.parse.urlparse(source).path.lstrip("/")) / name
-    if not src.exists():
-        # On Windows the parsed path loses the drive letter, so fall back to
-        # treating the whole thing as a plain path.
-        src = Path(source.removeprefix("file://").lstrip("/")) / name
-    shutil.copyfile(src, dest)
+    shutil.copyfile(_file_url_to_path(source) / name, dest)
 
 
 def _fetch_https(source: str, name: str, dest: Path) -> None:

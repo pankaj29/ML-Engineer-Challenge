@@ -348,10 +348,22 @@ The similarity index lives in one process's memory. With several API replicas
 each has its own index, which is correct for a single instance and wrong for a
 scaled deployment. Options are in `docs/TECHNICAL.md`.
 
-Alembic is configured but no migrations are committed. Tables are created with
-`Base.metadata.create_all` outside production. Production should use versioned
-migrations; the dependency is present and the models are migration-ready, but
-there is no initial revision.
+Schema changes go through Alembic. An initial revision is committed, and a
+`migrate` init container runs `alembic upgrade head` before the API starts.
+Outside production `Base.metadata.create_all` still handles it, which keeps a
+local run from needing a migration step.
+
+This was not always true, and the gap was worse than it sounds. Production
+sets `create_tables=False`, so with no migrations the inference log simply did
+not exist. Writes to it are swallowed by design, so nothing errored: drift
+detection read an empty table, reported no drift, and the retraining loop
+agreed. It was found by deploying to a cluster and looking for the rows.
+
+`env.py` excludes `similarity_vectors` from autogenerate. That table is
+created by `pgvector_index.py` rather than the ORM, because its column width
+comes from the embedding model, so autogenerate sees a table with no model
+behind it and writes a `DROP`. Without the exclusion the first migration after
+any schema change would delete the similarity index.
 
 Confidence is not calibrated. ECE is 0.1244, inside the 0.15 threshold the
 validation pipeline enforces but not good. The API returns raw softmax scores,
@@ -540,8 +552,7 @@ treated it as illustrative. The delivered API shares none of it.
 4. Try a stronger backbone. Resolution is exhausted as a lever on this dataset;
    ConvNeXt or a ViT with ImageNet-21k weights is where the remaining accuracy
    is.
-5. Commit an initial Alembic migration.
-6. Measure accuracy properly for the pretrained models against the real
+5. Measure accuracy properly for the pretrained models against the real
    ImageNet and COCO validation sets.
-7. Add OpenTelemetry tracing. Correlation IDs give a trail through the logs;
+6. Add OpenTelemetry tracing. Correlation IDs give a trail through the logs;
    spans would give one through the timing too.

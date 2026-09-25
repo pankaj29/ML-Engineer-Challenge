@@ -17,6 +17,7 @@ import pytest
 from scripts.fetch_artifacts import (
     Artifact,
     VerificationError,
+    _file_url_to_path,
     build_manifest,
     fetch_all,
     fetch_one,
@@ -45,7 +46,7 @@ def manifest(source_dir: Path, tmp_path: Path) -> Path:
 class TestFetching:
     def test_files_arrive_and_verify(self, source_dir, manifest, tmp_path) -> None:
         dest = tmp_path / "models"
-        fetched = fetch_all(source=f"file://{source_dir.as_posix()}", dest=dest, manifest=manifest)
+        fetched = fetch_all(source=source_dir.as_uri(), dest=dest, manifest=manifest)
 
         assert len(fetched) == 2
         assert (dest / "model.onnx").read_bytes() == (source_dir / "model.onnx").read_bytes()
@@ -56,11 +57,11 @@ class TestFetching:
         """Pod restarts are common. Re-downloading 380 MB each time would add
         minutes to every restart."""
         dest = tmp_path / "models"
-        fetch_all(source=f"file://{source_dir.as_posix()}", dest=dest, manifest=manifest)
+        fetch_all(source=source_dir.as_uri(), dest=dest, manifest=manifest)
 
         # Break the source. A second run must succeed from what is on disk.
         (source_dir / "model.onnx").write_bytes(b"different")
-        fetch_all(source=f"file://{source_dir.as_posix()}", dest=dest, manifest=manifest)
+        fetch_all(source=source_dir.as_uri(), dest=dest, manifest=manifest)
         assert (
             sha256_of(dest / "model.onnx")
             == json.loads(manifest.read_text())["artifacts"]["model.onnx"]["sha256"]
@@ -72,7 +73,7 @@ class TestFetching:
         dest.mkdir()
         (dest / "model.onnx").write_bytes(b"stale content from an older release")
 
-        fetch_all(source=f"file://{source_dir.as_posix()}", dest=dest, manifest=manifest)
+        fetch_all(source=source_dir.as_uri(), dest=dest, manifest=manifest)
         assert (dest / "model.onnx").read_bytes() == (source_dir / "model.onnx").read_bytes()
 
 
@@ -86,7 +87,7 @@ class TestTheChecksumGate:
         (source_dir / "model.onnx").write_bytes(b"corrupted")
 
         with pytest.raises(VerificationError, match="does not match the manifest"):
-            fetch_one(f"file://{source_dir.as_posix()}", artifact, tmp_path, retries=3)
+            fetch_one(source_dir.as_uri(), artifact, tmp_path, retries=3)
 
     def test_a_refused_artifact_leaves_nothing_behind(self, source_dir, manifest, tmp_path) -> None:
         """A half-written file would be picked up as valid by the next start."""
@@ -95,7 +96,7 @@ class TestTheChecksumGate:
         (source_dir / "model.onnx").write_bytes(b"corrupted")
 
         with pytest.raises(VerificationError):
-            fetch_one(f"file://{source_dir.as_posix()}", artifact, tmp_path)
+            fetch_one(source_dir.as_uri(), artifact, tmp_path)
 
         assert not (tmp_path / "model.onnx").exists()
         assert list(tmp_path.glob(".*partial")) == []
@@ -114,7 +115,7 @@ class TestTheChecksumGate:
         artifact = Artifact("model.onnx", sha256_of(source_dir / "model.onnx"), len(real()))
 
         with pytest.raises(VerificationError):
-            fetch_one(f"file://{source_dir.as_posix()}", artifact, tmp_path, retries=5)
+            fetch_one(source_dir.as_uri(), artifact, tmp_path, retries=5)
         assert calls["n"] == 1, f"retried a checksum failure {calls['n']} times"
 
 
@@ -198,3 +199,49 @@ class TestManifestContents:
                 "python scripts/fetch_artifacts.py --dest models/artifacts "
                 "--write-manifest models/artifacts_manifest.json"
             )
+
+
+class TestFileUrlParsing:
+    """Parsed directly, because the round-trip tests above cannot catch this.
+
+    They build their URL from the platform they run on, so a parser that only
+    works on Windows passes the whole suite on Windows. That is exactly what
+    happened: `.lstrip("/")` handled the `/C:/...` the parser returns for a
+    Windows drive, and silently turned every absolute POSIX path into a
+    relative one. Green locally, five failures on the Linux runner with
+    "No such file or directory: 'tmp/...'".
+
+    These cases are fixed strings, so both shapes are checked everywhere.
+    """
+
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            # POSIX absolute. The leading slash is the path, not padding.
+            ("file:///tmp/pytest-0/store", "/tmp/pytest-0/store"),
+            ("file:///artifacts", "/artifacts"),
+            ("file:///var/lib/models/v2", "/var/lib/models/v2"),
+            # Windows, three-slash, which is what Path.as_uri() emits.
+            ("file:///C:/Users/x/models", "C:/Users/x/models"),
+            ("file:///D:/artifacts", "D:/artifacts"),
+            # Windows, two-slash. Malformed but commonly written by hand.
+            ("file://C:/Users/x/models", "C:/Users/x/models"),
+            # Percent-encoding, because paths have spaces in them.
+            ("file:///path%20with%20space/a", "/path with space/a"),
+            # localhost is the spec's way of saying "this machine".
+            ("file://localhost/srv/models", "/srv/models"),
+        ],
+    )
+    def test_urls_resolve_the_same_way_on_any_platform(self, url: str, expected: str) -> None:
+        assert _file_url_to_path(url).as_posix() == expected
+
+    def test_a_posix_path_never_comes_back_relative(self) -> None:
+        """The specific failure. A relative path resolves against the working
+        directory, which in a container is not where the artifacts are."""
+        result = _file_url_to_path("file:///tmp/store")
+        assert result.as_posix().startswith("/"), f"{result} is relative"
+
+    def test_a_real_host_is_treated_as_a_unc_path(self) -> None:
+        assert _file_url_to_path("file://fileserver/share/models").as_posix() == (
+            "//fileserver/share/models"
+        )

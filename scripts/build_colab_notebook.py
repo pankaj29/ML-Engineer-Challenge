@@ -48,7 +48,8 @@ def code(text: str) -> dict:
 
 
 CELLS: list[dict] = [
-    md("""
+    md(
+        """
 # Multi-Model CV API — GPU Pipeline
 
 Runs the two parts of this project that **need a GPU** and could not be done on
@@ -86,11 +87,13 @@ of a layer to choose between.
 
 Training **resumes automatically** if the session drops — just re-run the
 training cell.
-"""),
+"""
+    ),
     md(
         "## 1. Check the GPU\n\nConfirm what hardware was allocated before committing to a long run."
     ),
-    code("""
+    code(
+        """
 import subprocess, sys
 
 print(subprocess.run(["nvidia-smi"], capture_output=True, text=True).stdout or "NO GPU DETECTED")
@@ -107,8 +110,10 @@ try:
         print("Everything below still runs on CPU, just far more slowly.")
 except ImportError:
     print("torch not installed yet - the setup cell below installs it.")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 2. Get the code
 
 Clones the repository from GitHub, so the runtime's copy always matches the
@@ -136,8 +141,10 @@ working copy, say) is left untouched.
 > browser session to render into, so they hang forever with *"Upload widget is
 > only available when the cell has been executed in the current browser
 > session."* This notebook never calls either.
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 import os, subprocess, sys
 from pathlib import Path
 
@@ -431,8 +438,10 @@ MIRROR_FLAGS = (
     else "--mirror-dir " + str(DRIVE_RESULTS / "checkpoints")
     + " --mirror-every " + str(MIRROR_EVERY)
 )
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 3. Install dependencies
 
 Installed from the project's **`requirements-train.txt` and
@@ -457,22 +466,28 @@ the install broke CUDA — which is the exact failure it exists to prevent.
 
 Preview the plan without installing anything:
 `python scripts/install_for_gpu_runtime.py --dry-run`
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 # Everything comes from the requirements files; the script only filters out
 # what the runtime already provides and the serving-only packages this
 # machine does not need.
 #
 # --with-tensorrt pulls in the extras that cell 7 requires.
 !python scripts/install_for_gpu_runtime.py --with-tensorrt
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 4. Download Tiny-ImageNet
 
 ~240 MB, a minute or two on Colab's connection. Skipped if already present
 (for example when the repo lives on Drive).
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 from pathlib import Path
 
 # DATA_DIR comes from the "Get the code" cell above.
@@ -501,8 +516,10 @@ assert len(train.classes) == 200 and len(train) == 100_000 and distinct == 200, 
 )
 print()
 print("Dataset verified COMPLETE.")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 5. Recover a previous checkpoint
 
 Training writes `models/checkpoints/last.pth` every epoch, and the training
@@ -517,8 +534,10 @@ re-clone silently costs a full training run.
 It never overwrites a newer checkpoint already in place, and it is safe to
 re-run. If nothing is found it says so and training simply starts from
 scratch.
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 import shutil, time
 from pathlib import Path
 
@@ -628,8 +647,10 @@ else:
         print("NOTE: resuming also restores the no-improvement counter. If a")
         print("previous run stopped early, re-running may stop again straight")
         print("away. Set EPOCHS above and rerun with a fresh start if so.")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 6. Train on the full dataset
 
 **All 200 classes, all 100,000 images, every batch.** The script has no option
@@ -671,8 +692,10 @@ an extension of a shorter one.
 > **Resume is on by default.** If the session drops, just re-run this cell —
 > it continues from the last completed epoch with the optimiser and LR
 > schedule intact. Pass `--no-resume` to force a fresh start.
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 !python -u -m models.training.train_classifier \\
     --arch {ARCH} \\
     --epochs {EPOCHS} \\
@@ -690,9 +713,11 @@ an extension of a shorter one.
     --no-stem-adapt \\
     --data-dir {DATA_DIR} \\
     --device cuda
-"""),
+"""
+    ),
     md("### Training curves"),
-    code("""
+    code(
+        """
 import json
 from pathlib import Path
 
@@ -722,14 +747,18 @@ if epochs:
     print(f"total time: {history['total_seconds'] / 60:.1f} min on {history['device']}")
 else:
     print("no epochs recorded yet")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 7. Export the fine-tuned model
 
 Exports to ONNX with **numerical verification** against PyTorch, then applies
 INT8 quantization calibrated on real images.
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 import json
 from pathlib import Path
 
@@ -763,8 +792,10 @@ Path("models/artifacts/tiny_imagenet_labels.json").write_text(
     json.dumps(ckpt["class_names"]), encoding="utf-8"
 )
 print(f"labels    : {len(ckpt['class_names'])} classes")
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 from pathlib import Path
 
 from api.utils.image_processing import PreprocessConfig
@@ -798,8 +829,10 @@ qt = quantize_onnx_static(
 print(qt.summary())
 for note in qt.notes:
     print(f"  note: {note}")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 8. TensorRT
 
 TensorRT compiles the ONNX graph for this specific GPU: it fuses layers, picks
@@ -881,8 +914,10 @@ non-compliant graph is named here rather than by the parser ten minutes in.
 
 Engines are **not portable** — one is built for a specific GPU architecture and
 TensorRT version. Build on the machine that will serve.
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 from models.optimization.export_tensorrt import tensorrt_available
 
 available, reason = tensorrt_available()
@@ -894,8 +929,10 @@ if not available and "tensorrt package" in reason:
     importlib.reload(trt_mod)
     available, reason = trt_mod.tensorrt_available()
     print(f"after install     : {available}  ({reason})")
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -1027,14 +1064,18 @@ if trt_results:
         print(f"{r['precision']:<10} {r['engine_mb']:>10.1f} "
               f"{r['benchmark']['p50_ms']:>8.3f} "
               f"{r['benchmark']['throughput_ips']:>8.0f} {speedup:>8}")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## 9. Benchmark every format on this GPU
 
 The first GPU numbers for this project. Compare against the CPU baselines in
 `benchmarks/reports/BENCHMARKS.md`.
-"""),
-    code("""
+"""
+    ),
+    code(
+        """
 from pathlib import Path
 
 from models.optimization.benchmark import benchmark_onnx, environment_info, render_markdown
@@ -1073,11 +1114,13 @@ env = environment_info()
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(render_markdown(results, env), encoding="utf-8")
 print(f"\\nwrote {out}")
-"""),
+"""
+    ),
     md(
         "## 10. Validate the trained model\n\nThe same gate the CPU models pass: determinism, batch invariance, output sanity, calibration and latency."
     ),
-    code("""
+    code(
+        """
 from pathlib import Path
 
 from models.registry import Registry
@@ -1110,11 +1153,13 @@ for check in report.checks:
 print("\\nmetrics:")
 for k, v in sorted(report.metrics.items()):
     print(f"  {k:<28} {v}")
-"""),
+"""
+    ),
     md(
         "## 11. Download the results\n\nBrings the trained weights, exports and reports back to your machine."
     ),
-    code("""
+    code(
+        """
 import shutil, sys
 from pathlib import Path
 
@@ -1233,8 +1278,10 @@ if not delivered:
     print("    " + archive)
     print("Fetch them from Colab's Files pane (folder icon, left sidebar), or")
     print("mount Drive and re-run this cell.")
-"""),
-    md("""
+"""
+    ),
+    md(
+        """
 ## Next steps, back on your machine
 
 ```bash
@@ -1260,7 +1307,8 @@ curl -X POST http://localhost/api/v1/classify \\
 
 Then update `docs/ASSUMPTIONS.md` §2.1 and §2.2 — both gaps are now closed —
 and fold the GPU numbers into `docs/TECHNICAL.md`.
-"""),
+"""
+    ),
 ]
 
 
