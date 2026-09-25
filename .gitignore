@@ -63,3 +63,6 @@ Thumbs.db
 # Regenerate with: python scripts/package_for_colab.py
 ml-engineer-challenge-colab.zip
 gpu_results.zip
+
+# Output of scripts/smoke_test_api.py --report
+smoke_results.json

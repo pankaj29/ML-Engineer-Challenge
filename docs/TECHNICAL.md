@@ -16,7 +16,8 @@ it, see [`API.md`](API.md). For what was assumed or left undone, see
 4. [System architecture](#4-system-architecture)
 5. [Design decisions](#5-design-decisions)
 6. [Scalability](#6-scalability)
-7. [Failure modes and resilience](#7-failure-modes-and-resilience)
+7. [The retraining loop](#7-the-retraining-loop)
+8. [Failure modes and resilience](#8-failure-modes-and-resilience)
 
 ---
 
@@ -601,7 +602,7 @@ the standard way teams take down their own Prometheus.
 
 | Component | Scaling | Notes |
 | --- | --- | --- |
-| **ml-api** | `--scale ml-api=N` | Stateless. Nginx `least_conn` balances by active connections, which suits variable-cost inference far better than round-robin. |
+| **ml-api** | `--scale ml-api=N` | Stateless. Nginx round-robins: resolving the upstream per request, which is what lets a rebuilt container be found again, rules out an `upstream` block and therefore `least_conn`. The reasoning is in `docker/nginx/nginx.conf`. |
 | **worker** | `--scale worker=M` | Scales with queue depth, independently of the API. |
 | **redis** | Vertical, then Cluster | Single instance is fine well past this system's needs. |
 | **postgres** | Read replicas | Writes are append-only inference logs. |
@@ -656,6 +657,63 @@ tied to one GPU architecture and TensorRT version.
 
 The second largest is **the cache**. At a high hit rate, throughput is bounded
 by Redis rather than by the model, which is a much cheaper thing to scale.
+
+### Beyond one host
+
+Everything above scales a single machine, and the replica count is a number a
+person types. Two problems follow. Load changes faster than a person reacts,
+and one host eventually runs out. The Kubernetes manifests in
+[`k8s/`](../k8s/README.md) address both, and in doing so change four decisions
+that Compose got to duck.
+
+**The replica count becomes a control loop.** An HPA runs the API from 2 to 10
+replicas at 70% CPU, the worker from 1 to 6 at 75%. 70% rather than 90%
+because a new pod needs about 20 seconds to load its models: scaling at 90%
+means the capacity arrives after the overload has already cost you. Scale-down
+is deliberately slow for the same reason, since pods here are expensive to
+start and flapping costs more than an idle replica.
+
+CPU is a proxy for what actually matters, which is latency. Scaling on the
+request metrics the API already publishes needs prometheus-adapter, and the
+manifests show the HPA stanza for it. CPU is the version that works with only
+metrics-server installed.
+
+**The gateway container goes away.** An ingress controller already terminates
+TLS, caps body size and rate limits at the edge. Keeping the nginx container
+behind it would be two proxies in series for no benefit. The body cap is set
+to match the API's own image limit, so an oversized upload is rejected at the
+edge rather than after crossing the cluster.
+
+**Model artifacts stop living in the image.** Baking them in is 380 MB and
+welds the model version to the image version, so shipping new weights means
+redeploying the service and rolling back a code change also rolls back the
+model. Those move on different schedules here, so an init container fetches
+them and verifies every checksum before the API is allowed to start. A shared
+read-only volume would have been the other option, and it needs a filesystem
+volume type most clusters do not have by default.
+
+The checksum is the point rather than a formality. Serving the wrong weights
+produces plausible predictions and no error anywhere, so a mismatch has to
+stop the pod starting; that is the only place it is still cheap to catch.
+
+**The schema stops being created by the app.** In production the API does not
+create tables, so something else has to, and it has to be safe when ten
+replicas start at once. An init container runs `alembic upgrade head`.
+Postgres applies DDL transactionally and stamps `alembic_version` in the same
+transaction, so replicas that lose the race find the migration already
+applied.
+
+One decision the cluster does not get to defer is the similarity index. The
+per-process default is silently wrong under an HPA, for the reasons above, so
+`SIMILARITY_BACKEND=pgvector` is set in the ConfigMap rather than left to an
+operator to remember.
+
+This is not a paper design. The manifests were applied to a kind cluster and
+served a real request end to end, and that run is what found three bugs no
+amount of reading the YAML would have: a registry file missing from the image,
+a `CREATE EXTENSION IF NOT EXISTS` race between replicas, and a `hostPath`
+mount the restricted Pod Security Standard rejects at admission. The evidence
+and the full topology are in [`k8s/README.md`](../k8s/README.md).
 
 ### Scaling checklist
 

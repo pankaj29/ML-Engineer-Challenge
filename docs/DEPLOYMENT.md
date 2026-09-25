@@ -9,10 +9,11 @@ How to run this system for real, and what to do when it misbehaves.
 1. [Local development](#1-local-development)
 2. [Production deployment](#2-production-deployment)
 3. [Scaling](#3-scaling)
-4. [Monitoring](#4-monitoring)
-5. [Shipping a new model](#5-shipping-a-new-model)
-6. [Troubleshooting](#6-troubleshooting)
-7. [Backup and recovery](#7-backup-and-recovery)
+4. [Kubernetes](#4-kubernetes)
+5. [Monitoring](#5-monitoring)
+6. [Shipping a new model](#6-shipping-a-new-model)
+7. [Troubleshooting](#7-troubleshooting)
+8. [Backup and recovery](#8-backup-and-recovery)
 
 ---
 
@@ -132,7 +133,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 * [ ] TLS terminated at the gateway or a load balancer in front
 * [ ] `CORS_ORIGINS` set to your actual origins, not `*`
 * [ ] Model artifacts on a persistent, backed-up volume
-* [ ] Postgres backups scheduled (see §7)
+* [ ] Postgres backups scheduled (see §8)
 * [ ] Prometheus retention and disk sized
 * [ ] Alert routing configured in Alertmanager
 * [ ] Log shipping configured (logs are JSON on stdout)
@@ -148,6 +149,10 @@ gateway on HTTP inside the private network. The second is usually simpler.
 ---
 
 ## 3. Scaling
+
+Everything in this section scales one host. Past that, or as soon as you
+want the replica count to follow load rather than a person, go to
+[section 4](#4-kubernetes).
 
 ### Scale the API
 
@@ -183,7 +188,7 @@ Measured: ~38.7 req/s end-to-end through the full stack on a 22-core CPU host.
 | < 30 req/s | 1 | 1 | Development or light production |
 | 30-100 req/s | 3 | 2 | The production default |
 | 100-500 req/s | 8-10 | 4 | Raise Redis memory; consider read replicas |
-| > 500 req/s |, |, | Move to GPU inference; the CPU-first assumptions no longer hold |
+| > 500 req/s | - | - | Move to GPU inference; the CPU-first assumptions no longer hold |
 
 ### Vertical tuning
 
@@ -202,7 +207,118 @@ Measured: ~38.7 req/s end-to-end through the full stack on a 22-core CPU host.
 
 ---
 
-## 4. Monitoring
+## 4. Kubernetes
+
+Compose scales by someone typing `--scale`. That works until load changes
+faster than a person reacts, or until one host runs out. The manifests in
+[`k8s/`](../k8s/README.md) hand the replica count to an HPA and add the things
+Compose has no concept of: disruption budgets, pod security, network policy.
+
+### When to move
+
+Not by default. Compose is simpler, and a single host serves the measured 38.7
+req/s comfortably. Move when one of these is true:
+
+- Traffic varies enough through the day that a fixed replica count is either
+  wasteful at night or short at peak.
+- You need the API to survive a node going away.
+- You want rollouts that do not drop capacity, or canary releases.
+- One host is out of CPU.
+
+### Prerequisites
+
+| Needed | Why |
+| --- | --- |
+| A cluster, v1.29+ | The manifests were verified on v1.33.1 |
+| `metrics-server` | No HPA targets without it; `kubectl get hpa` shows `<unknown>` |
+| An ingress controller (nginx) | Replaces the gateway container; the canary overlay uses its annotations |
+| A registry the cluster can pull from | Images are not built in-cluster |
+| Somewhere to serve model artifacts | S3, HTTPS or a `file://` path, set as `ARTIFACT_SOURCE` |
+
+A GPU deployment needs more: a GPU node, the NVIDIA device plugin, and
+dcgm-exporter behind prometheus-adapter for the autoscaler.
+
+### Deploy
+
+Full walkthrough, including the secrets you must replace, is in
+[`k8s/README.md`](../k8s/README.md). The short version:
+
+```bash
+# Render first. This catches most mistakes without touching the cluster.
+kubectl kustomize k8s/base
+
+kubectl apply -k k8s/base
+kubectl -n mlcv rollout status deployment/ml-api
+```
+
+Locally, `k8s/overlays/kind` lowers the resource requests and the replica
+floor so the whole stack fits on a laptop.
+
+### Confirm it works
+
+```bash
+kubectl -n mlcv get pods
+kubectl -n mlcv get hpa                 # TARGETS must not be <unknown>
+kubectl -n mlcv logs deployment/ml-api -c fetch-artifacts | tail -5
+```
+
+Then run the same endpoint pass used against Compose, pointed at the ingress:
+
+```bash
+python scripts/smoke_test_api.py --base-url https://your-host --api-key YOUR_KEY
+```
+
+It exits non-zero on any failure, so it works as a post-deploy gate.
+
+### What changes from Compose
+
+| | Compose | Kubernetes |
+| --- | --- | --- |
+| Replica count | `--scale`, by hand | HPA, 2-10 on CPU at 70% |
+| Edge | `api-gateway` nginx container | Ingress controller; no gateway container |
+| Model artifacts | Baked in or bind-mounted | Fetched by an init container, checksum-verified |
+| Schema | Created by the app in non-production | `alembic upgrade head` in an init container |
+| Similarity index | In-process by default | `SIMILARITY_BACKEND=pgvector`, not optional |
+| Drift checks | Run on demand | Weekly CronJob, inside the namespace with the data |
+
+Two of those bite if you miss them. **The similarity index** must be pgvector:
+with a per-process index, every replica holds different vectors and searches
+quietly miss instead of erroring. **Postgres is a single StatefulSet** in
+these manifests, which is fine for a demo and not for production. Use a
+managed database or an operator such as CloudNativePG.
+
+### Rollouts and rollback
+
+`maxUnavailable: 0` means a new pod is Ready before an old one goes away, so a
+rollout does not shed capacity. Roll back the usual way:
+
+```bash
+kubectl -n mlcv rollout undo deployment/ml-api
+```
+
+Rolling back a *model* rather than the code is a different move: set
+`ARTIFACT_SOURCE` back to the previous versioned prefix and restart. That is
+why the prefix is versioned rather than overwritten in place.
+
+For a new model version, [`k8s/overlays/canary`](../k8s/overlays/canary) runs
+a second deployment on 5% of traffic, writing to the same inference log so the
+A/B machinery can compare them on real requests. Section 5 of
+[`k8s/README.md`](../k8s/README.md) covers the promote and rollback steps.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| Pods `Pending`, events mention the PVC | Storage class cannot bind the claim. The `kind` overlay shrinks it; on a real cluster check the default storage class. |
+| `fetch-artifacts` init container fails on a checksum | The artifacts and `models/artifacts_manifest.json` disagree. Regenerate the manifest; do not retry, it downloads the same bytes. |
+| `kubectl get hpa` shows `<unknown>` | `metrics-server` is missing or not ready. The HPA holds at `minReplicas` until it is. |
+| Every ReplicaSet rejected at admission | Something in the pod spec violates the restricted Pod Security Standard. `hostPath` is the usual one. |
+| `/health` reports every model unhealthy | The artifact fetch succeeded but the registry is missing or points at absent files. Check `models/registry.json` is in the image. |
+| Similarity searches miss images you indexed | `SIMILARITY_BACKEND` is not `pgvector`, so each replica has its own index. |
+
+---
+
+## 5. Monitoring
 
 ### The four numbers that matter
 
@@ -250,7 +366,7 @@ every API log line, the worker, and the row in Postgres.
 
 ---
 
-## 5. Shipping a new model
+## 6. Shipping a new model
 
 Model artifacts are mounted as a volume, **not** baked into the image, so new
 weights do not require rebuilding and redeploying the service.
@@ -336,7 +452,7 @@ predictions from retired weights cannot keep being served from Redis.
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 ### The API container is unhealthy
 
@@ -403,7 +519,7 @@ audit history have a gap for the outage window.
 
 ---
 
-## 7. Backup and recovery
+## 8. Backup and recovery
 
 ### What needs backing up
 

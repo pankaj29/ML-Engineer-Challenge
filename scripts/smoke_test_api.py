@@ -39,7 +39,7 @@ Usage::
 
 Exit code is 0 when every check passes, 1 otherwise, so it can gate a deploy.
 """
-
+#%%
 from __future__ import annotations
 
 import argparse
@@ -401,6 +401,9 @@ def main() -> int:
 
     return 0 if not failures else 1
 
+#%%
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+#%%
