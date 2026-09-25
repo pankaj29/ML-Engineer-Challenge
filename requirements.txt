@@ -45,6 +45,7 @@ redis[hiredis]~=5.2.0
 celery~=5.4.0
 sqlalchemy[asyncio]~=2.0.36
 asyncpg~=0.30.0                 # async driver used by the API
+psycopg2-binary~=2.9.10         # sync driver; Alembic migrations only
 pgvector~=0.3.6                 # vector column type for the shared similarity index
 psycopg[binary]~=3.2.3          # sync driver used by the Celery worker + Alembic
 alembic~=1.14.0

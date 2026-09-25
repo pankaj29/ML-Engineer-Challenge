@@ -102,6 +102,9 @@ WORKDIR /app
 # the cached layers of the others.
 COPY --chown=appuser:appuser api/ ./api/
 COPY --chown=appuser:appuser db/ ./db/
+# Alembic config, so `alembic upgrade head` works in the container.
+# The migrations themselves live under db/, copied above.
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
 COPY --chown=appuser:appuser models/registry.py ./models/registry.py
 # The registry JSON, not just the code that reads it. Without this the
 # service starts, reports healthy on its dependencies, and loads zero

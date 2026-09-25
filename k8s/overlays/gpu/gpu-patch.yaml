@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-api
+  namespace: mlcv
+spec:
+  template:
+    spec:
+      # Only land on GPU nodes. Without this the scheduler will happily place
+      # a pod that requests no GPU onto a CPU node, and PREFERRED_RUNTIME=
+      # tensorrt then falls back to ONNX CPU: the pod is healthy, the
+      # predictions are right, and it is 15x slower than the dashboard says.
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        # GPU node pools are usually tainted so ordinary workloads stay off
+        # them. This says the API is allowed on.
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      initContainers:
+        # Same image as everything else in this pod. Alembic does not need a
+        # GPU, but pulling a second 1.9 GB image onto a node that already has
+        # the 6 GB one is waste, and two images means two things to keep in
+        # step.
+        - name: migrate
+          image: mlcv/api-gpu:latest
+        - name: fetch-artifacts
+          image: mlcv/api-gpu:latest
+        # A TensorRT engine is compiled for one GPU architecture and one
+        # TensorRT version. An engine built on an A100 will not load on an L4,
+        # and one built with 11.3 will not load under 11.4, so it cannot be
+        # shipped in the image or fetched from a bucket. It is built here,
+        # on the GPU that will serve it, at pod start.
+        #
+        # INT8, from the QDQ graph the artifact fetch just downloaded. It
+        # matches fp16 on latency and halves the engine, and the graph is
+        # already calibrated: biases in fp32, symmetric, percentile.
+        - name: build-engine
+          image: mlcv/api-gpu:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - models.optimization.export_tensorrt
+            - --onnx
+            - /models/resnet50-tiny-imagenet_int8_trt.onnx
+            - --output
+            - /models/resnet50-tiny-imagenet.int8.engine
+            - --precision
+            - int8
+            - --max-batch-size
+            - "32"
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              # A GPU limit must equal its request. Kubernetes does not
+              # overcommit devices, and an unequal pair is rejected.
+              nvidia.com/gpu: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: api
+          image: mlcv/api-gpu:latest
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu: 1
+          # Engine building takes 25 to 90 seconds on top of model loading, so
+          # the CPU image's 150 second budget is not enough. 600 here: a pod
+          # killed mid-build restarts and builds again, forever.
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60

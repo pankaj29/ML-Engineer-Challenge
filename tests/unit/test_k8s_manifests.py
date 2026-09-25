@@ -57,6 +57,37 @@ def objects() -> list[dict[str, Any]]:
     return docs
 
 
+def _render_overlay(name: str) -> list[dict[str, Any]]:
+    """Render one overlay, or skip when kubectl is unavailable.
+
+    Overlays are patches, so unlike the base they cannot be read file by file.
+    """
+    import subprocess
+
+    path = REPO_ROOT / "k8s" / "overlays" / name
+    if not path.is_dir():
+        pytest.skip(f"no {name} overlay")
+    try:
+        done = subprocess.run(
+            ["kubectl", "kustomize", str(path)], capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("kubectl is not available")
+    if done.returncode != 0:
+        pytest.fail(f"the {name} overlay does not render:\n{done.stderr[-600:]}")
+    return [d for d in yaml.safe_load_all(done.stdout) if d]
+
+
+@pytest.fixture(scope="module")
+def gpu_objects() -> list[dict[str, Any]]:
+    return _render_overlay("gpu")
+
+
+@pytest.fixture(scope="module")
+def canary_objects() -> list[dict[str, Any]]:
+    return _render_overlay("canary")
+
+
 def _by_kind(objects, kind: str) -> list[dict[str, Any]]:
     return [o for o in objects if o.get("kind") == kind]
 
@@ -439,3 +470,210 @@ class TestTheImageHasWhatItNeeds:
         dockerfile = self._dockerfile()
         assert "models/validation/" in dockerfile
         assert "models/pipeline/" in dockerfile
+
+
+class TestGpuOverlay:
+    """Serving on a GPU. Most of the ways this goes wrong are silent: the pod
+    runs, answers correctly, and is nowhere near the speed it should be."""
+
+    def test_the_api_requests_a_gpu(self, gpu_objects) -> None:
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        container = _containers(api)[0]
+        assert container["resources"]["limits"].get("nvidia.com/gpu"), (
+            "PREFERRED_RUNTIME is tensorrt but the container requests no GPU, "
+            "so it will fall back to CPU and look healthy doing it"
+        )
+
+    def test_gpu_requests_and_limits_match(self, gpu_objects) -> None:
+        """Kubernetes does not overcommit devices and rejects an unequal pair."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        pod = api["spec"]["template"]["spec"]
+        for container in pod["containers"] + pod.get("initContainers", []):
+            resources = container.get("resources", {})
+            request = resources.get("requests", {}).get("nvidia.com/gpu")
+            limit = resources.get("limits", {}).get("nvidia.com/gpu")
+            assert (
+                request == limit
+            ), f"{container['name']} asks for {request} GPUs and limits {limit}"
+
+    def test_it_is_pinned_to_gpu_nodes(self, gpu_objects) -> None:
+        """Without this the scheduler can place it on a CPU node, where
+        tensorrt quietly becomes ONNX CPU."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        pod = api["spec"]["template"]["spec"]
+        assert pod.get("nodeSelector"), "no nodeSelector: this can land on a CPU node"
+        assert pod.get("tolerations"), "no toleration: GPU pools are usually tainted"
+
+    def test_the_engine_is_built_on_the_serving_node(self, gpu_objects) -> None:
+        """A TensorRT engine is compiled for one GPU architecture and one
+        TensorRT version, so it cannot be shipped or fetched."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        init = api["spec"]["template"]["spec"]["initContainers"]
+        builder = next((c for c in init if c["name"] == "build-engine"), None)
+        assert builder is not None, "nothing builds the engine"
+        assert builder["resources"]["limits"].get(
+            "nvidia.com/gpu"
+        ), "the engine builder has no GPU, so it cannot compile for one"
+
+    def test_the_engine_is_built_after_the_artifacts_arrive(self, gpu_objects) -> None:
+        """Init containers run in order. Building before the fetch would
+        compile from a file that is not there yet."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        names = [c["name"] for c in api["spec"]["template"]["spec"]["initContainers"]]
+        assert names.index("fetch-artifacts") < names.index("build-engine")
+
+    def test_the_startup_budget_covers_an_engine_build(self, gpu_objects) -> None:
+        """Building takes 25 to 90 seconds on top of model loading. Too short
+        a budget restarts the pod mid-build, forever."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        probe = _containers(api)[0]["startupProbe"]
+        budget = probe["periodSeconds"] * probe["failureThreshold"]
+        assert budget >= 300, f"only {budget}s for fetch, engine build and model load"
+
+    def test_it_does_not_autoscale_on_cpu(self, gpu_objects) -> None:
+        """A GPU pod's CPU sits idle while the accelerator saturates, so a CPU
+        target never fires and the deployment silently never scales."""
+        hpa = next(
+            d for d in _by_kind(gpu_objects, "HorizontalPodAutoscaler") if _name(d) == "ml-api"
+        )
+        kinds = {m.get("type") for m in hpa["spec"]["metrics"]}
+        assert "Resource" not in kinds, "still scaling on CPU, which will not move"
+
+    def test_the_runtime_is_actually_tensorrt(self, gpu_objects) -> None:
+        config = next(c for c in _by_kind(gpu_objects, "ConfigMap") if _name(c) == "mlcv-config")
+        assert config["data"]["PREFERRED_RUNTIME"] == "tensorrt"
+        assert config["data"]["DEVICE"] == "cuda"
+
+    def test_every_container_uses_the_gpu_image(self, gpu_objects) -> None:
+        """The CPU image has no TensorRT. A pod mixing the two starts and
+        fails at the first inference."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        pod = api["spec"]["template"]["spec"]
+        for container in pod["containers"] + pod["initContainers"]:
+            assert (
+                "gpu" in container["image"]
+            ), f"{container['name']} runs {container['image']}, which has no TensorRT"
+
+
+class TestCanaryOverlay:
+    """A slice of real traffic on a new model version. The point is to catch a
+    regression that only shows up on the traffic you actually get."""
+
+    def test_stable_and_canary_are_separate_deployments(self, canary_objects) -> None:
+        names = {_name(d) for d in _by_kind(canary_objects, "Deployment")}
+        assert {"ml-api", "ml-api-canary"} <= names
+
+    def test_they_serve_different_model_versions(self, canary_objects) -> None:
+        """Identical sources would make the canary a pointless second copy."""
+        stable = next(c for c in _by_kind(canary_objects, "ConfigMap") if _name(c) == "mlcv-config")
+        canary = next(
+            c for c in _by_kind(canary_objects, "ConfigMap") if _name(c) == "mlcv-canary-config"
+        )
+        assert canary["data"]["ARTIFACT_SOURCE"] != stable["data"]["ARTIFACT_SOURCE"]
+
+    def test_the_canary_config_wins_for_canary_pods(self, canary_objects) -> None:
+        """envFrom applies in order, so the override has to come second."""
+        canary = next(
+            d for d in _by_kind(canary_objects, "Deployment") if _name(d) == "ml-api-canary"
+        )
+        sources = [
+            e["configMapRef"]["name"]
+            for e in _containers(canary)[0]["envFrom"]
+            if "configMapRef" in e
+        ]
+        assert sources.index("mlcv-config") < sources.index("mlcv-canary-config")
+
+    def test_the_canary_takes_a_small_slice(self, canary_objects) -> None:
+        ingress = next(d for d in _by_kind(canary_objects, "Ingress") if _name(d) == "mlcv-canary")
+        annotations = ingress["metadata"]["annotations"]
+        assert annotations["nginx.ingress.kubernetes.io/canary"] == "true"
+        weight = int(annotations["nginx.ingress.kubernetes.io/canary-weight"])
+        assert 0 < weight <= 25, f"{weight}% is not a canary, it is a rollout"
+
+    def test_the_canary_does_not_autoscale(self, canary_objects) -> None:
+        """A canary that scales with traffic stops being a fixed-size sample,
+        and its share of the comparison drifts during the experiment."""
+        targets = {
+            h["spec"]["scaleTargetRef"]["name"]
+            for h in _by_kind(canary_objects, "HorizontalPodAutoscaler")
+        }
+        assert "ml-api-canary" not in targets
+
+    def test_the_canary_can_be_reached_deliberately(self, canary_objects) -> None:
+        """Before any real traffic goes near it, someone has to be able to
+        send it a request on purpose."""
+        ingress = next(d for d in _by_kind(canary_objects, "Ingress") if _name(d) == "mlcv-canary")
+        assert ingress["metadata"]["annotations"].get(
+            "nginx.ingress.kubernetes.io/canary-by-header"
+        )
+
+    def test_the_canary_is_held_to_the_same_security_rules(self, canary_objects) -> None:
+        canary = next(
+            d for d in _by_kind(canary_objects, "Deployment") if _name(d) == "ml-api-canary"
+        )
+        pod = canary["spec"]["template"]["spec"]
+        assert pod["securityContext"]["runAsNonRoot"] is True
+        for container in pod["containers"] + pod["initContainers"]:
+            ctx = container["securityContext"]
+            assert ctx["allowPrivilegeEscalation"] is False
+            assert ctx["capabilities"]["drop"] == ["ALL"]
+
+
+class TestMigrations:
+    """In production the app does not create tables, so something has to.
+
+    Without this the inference log never exists. Writes to it are swallowed by
+    design, so nothing errors: drift detection reads an empty table, the
+    retraining loop decides there is no drift, and the canary comparison has
+    nothing to compare. Every layer reports success.
+    """
+
+    def test_something_runs_the_migrations(self, objects) -> None:
+        api = next(d for d in _by_kind(objects, "Deployment") if _name(d) == "ml-api")
+        init = api["spec"]["template"]["spec"].get("initContainers", [])
+        migrate = next((c for c in init if c["name"] == "migrate"), None)
+        assert (
+            migrate is not None
+        ), "nothing applies the schema, and production has create_tables=False"
+        assert "alembic" in " ".join(migrate["command"])
+
+    def test_migrations_run_before_anything_else(self, objects) -> None:
+        """The API connects to the database at startup. Fetching 380 MB of
+        weights first only delays finding out the schema is missing."""
+        api = next(d for d in _by_kind(objects, "Deployment") if _name(d) == "ml-api")
+        names = [c["name"] for c in api["spec"]["template"]["spec"]["initContainers"]]
+        assert names[0] == "migrate", f"migrate is not first: {names}"
+
+    def test_an_initial_migration_is_committed(self) -> None:
+        versions = REPO_ROOT / "db" / "migrations" / "versions"
+        assert versions.is_dir(), "no migrations directory"
+        revisions = [p for p in versions.glob("*.py") if p.name != "__init__.py"]
+        assert revisions, "alembic is configured but no migration is committed"
+
+    def test_the_migration_creates_the_inference_log(self) -> None:
+        """It is the table the whole feedback loop reads."""
+        versions = REPO_ROOT / "db" / "migrations" / "versions"
+        text = "".join(p.read_text(encoding="utf-8") for p in versions.glob("*.py"))
+        assert "inference_logs" in text
+
+    def test_migrations_leave_the_pgvector_table_alone(self) -> None:
+        """similarity_vectors is created by the application, not the ORM, so
+        autogenerate sees a table with no model and writes a DROP. That would
+        delete the similarity index on the next schema change."""
+        env = (REPO_ROOT / "db" / "migrations" / "env.py").read_text(encoding="utf-8")
+        assert "similarity_vectors" in env
+        assert "include_object" in env
+
+        versions = REPO_ROOT / "db" / "migrations" / "versions"
+        for path in versions.glob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            upgrade = text[text.index("def upgrade") : text.index("def downgrade")]
+            assert (
+                "similarity_vectors" not in upgrade
+            ), f"{path.name} touches the pgvector table in upgrade()"
+
+    def test_the_image_carries_the_alembic_config(self) -> None:
+        dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        assert (
+            "alembic.ini" in dockerfile
+        ), "the migrate init container runs alembic, which needs its config"

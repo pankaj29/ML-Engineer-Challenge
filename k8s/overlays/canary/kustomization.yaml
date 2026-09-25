@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Stable plus a canary taking 5% of traffic on a different model version.
+#
+# Layer it over whichever base you are running:
+#   kubectl apply -k k8s/overlays/canary
+#
+# Promote:  set ARTIFACT_SOURCE in mlcv-config to the canary's value,
+#           roll ml-api, then delete this overlay.
+# Roll back: delete this overlay. Stable was never touched.
+
+namespace: mlcv
+
+resources:
+  - ../../base
+  - canary.yaml

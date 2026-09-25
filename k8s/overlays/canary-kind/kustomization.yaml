@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The canary overlay on a single node, for local verification. Same
+# relationship to `canary` as `kind` has to `base`.
+
+namespace: mlcv
+
+resources:
+  - ../canary
+
+components:
+  - ../../components/artifact-server
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: mlcv-config
+    patch: |-
+      - op: replace
+        path: /data/ARTIFACT_SOURCE
+        value: "http://artifact-server"
+
+  # The canary points at the same store here. On a real cluster this is a
+  # different model version; locally there is only one set of weights, and
+  # what is being verified is the traffic split, not the model difference.
+  - target:
+      kind: ConfigMap
+      name: mlcv-canary-config
+    patch: |-
+      - op: replace
+        path: /data/ARTIFACT_SOURCE
+        value: "http://artifact-server"
+
+  - target:
+      kind: Deployment
+      name: ml-api
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: ml-api
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+
+  - target:
+      kind: StatefulSet
+      name: postgres
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 2Gi
+
+  - target:
+      kind: PersistentVolumeClaim
+      name: mlops-state
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 100Mi

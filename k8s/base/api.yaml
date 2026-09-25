@@ -48,6 +48,39 @@ spec:
             matchLabels:
               app.kubernetes.io/name: ml-api
       initContainers:
+        # Schema first. In production the app does not create tables
+        # (create_tables=not is_production), so without this the inference log
+        # does not exist: writes are swallowed, drift detection has no input,
+        # and the whole MLOps loop runs on an empty table without complaining.
+        #
+        # Alembic is safe to run from several replicas at once. Postgres does
+        # DDL transactionally and alembic_version is updated in the same
+        # transaction, so the losers see the migration already applied.
+        - name: migrate
+          image: mlcv/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: mlcv-config
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
         # Weights are not in the image. Putting 380 MB there would tie the
         # model version to the image version, so shipping new weights would
         # mean redeploying the service and every code rollback would also roll

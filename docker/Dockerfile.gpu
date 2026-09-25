@@ -1,0 +1,99 @@
+# GPU serving image: CUDA, TensorRT, and the ONNX Runtime GPU provider.
+#
+# The CPU image is the default because that is what the benchmarks target and
+# what most deployments of this will run. This one exists because the
+# optimisation work is worth roughly two orders of magnitude and was, until
+# now, unreachable from a running pod: TensorRT engines were built and
+# measured on a Colab A100 and never served anything.
+#
+# Measured on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1:
+#
+#     int8   0.920 ms   1068 img/s   24.1 MB engine
+#     fp16   0.990 ms   1066 img/s   46.0 MB
+#     fp32   1.298 ms    822 img/s   91.5 MB
+#
+# against roughly 15 ms for the same model on ONNX Runtime CPU.
+#
+# The image is large, around 6 GB, because CUDA and TensorRT are. That is the
+# price of the runtime and there is no trimming it down to the CPU image's
+# size. Keep it on a separate tag so CPU deployments never pull it.
+
+ARG CUDA_VERSION=12.4.1
+ARG UBUNTU_VERSION=22.04
+
+# ---------------------------------------------------------------------------
+# Builder
+# ---------------------------------------------------------------------------
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu${UBUNTU_VERSION} AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 python3.11-venv python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /build
+COPY requirements.txt requirements-gpu.txt ./
+
+# requirements-gpu brings tensorrt, pycuda and onnxruntime-gpu. The CPU
+# onnxruntime in requirements.txt would otherwise shadow the GPU build, so it
+# is uninstalled first rather than left to whichever wins the resolution.
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt \
+    && pip uninstall -y onnxruntime \
+    && pip install -r requirements-gpu.txt
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-cudnn-runtime-ubuntu${UBUNTU_VERSION} AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.11 curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 appuser \
+    && useradd --uid 10001 --gid appuser --create-home --shell /usr/sbin/nologin appuser
+
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
+
+WORKDIR /app
+
+COPY --chown=appuser:appuser api/ ./api/
+COPY --chown=appuser:appuser db/ ./db/
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
+COPY --chown=appuser:appuser models/registry.py ./models/registry.py
+COPY --chown=appuser:appuser models/registry.json ./models/registry.json
+COPY --chown=appuser:appuser models/__init__.py ./models/__init__.py
+COPY --chown=appuser:appuser models/validation/ ./models/validation/
+COPY --chown=appuser:appuser models/pipeline/ ./models/pipeline/
+COPY --chown=appuser:appuser models/artifacts_manifest.json ./models/artifacts_manifest.json
+COPY --chown=appuser:appuser scripts/fetch_artifacts.py ./scripts/fetch_artifacts.py
+
+# The optimisation package, which the CPU image does not carry. The engine is
+# built at pod start by an init container running export_tensorrt from here.
+COPY --chown=appuser:appuser models/optimization/ ./models/optimization/
+
+COPY --chown=appuser:appuser worker/__init__.py ./worker/__init__.py
+COPY --chown=appuser:appuser worker/celery_app.py ./worker/celery_app.py
+
+RUN mkdir -p /app/models/artifacts /app/data /app/logs \
+    && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:8000/api/v1/health/live || exit 1
+
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

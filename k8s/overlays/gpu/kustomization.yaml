@@ -1,0 +1,72 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Serve on a GPU with TensorRT.
+#
+# The base runs ONNX on CPU at roughly 15 ms per image. This runs the same
+# model through a TensorRT engine at 0.92 ms, measured on an A100. That gap is
+# the reason the optimisation work exists, and until this overlay there was no
+# way to reach it from a running pod.
+#
+#   kubectl apply -k k8s/overlays/gpu
+#
+# Needs: a node with an NVIDIA GPU, the device plugin installed
+# (nvidia-device-plugin or the GPU Operator), and the mlcv/api-gpu image built
+# from docker/Dockerfile.gpu.
+
+namespace: mlcv
+
+resources:
+  - ../../base
+
+patches:
+  - path: gpu-patch.yaml
+    target:
+      kind: Deployment
+      name: ml-api
+
+  - target:
+      kind: ConfigMap
+      name: mlcv-config
+    patch: |-
+      - op: replace
+        path: /data/PREFERRED_RUNTIME
+        value: "tensorrt"
+      - op: replace
+        path: /data/DEVICE
+        value: "cuda"
+      # A GPU serves a batch far better than it serves one request at a time,
+      # and the CPU default of 4 leaves it idle between calls.
+      - op: replace
+        path: /data/MAX_CONCURRENT_INFERENCES
+        value: "16"
+
+  # Scale on GPU utilisation, not CPU. A GPU pod's CPU sits near idle while
+  # the accelerator saturates, so the base's CPU target would never fire and
+  # the deployment would silently never scale.
+  #
+  # DCGM_FI_DEV_GPU_UTIL comes from NVIDIA's dcgm-exporter through
+  # prometheus-adapter. Without those installed this metric is unavailable and
+  # the HPA holds at minReplicas, which is the safe failure.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: ml-api
+    patch: |-
+      - op: replace
+        path: /spec/metrics
+        value:
+          - type: Pods
+            pods:
+              metric:
+                name: DCGM_FI_DEV_GPU_UTIL
+              target:
+                type: AverageValue
+                averageValue: "70"
+      - op: replace
+        path: /spec/maxReplicas
+        value: 4
+      # GPU nodes are expensive and slow to join a cluster. Scaling down
+      # eagerly means paying the engine build again minutes later.
+      - op: replace
+        path: /spec/behavior/scaleDown/stabilizationWindowSeconds
+        value: 900

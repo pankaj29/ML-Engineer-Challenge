@@ -1,0 +1,204 @@
+# A second deployment serving a different model version, taking a slice of
+# real traffic.
+#
+# This is the control the rest of the system does not have. Validation and the
+# regression gate both run before a model is live, against held-out data. They
+# cannot tell you how it behaves on the traffic you actually get, and that is
+# where a model usually disappoints: the distribution moved, the new weights
+# are better on the benchmark and worse on the thing people photograph.
+#
+# The canary pods are identical to the stable ones except for
+# ARTIFACT_SOURCE, which points at a different model version. Both log to the
+# same inference table with their model version recorded, so after a canary
+# period the existing A/B machinery compares them on real traffic:
+#
+#     python -m models.validation.ab_test --from-inference-log \
+#         --champion 1.0.0 --challenger 1.1.0
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlcv-canary-config
+  namespace: mlcv
+data:
+  # The only thing that differs from stable. Point it at the version under
+  # test; promoting means setting the stable ARTIFACT_SOURCE to this value.
+  ARTIFACT_SOURCE: "https://artifacts.example.com/mlcv/v1.1.0"
+  # Tags every prediction this deployment logs, so the A/B comparison can
+  # separate them without guessing from timestamps.
+  DEPLOYMENT_TRACK: "canary"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-api-canary
+  namespace: mlcv
+  labels:
+    app.kubernetes.io/name: ml-api-canary
+    app.kubernetes.io/component: api
+spec:
+  # Fixed and small. The canary exists to gather evidence, not to carry load,
+  # and no HPA: a canary that scales with traffic stops being a fixed-size
+  # sample.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ml-api-canary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ml-api-canary
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /api/v1/metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fetch-artifacts
+          image: mlcv/api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "scripts/fetch_artifacts.py"]
+          env:
+            - name: ARTIFACT_SOURCE
+              valueFrom:
+                configMapKeyRef:
+                  name: mlcv-canary-config
+                  key: ARTIFACT_SOURCE
+            - name: ARTIFACT_DEST
+              value: /models
+          envFrom:
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: api
+          image: mlcv/api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: mlcv-config
+            - configMapRef:
+                # Second, so its ARTIFACT_SOURCE wins over the stable one.
+                name: mlcv-canary-config
+            - secretRef:
+                name: mlcv-secrets
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health/live
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: models
+              mountPath: /app/models/artifacts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: models
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-api-canary
+  namespace: mlcv
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ml-api-canary
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mlcv-canary
+  namespace: mlcv
+  annotations:
+    # nginx's own canary support, so no extra controller. The weight is the
+    # percentage of requests sent here instead of to the stable Ingress.
+    #
+    # Start at 5. A model regression shows up in aggregate metrics long before
+    # it shows up in complaints, and 5% is enough signal for a McNemar test
+    # within a day at this traffic level while capping the blast radius.
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "5"
+    # A header override, so the canary can be exercised deliberately before
+    # any real traffic reaches it. Send X-Canary: always to pin a request.
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: ml-api-canary
+                port:
+                  number: 8000

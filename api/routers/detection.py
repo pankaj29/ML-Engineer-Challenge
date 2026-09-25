@@ -23,6 +23,7 @@ from api.logging_config import get_logger
 from api.middleware.monitoring import record_inference
 from api.models.responses import DetectionResponse, ErrorResponse
 from api.models.schemas import DetectionRequest, RuntimeFormat
+from api.services.prediction_log import record_prediction
 
 logger = get_logger(__name__)
 
@@ -102,6 +103,12 @@ async def detect(
         runtime=response.model.runtime.value,
         duration_seconds=time.perf_counter() - started,
     )
+    record_prediction(
+        task="detection",
+        response=response,
+        image_bytes=image_bytes,
+        principal=principal,
+    )
     return response
 
 
@@ -151,6 +158,12 @@ async def detect_upload(
         version=response.model.version,
         runtime=response.model.runtime.value,
         duration_seconds=time.perf_counter() - started,
+    )
+    record_prediction(
+        task="detection",
+        response=response,
+        image_bytes=image_bytes,
+        principal=principal,
     )
     return response
 

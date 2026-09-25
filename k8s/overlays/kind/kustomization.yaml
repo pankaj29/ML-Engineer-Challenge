@@ -13,7 +13,9 @@ namespace: mlcv
 
 resources:
   - ../../base
-  - artifact-server.yaml
+
+components:
+  - ../../components/artifact-server
 
 patches:
   # Fetch the weights from the repo checkout instead of object storage. The
