@@ -103,13 +103,14 @@ def main() -> int:
 
     unit = collect("tests/unit")
     integration = collect("tests/integration")
+    e2e = collect("tests/e2e")
     performance = collect("tests/performance")
-    total = unit + integration + performance
+    total = unit + integration + e2e + performance
     coverage = measured_coverage()
 
     print(
         f"measured: {total:,} tests ({unit} unit, {integration} integration, "
-        f"{performance} performance)"
+        f"{e2e} end-to-end, {performance} performance)"
     )
     print(
         f"coverage: {coverage}% on api/"
@@ -122,7 +123,7 @@ def main() -> int:
 
     expected_row = (
         f"| Tests | {total:,}: {unit} unit, {integration} integration, "
-        f"{performance} performance |"
+        f"{e2e} end-to-end, {performance} performance |"
     )
     row = re.search(r"^\| Tests \| .*\|$", text, re.MULTILINE)
     if row and row.group(0) != expected_row:
@@ -131,7 +132,7 @@ def main() -> int:
 
     expected_bullet = (
         f"- {total:,} tests: {unit} unit, {integration} integration, "
-        f"{performance} performance, plus Locust load"
+        f"{e2e} end-to-end, {performance} performance, plus Locust load"
     )
     bullet = re.search(r"^- [\d,]+ tests: .*plus Locust load$", text, re.MULTILINE)
     if bullet and bullet.group(0) != expected_bullet:

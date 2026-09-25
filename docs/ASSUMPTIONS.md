@@ -357,7 +357,11 @@ a `FakeRuntime`. A suite that needs infrastructure running is a suite that gets
 skipped.
 
 Integration tests go the other way and use the real thing: real ONNX
-artifacts, and real PostgreSQL and Redis when they are reachable. They skip
+artifacts, and real PostgreSQL and Redis when they are reachable. End-to-end
+tests go further still and drive the deployed stack over HTTP, which is the
+only level that sees nginx, the container image and the Celery worker. A
+container serving an artifact the host replaced looks healthy to every
+in-process test; only a request through the gateway notices. They skip
 cleanly when those are absent. That split matters because the substitutes hide
 real differences. SQLite has no native boolean, which is why `inference_stats`
 sums a `case()` expression rather than casting, and only PostgreSQL can

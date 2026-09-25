@@ -14,7 +14,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,153: 995 unit, 143 integration, 15 performance |
+| Tests | 1,181: 995 unit, 143 integration, 28 end-to-end, 15 performance |
 | Coverage | 95.8% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
@@ -429,15 +429,19 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,153 tests: 995 unit, 143 integration, 15 performance, plus Locust load
+- 1,181 tests: 995 unit, 143 integration, 28 end-to-end, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed
 - Integration tests use the real thing: real ONNX artifacts, and real
   PostgreSQL and Redis when reachable. That is what catches a
   dialect-specific query or a Lua script that is not actually atomic
-- Every integration test skips cleanly when its dependency is missing,
-  including unfetched Git LFS pointers, naming the remedy in the skip message
+- End-to-end tests drive the deployed stack over HTTP, so they cross nginx,
+  the container image, Redis, PostgreSQL and the Celery worker. That is what
+  catches a container serving a stale artifact, which every in-process test
+  passes straight over
+- Every integration and end-to-end test skips cleanly when its dependency is
+  missing, including unfetched Git LFS pointers, naming the remedy
 - Memory profiling and concurrency verification
 - CI with lint, type check, tests, a coverage gate, Docker build and a
   security scan
@@ -524,8 +528,12 @@ ruff check api/ models/ worker/ tests/     # lint
 black api/ models/ worker/ tests/          # format
 ```
 
-Integration tests against real PostgreSQL and Redis run automatically when
-`docker compose up -d` is running, and skip when it is not.
+Integration and end-to-end tests run automatically when `docker compose up -d`
+is running, and skip when it is not:
+
+```bash
+pytest tests/e2e -v        # drives the deployed stack over HTTP
+```
 
 The status table at the top of this file is checked in CI against the actual
 suite, so the numbers cannot quietly rot:
