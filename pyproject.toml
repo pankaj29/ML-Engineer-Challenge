@@ -27,6 +27,12 @@ target-version = ["py311", "py312"]
 # 100 rather than black's default 88: the code is heavily type-annotated, and
 # at 88 columns a single annotated signature wraps across four lines, which
 # hurts readability more than the extra width does.
+#
+# Run black on the Python CI uses (3.11 or 3.12), not on 3.13. Same black
+# version, same settings, different output: on 3.13 it expands a triple-quoted
+# string passed as a sole argument onto its own line, and on 3.12 it hugs it
+# against the parens. Formatting scripts/build_colab_notebook.py on 3.13 and
+# pushing turns CI red with a 200-line diff that looks like nothing you wrote.
 
 # -----------------------------------------------------------------------------
 # Ruff — linting
