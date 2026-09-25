@@ -910,6 +910,23 @@ from models.optimization.export_tensorrt import (
     tensorrt_available,
 )
 
+# Which commit is this kernel actually running? Not the same question as
+# which commit is checked out: Python caches imported modules, so a `git
+# reset` alone leaves the old code live until section 2 purges sys.modules.
+# Three separate debugging rounds here were spent on results produced by code
+# that had already been fixed, so print it where it cannot be missed.
+import subprocess
+
+_head = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                       capture_output=True, text=True).stdout.strip()
+_remote = subprocess.run(["git", "rev-parse", "--short", "origin/main"],
+                         capture_output=True, text=True).stdout.strip()
+print(f"checkout {_head}" + ("" if _head == _remote else f"  (origin/main is {_remote})"))
+if _head != _remote:
+    print("  This checkout is behind the remote. Re-run section 2 before trusting anything below.")
+import models.optimization.export_tensorrt as _trt_mod
+print(f"loaded   {_trt_mod.__file__}")
+
 ARTIFACTS = Path("models/artifacts")
 FP32_ONNX = ARTIFACTS / "resnet50-tiny-imagenet.onnx"
 # _int8_trt, not _int8_static. The static graph quantizes biases to INT32,
