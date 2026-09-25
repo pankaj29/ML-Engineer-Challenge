@@ -216,18 +216,54 @@ def convert_onnx_to_fp16(src: Path, dst: Path | None = None) -> Path:
     return dst
 
 
+class MissingLFSContentError(RuntimeError):
+    """The file is a Git LFS pointer, so the real model was never fetched."""
+
+
+def reject_lfs_pointer(path: Path) -> None:
+    """Fail with an explanation if `path` is an LFS pointer rather than a model.
+
+    ``models/artifacts/*.onnx`` is LFS-tracked. A clone on a runtime without
+    git-lfs configured succeeds and looks completely normal, but every one of
+    those files is a ~130 byte text pointer. Handing one to the ONNX parser
+    gets you ``DecodeError: Error parsing message with type
+    'onnx.ModelProto'`` - which is true, unhelpful, and mentions neither LFS
+    nor the file. Check first and name the real problem.
+    """
+    try:
+        with Path(path).open("rb") as handle:
+            head = handle.read(42)
+    except OSError:
+        return
+
+    if not head.startswith(b"version https://git-lfs"):
+        return
+
+    raise MissingLFSContentError(
+        f"{path} is a Git LFS pointer of {path.stat().st_size} bytes, not a model. "
+        "This checkout has the pointers but not the content. Fetch it with:\n"
+        "    git lfs install && git lfs pull\n"
+        "If git-lfs itself is missing (a bare Colab or CI runtime), install it "
+        "first: apt-get install -y git-lfs"
+    )
+
+
 def has_qdq_nodes(onnx_path: Path) -> bool:
     """True when the graph carries QuantizeLinear/DequantizeLinear nodes.
 
     That is what makes a graph INT8 under TensorRT 11: the quantisation is
     baked in as Q/DQ pairs, and the builder reads precision from them rather
     than from a flag. `quantize.py --mode static` produces exactly this.
+
+    Raises:
+        MissingLFSContentError: ``onnx_path`` is an unfetched LFS pointer.
     """
     try:
         import onnx
     except ImportError:  # pragma: no cover - onnx is a hard dependency
         return False
 
+    reject_lfs_pointer(onnx_path)
     graph = onnx.load(str(onnx_path), load_external_data=False).graph
     ops = {node.op_type for node in graph.node}
     return "QuantizeLinear" in ops and "DequantizeLinear" in ops
@@ -274,6 +310,7 @@ def build_engine(
     import tensorrt as trt
 
     onnx_path = Path(onnx_path)
+    reject_lfs_pointer(onnx_path)
     engine_path = (
         Path(engine_path) if engine_path else onnx_path.with_suffix(f".{precision}.engine")
     )

@@ -279,19 +279,41 @@ elif not _pointers:
 else:
     print("git lfs              : " + str(len(_pointers)) + " of " + str(len(_tracked))
           + " artifacts are pointers, fetching ...")
+
+    # `git lfs` is a separate binary. Without it every command below exits
+    # non-zero with "git: 'lfs' is not a git command", which the first version
+    # of this cell printed to stderr and then carried on past - so the run
+    # continued with pointer files and died much later in the TensorRT cell.
+    if git("lfs", "version").returncode != 0:
+        print("git lfs              : binary missing, installing ...")
+        subprocess.run(["apt-get", "-qq", "install", "-y", "git-lfs"],
+                       capture_output=True, text=True)
+
+    if git("lfs", "version").returncode != 0:
+        raise SystemExit(
+            "git-lfs is not installed and could not be installed automatically.\\n"
+            "The model artifacts are LFS-tracked, so nothing downstream will work.\\n"
+            "Run `!apt-get install -y git-lfs` in a cell, then re-run this one."
+        )
+
     git("lfs", "install", "--local", cwd=REPO)
     pulled = git("lfs", "pull", cwd=REPO)
     if pulled.returncode != 0:
         print(pulled.stderr.strip(), file=sys.stderr)
+
     still = [f for f in _tracked if _is_lfs_pointer(f)]
     if still:
-        print("could not fetch LFS content for:", file=sys.stderr)
+        # Stop here rather than warn. Every later cell that touches a model
+        # would fail on this, several minutes apart, with errors that name
+        # protobuf rather than LFS.
         for f in still:
-            print("    " + str(f), file=sys.stderr)
-        print("Install git-lfs (`!apt-get install -y git-lfs`) and re-run this cell.",
-              file=sys.stderr)
-    else:
-        print("git lfs              : fetched, all " + str(len(_tracked)) + " are real files")
+            print("    still a pointer: " + str(f), file=sys.stderr)
+        raise SystemExit(
+            "Could not fetch LFS content. Check that this runtime can reach "
+            "github.com, then re-run this cell."
+        )
+
+    print("git lfs              : fetched, all " + str(len(_tracked)) + " are real files")
 
 # The dataset lives OUTSIDE the repository, and DATA_DIR is defined here
 # rather than in the download cell because later cells (quantisation
@@ -802,6 +824,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from models.optimization.export_tensorrt import (
+    MissingLFSContentError,
     UnsupportedPrecisionError,
     benchmark_engine,
     build_engine,
@@ -829,12 +852,17 @@ else:
             # Only reachable for int8, and only if section 7 was skipped.
             print(f"  SKIPPED: {source.name} does not exist. Run section 7 first.")
             continue
-        if precision == "int8" and not has_qdq_nodes(source):
-            print(f"  SKIPPED: {source.name} carries no QuantizeLinear nodes,")
-            print("           so there is nothing to build an int8 engine from.")
-            continue
 
         try:
+            # Inside the try, not before it. This reads the file, so it fails
+            # on an unfetched LFS pointer - and out here that exception took
+            # the whole cell down instead of being recorded against the one
+            # engine it affects.
+            if precision == "int8" and not has_qdq_nodes(source):
+                print(f"  SKIPPED: {source.name} carries no QuantizeLinear nodes,")
+                print("           so there is nothing to build an int8 engine from.")
+                continue
+
             res = build_engine(
                 source,
                 precision=precision,
@@ -858,6 +886,9 @@ else:
             record["source_onnx"] = source.name
             record["benchmark"] = bench
             trt_results.append(record)
+        except MissingLFSContentError as exc:
+            print("  FAILED: " + str(exc))
+            print("  Re-run section 2 ('Get the code'); it fetches LFS content.")
         except UnsupportedPrecisionError as exc:
             # Not a failure: this TensorRT build cannot express the precision
             # without an ONNX file already in it. Recorded as a skip so the
