@@ -307,6 +307,7 @@ def quantize_onnx_static(
     *,
     num_calibration: int = 200,
     per_channel: bool = True,
+    trt_compatible: bool = False,
 ) -> QuantizationResult:
     """Statically quantize an ONNX model using real calibration images.
 
@@ -315,6 +316,24 @@ def quantize_onnx_static(
     through the model. Using unrepresentative data here is the single biggest
     cause of "quantization destroyed my accuracy", which is why this function
     requires a directory of real images and refuses to invent them.
+
+    Set ``trt_compatible`` to produce a graph TensorRT can build an engine
+    from. ONNX Runtime quantizes biases to INT32, which is correct - a bias
+    scale is ``input_scale * weight_scale``, and int8 would overflow - and
+    which TensorRT rejects, because its ``DequantizeLinear`` accepts only 8-
+    and 4-bit types. It fails at the first bias node with *"input has type
+    Int32 but must have type FP8, FP4, Int4, Int8, or UInt8"*. The flag leaves
+    biases in fp32 instead; on resnet50-tiny-imagenet that drops 54 of 182 DQ
+    nodes and changes the file size by under 1%.
+
+    It writes to a separate file (``<name>_int8_trt.onnx``) on purpose. The
+    CPU INT8 figures in ``benchmarks/reports/quantization.json`` were measured
+    against ``<name>_int8_static.onnx``, and quietly changing what that name
+    contains would invalidate them.
+
+    Args:
+        trt_compatible: Emit a graph TensorRT will parse, at the cost of
+            leaving biases unquantized.
 
     Raises:
         FileNotFoundError: The calibration directory does not exist.
@@ -325,7 +344,8 @@ def quantize_onnx_static(
 
     src = Path(src)
     calibration_dir = Path(calibration_dir)
-    dst = Path(dst) if dst else src.with_name(f"{src.stem}_int8_static.onnx")
+    suffix = "_int8_trt" if trt_compatible else "_int8_static"
+    dst = Path(dst) if dst else src.with_name(f"{src.stem}{suffix}.onnx")
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     if not calibration_dir.exists():
@@ -368,11 +388,19 @@ def quantize_onnx_static(
         weight_type=QuantType.QInt8,
         per_channel=per_channel,
         calibrate_method=CalibrationMethod.MinMax,
+        # Empty rather than None when off: ORT treats the two the same, and an
+        # explicit dict keeps the call one shape instead of two.
+        extra_options={"QuantizeBias": False} if trt_compatible else {},
     )
     duration = time.perf_counter() - started
     preprocessed.unlink(missing_ok=True)
 
     notes: list[str] = []
+    if trt_compatible:
+        notes.append(
+            "biases left in fp32 (QuantizeBias=False) so TensorRT will parse the graph; "
+            "ONNX Runtime's default INT32 bias DequantizeLinear is rejected by its builder"
+        )
     max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples[:32], notes)
 
     original_mb = src.stat().st_size / 1_048_576
@@ -380,7 +408,7 @@ def quantize_onnx_static(
 
     return QuantizationResult(
         name=src.stem,
-        mode="onnx_static",
+        mode="onnx_static_trt" if trt_compatible else "onnx_static",
         source_path=str(src),
         output_path=str(dst),
         original_mb=original_mb,
@@ -475,6 +503,14 @@ def main() -> int:
     parser.add_argument(
         "--calibration-dir", type=Path, default=None, help="Images for static mode."
     )
+    parser.add_argument(
+        "--trt-compatible",
+        action="store_true",
+        help=(
+            "With --mode static, also write <name>_int8_trt.onnx with biases left in "
+            "fp32. TensorRT rejects the INT32 bias nodes in the default static graph."
+        ),
+    )
     parser.add_argument("--num-calibration", type=int, default=200)
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument(
@@ -515,6 +551,16 @@ def main() -> int:
                 args.onnx, args.calibration_dir, cfg, num_calibration=args.num_calibration
             )
         )
+        if args.trt_compatible:
+            results.append(
+                quantize_onnx_static(
+                    args.onnx,
+                    args.calibration_dir,
+                    cfg,
+                    num_calibration=args.num_calibration,
+                    trt_compatible=True,
+                )
+            )
 
     for result in results:
         print(result.summary())

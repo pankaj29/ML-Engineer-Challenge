@@ -772,13 +772,32 @@ from models.optimization.quantize import quantize_onnx_static
 
 # Static QDQ, calibrated on real images. Dynamic quantization measured 13x
 # SLOWER than fp32 on CPU - see docs/TECHNICAL.md.
+CALIB = DATA_DIR / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images"
+
 q = quantize_onnx_static(
     Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
-    DATA_DIR / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images",
+    CALIB,
     PreprocessConfig(size=(IMAGE_SIZE, IMAGE_SIZE)),
     num_calibration=200,
 )
 print(q.summary())
+
+# A second graph for TensorRT. The one above is what the CPU benchmarks
+# measure, and TensorRT cannot build from it: ONNX Runtime quantizes biases to
+# INT32, and TensorRT's DequantizeLinear takes only 8- and 4-bit types, so it
+# rejects the graph at the first bias node. trt_compatible=True leaves biases
+# in fp32, which costs a little compression and nothing measurable in
+# accuracy.
+qt = quantize_onnx_static(
+    Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
+    CALIB,
+    PreprocessConfig(size=(IMAGE_SIZE, IMAGE_SIZE)),
+    num_calibration=200,
+    trt_compatible=True,
+)
+print(qt.summary())
+for note in qt.notes:
+    print(f"  note: {note}")
 """),
     md("""
 ## 8. TensorRT
@@ -793,14 +812,28 @@ Three engines get built here, and they do not all come from the same file:
 |---|---|---|
 | fp32 | `resnet50-tiny-imagenet.onnx` | the baseline every speed-up is measured against |
 | fp16 | the same graph, converted to fp16 first | the usual production choice |
-| int8 | `resnet50-tiny-imagenet_int8_static.onnx` (section 7) | smallest and fastest, at some accuracy cost |
+| int8 | `resnet50-tiny-imagenet_int8_trt.onnx` (section 7) | smallest and fastest, at some accuracy cost |
 
 TensorRT 11 dropped the `FP16` and `INT8` builder flags. Precision now comes
 from the dtypes in the ONNX graph, so there is no switch to flip — you have to
 hand it a graph that is already in the precision you want. That is why int8
-builds from the QDQ file section 7 wrote rather than from the fp32 one: its
+builds from a QDQ file section 7 wrote rather than from the fp32 one: its
 `QuantizeLinear` / `DequantizeLinear` nodes already carry the scales, measured
 on 200 real validation images.
+
+Note **`_int8_trt`**, not `_int8_static`. Section 7 writes two INT8 graphs
+because one file cannot serve both runtimes. ONNX Runtime quantizes biases to
+INT32 — correct, since a bias scale is `input_scale * weight_scale` and int8
+would overflow — but TensorRT's `DequantizeLinear` accepts only 8- and 4-bit
+types, so it rejects that graph at the first bias node:
+
+```
+fc.bias_DequantizeLinear: input has type Int32 but must have type
+FP8, FP4, Int4, Int8, or UInt8
+```
+
+`_int8_trt` leaves biases in fp32. On this model that removes 54 of 182
+DequantizeLinear nodes and costs under 1% of the file size.
 
 Engines are **not portable** — one is built for a specific GPU architecture and
 TensorRT version. Build on the machine that will serve.
@@ -834,7 +867,10 @@ from models.optimization.export_tensorrt import (
 
 ARTIFACTS = Path("models/artifacts")
 FP32_ONNX = ARTIFACTS / "resnet50-tiny-imagenet.onnx"
-INT8_ONNX = ARTIFACTS / "resnet50-tiny-imagenet_int8_static.onnx"
+# _int8_trt, not _int8_static. The static graph quantizes biases to INT32,
+# which TensorRT will not parse; section 7 writes this one with biases in fp32
+# for exactly this build.
+INT8_ONNX = ARTIFACTS / "resnet50-tiny-imagenet_int8_trt.onnx"
 
 # int8 has its own source file, so the loop carries the path alongside the
 # precision rather than deriving one from the other.
@@ -850,7 +886,8 @@ else:
 
         if not source.exists():
             # Only reachable for int8, and only if section 7 was skipped.
-            print(f"  SKIPPED: {source.name} does not exist. Run section 7 first.")
+            print(f"  SKIPPED: {source.name} does not exist. Run section 7 first;"
+                  " it writes the TensorRT-compatible INT8 graph.")
             continue
 
         try:
@@ -1020,6 +1057,7 @@ wanted = [
     "resnet50_training_history.json",
     "resnet50-tiny-imagenet.onnx",
     "resnet50-tiny-imagenet_int8_static.onnx",
+    "resnet50-tiny-imagenet_int8_trt.onnx",
     "tiny_imagenet_labels.json",
 ]
 for name in wanted:
@@ -1035,9 +1073,19 @@ for name in wanted:
 # binaries themselves add ~140 MB to the download and are opt-in.
 INCLUDE_ENGINE_BINARIES = False
 
-for meta in Path("models/artifacts").glob("*.engine.json"):
-    shutil.copy2(meta, bundle / "artifacts" / meta.name)
-    print("  + " + meta.name + "  (engine metadata)")
+# Derive each sidecar from its engine rather than globbing for a name.
+# The glob here used to be "*.engine.json", but build_engine names the file
+# engine_path.with_suffix(".json") - so an engine at X.fp16.engine gets
+# X.fp16.json, which that pattern never matched. It silently copied nothing,
+# every run, and the metadata for engines that took ten minutes to build was
+# left behind on a container that then got deleted.
+for engine in sorted(Path("models/artifacts").glob("*.engine")):
+    meta = engine.with_suffix(".json")
+    if meta.exists():
+        shutil.copy2(meta, bundle / "artifacts" / meta.name)
+        print("  + " + meta.name + "  (engine metadata)")
+    else:
+        print("  ! " + meta.name + " is missing; the build did not write a sidecar")
 
 for engine in Path("models/artifacts").glob("*.engine"):
     if INCLUDE_ENGINE_BINARIES:
