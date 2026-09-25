@@ -403,10 +403,19 @@ class TestUnsupportedTask:
         with pytest.raises(ValueError, match="segmentation"):
             worker_task.run(job_id="bad-task", task_type="segmentation", items=items, params={})
 
-    async def test_a_task_type_the_dispatcher_forgot_is_refused(self) -> None:
+    def test_a_task_type_the_dispatcher_forgot_is_refused(self) -> None:
         """The guard inside `_run_one`, for an enum member added without a
         matching branch. Unreachable from the task entry point because
-        TaskType() rejects the string first, so it is called directly."""
+        TaskType() rejects the string first, so it is called directly.
+
+        Driven with asyncio.run rather than written as an async test: the task
+        clears the thread's event loop when it finishes (worker/tasks.py:269),
+        so the sibling test above leaves none behind, and pytest-asyncio 0.24
+        resolves the loop through get_event_loop() and fails. Owning the loop
+        here works on every version.
+        """
+        import asyncio
+
         from worker import tasks
 
         class FutureTask:
@@ -416,4 +425,4 @@ class TestUnsupportedTask:
                 return "TaskType.SEGMENTATION"
 
         with pytest.raises(ValueError, match="unsupported task type"):
-            await tasks._run_one(None, FutureTask(), b"bytes", {})
+            asyncio.run(tasks._run_one(None, FutureTask(), b"bytes", {}))
