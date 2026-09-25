@@ -159,6 +159,7 @@ jobs:
         # authenticated request 401 and turned the whole suite red.
         run: |
           pytest tests/ \
+            --ignore=tests/e2e \
             -m "not performance" \
             --cov=api --cov=worker --cov=models \
             --cov-report=xml --cov-report=term-missing \
@@ -178,7 +179,7 @@ jobs:
         #
         # This is a hard gate, not a report nobody reads.
         run: |
-          pytest tests/ -m "not performance" \
+          pytest tests/ --ignore=tests/e2e -m "not performance" \
             --cov=api --cov-fail-under=92 --cov-report=term -q
 
       # The README quotes test counts and a coverage figure. Those are correct
@@ -472,6 +473,10 @@ jobs:
         # gateway is unreachable, which is right on a laptop and wrong in CI:
         # a stack that failed to start would turn into 28 silent skips and a
         # green build. The wait step above fails loudly instead.
+        env:
+          # Turns a missing stack from 28 silent skips into a failure. Set
+          # only here, where the stack has just been started and verified.
+          E2E_REQUIRED: "1"
         run: pytest tests/e2e -v --tb=short
 
       - name: Container logs

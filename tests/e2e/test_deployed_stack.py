@@ -55,15 +55,19 @@ def _gateway_up(timeout: float = 2.0) -> bool:
 
 _GATEWAY_UP = _gateway_up()
 
-# Skipping is a convenience for a laptop with Docker closed. In CI it would be
-# a hole: pytest exits 0 when everything skips, so a stack that failed to come
-# up would produce 28 silent skips and a green build. CI has no excuse for the
-# gateway being down, so there it is an error.
-if os.getenv("CI") and not _GATEWAY_UP:
+# Skipping is a convenience for a laptop with Docker closed. Where the stack
+# is genuinely expected, skipping is a hole: pytest exits 0 when everything
+# skips, so a stack that failed to come up would produce silent skips and a
+# green build.
+#
+# The switch is E2E_REQUIRED rather than CI. CI is set for every job, and the
+# unit-test job has no stack - keying off it made collecting this file abort
+# that job's entire session before a single test ran. Only the CI step that
+# starts the stack sets E2E_REQUIRED.
+if os.getenv("E2E_REQUIRED") and not _GATEWAY_UP:
     raise RuntimeError(
-        "CI is set but nothing is listening on port 80. The end-to-end suite "
-        "cannot skip in CI: bring the stack up with `docker compose up -d` "
-        "before running it."
+        "E2E_REQUIRED is set but nothing is listening on port 80. Bring the "
+        "stack up with `docker compose up -d` before running this suite."
     )
 
 stack_up = pytest.mark.skipif(

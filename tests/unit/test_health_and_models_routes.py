@@ -204,12 +204,37 @@ class TestModelsEndpointAdvertisesRuntimes:
         for model in body["models"]:
             assert "available_runtimes" in model
 
-    def test_int8_is_advertised_when_registered(self, api_client, auth_headers) -> None:
-        body = api_client.get("/api/v1/models", headers=auth_headers).json()
-        for model in body["models"]:
-            if "onnx_int8" in model.get("available_runtimes", []):
-                return
-        pytest.skip("no INT8 artifact registered in this fixture")
+    def test_int8_is_advertised_when_registered(self) -> None:
+        """Driven through `_describe` with an entry that definitely has INT8.
+
+        Asking the fixture registry and skipping when it has none made this a
+        test that could only pass or skip, never fail, so it proved nothing.
+        """
+        from api.routers.models import _describe
+        from api.services.model_service import ModelService
+
+        service = ModelService()
+        entry = service.list_entries()[0]
+        entry.artifacts = {"onnx": "m.onnx", "onnx_int8": "m_int8.onnx"}
+
+        described = _describe(entry, service, {})
+
+        assert described.available_runtimes == ["onnx", "onnx_int8"]
+
+    def test_a_format_without_an_artifact_is_not_advertised(self) -> None:
+        """Advertising a runtime with no file behind it produces a 503 later."""
+        from api.routers.models import _describe
+        from api.services.model_service import ModelService
+
+        service = ModelService()
+        entry = service.list_entries()[0]
+        entry.artifacts = {"onnx": "m.onnx"}
+
+        described = _describe(entry, service, {})
+
+        assert described.available_runtimes == ["onnx"]
+        assert "onnx_int8" not in described.available_runtimes
+        assert "tensorrt" not in described.available_runtimes
 
     def test_it_lists_only_formats_with_an_artifact(self, api_client, auth_headers) -> None:
         """Advertising a runtime with no file behind it produces a 503 later."""
