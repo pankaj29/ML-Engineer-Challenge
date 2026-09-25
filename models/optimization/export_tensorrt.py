@@ -27,9 +27,12 @@ for attributes rather than parsing version strings:
   the precision flags remain.
 * **11.x** - the precision flags are gone too. Networks are STRONGLY_TYPED and
   precision comes from the dtypes in the ONNX graph, so a reduced-precision
-  engine needs an ONNX file already in that precision. Requesting fp16 or INT8
-  here raises :class:`UnsupportedPrecisionError` rather than silently building
-  fp32 and labelling it fp16.
+  engine needs an ONNX file already in that precision. This module supplies
+  one either way: fp16 by converting the graph first, INT8 by building from
+  the QDQ graph that ``quantize.py --mode static`` writes as
+  ``<name>_int8_static.onnx``. Ask for INT8 from a plain fp32 graph and it
+  raises :class:`UnsupportedPrecisionError` rather than quietly building fp32
+  and labelling it INT8.
 
 Usage (on a GPU host)::
 
@@ -213,6 +216,23 @@ def convert_onnx_to_fp16(src: Path, dst: Path | None = None) -> Path:
     return dst
 
 
+def has_qdq_nodes(onnx_path: Path) -> bool:
+    """True when the graph carries QuantizeLinear/DequantizeLinear nodes.
+
+    That is what makes a graph INT8 under TensorRT 11: the quantisation is
+    baked in as Q/DQ pairs, and the builder reads precision from them rather
+    than from a flag. `quantize.py --mode static` produces exactly this.
+    """
+    try:
+        import onnx
+    except ImportError:  # pragma: no cover - onnx is a hard dependency
+        return False
+
+    graph = onnx.load(str(onnx_path), load_external_data=False).graph
+    ops = {node.op_type for node in graph.node}
+    return "QuantizeLinear" in ops and "DequantizeLinear" in ops
+
+
 def build_engine(
     onnx_path: Path,
     engine_path: Path | None = None,
@@ -236,11 +256,16 @@ def build_engine(
         workspace_gb: Scratch memory TensorRT may use while *building*. More
             workspace lets it consider faster but memory-hungrier kernels; it
             does not affect memory use at inference time.
-        calibration_batches: Required for ``precision="int8"``.
+        calibration_batches: Needed for ``precision="int8"`` only when
+            ``onnx_path`` is a plain fp32 graph. A QDQ graph already carries
+            the scales that calibration would produce, so none is required.
 
     Raises:
         RuntimeError: TensorRT is unavailable, or the build failed.
-        ValueError: INT8 was requested without calibration data.
+        ValueError: INT8 was requested from a plain graph with no calibration
+            data.
+        UnsupportedPrecisionError: INT8 was requested from a plain graph on a
+            TensorRT that has no INT8 builder flag.
     """
     available, reason = tensorrt_available()
     if not available:
@@ -254,10 +279,15 @@ def build_engine(
     )
     engine_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if precision == "int8" and not calibration_batches:
+    # A QDQ graph was calibrated when it was quantised, so asking for
+    # calibration data again would be asking twice for the same thing.
+    qdq = precision == "int8" and has_qdq_nodes(onnx_path)
+    if precision == "int8" and not qdq and not calibration_batches:
         raise ValueError(
             "INT8 engines need calibration data. Pass calibration_batches with a few "
-            "hundred real images, or build an fp16 engine instead."
+            "hundred real images, build from a QDQ graph produced by "
+            "`python -m models.optimization.quantize --mode static`, or build an "
+            "fp16 engine instead."
         )
 
     logger = trt.Logger(trt.Logger.WARNING)
@@ -285,7 +315,9 @@ def build_engine(
     # absence of BuilderFlag.FP16 rather than by parsing a version string.
     strongly_typed = getattr(trt.NetworkDefinitionCreationFlag, "STRONGLY_TYPED", None)
     typed_network_era = not hasattr(trt.BuilderFlag, "FP16")
-    if typed_network_era and strongly_typed is not None and precision != "int8":
+    # A QDQ graph is strongly typed by construction: the Q/DQ pairs say what
+    # precision each tensor is, which is precisely what the flag means.
+    if typed_network_era and strongly_typed is not None and (precision != "int8" or qdq):
         flags |= 1 << int(strongly_typed)
 
     network = builder.create_network(flags)
@@ -309,21 +341,21 @@ def build_engine(
         value = getattr(builder, attr, None)
         return None if value is None else bool(value)
 
-    if typed_network_era and precision == "int8":
-        # Strongly-typed era: there is no flag to set. The engine's precision
-        # is whatever the ONNX graph declares, so asking for fp16 here without
-        # an fp16 ONNX would silently build an fp32 engine and report it as
-        # fp16 - the kind of quiet wrong answer this project has been bitten
-        # by before. Refuse instead, and say what to do.
+    if typed_network_era and precision == "int8" and not qdq:
+        # Strongly-typed era: there is no flag to set, so precision comes from
+        # the graph. This ONNX is plain fp32, so building it would produce an
+        # fp32 engine labelled INT8 - the kind of quiet wrong answer this
+        # project has been bitten by before. Refuse, and say what to do.
         raise UnsupportedPrecisionError(
             f"TensorRT {trt.__version__} uses strongly-typed networks: "
-            f"BuilderFlag.{precision.upper()} no longer exists, and precision is "
-            "taken from the ONNX graph rather than set on the builder. "
-            "fp16 is handled automatically by converting the graph first "
-            "(see convert_onnx_to_fp16). INT8 is not: it needs a QDQ graph, "
-            "which models/optimization/quantize.py already produces as "
-            "<name>_int8_static.onnx. Build the engine from that file "
-            "directly rather than passing precision='int8' here."
+            "BuilderFlag.INT8 no longer exists, and precision is taken from "
+            f"the ONNX graph. {onnx_path.name} carries no QuantizeLinear nodes, "
+            "so there is nothing to build an INT8 engine from. Produce a QDQ "
+            "graph first:\n"
+            "    python -m models.optimization.quantize --onnx "
+            f"{onnx_path.name} --mode static --calibration-dir <images>\n"
+            "then build the engine from the resulting "
+            "<name>_int8_static.onnx."
         )
 
     if typed_network_era:
@@ -337,6 +369,11 @@ def build_engine(
                 "fp16 from a converted fp16 ONNX graph; TensorRT "
                 f"{trt.__version__} has no FP16 builder flag"
             )
+        elif precision == "int8":
+            notes.append(
+                "int8 from a QDQ graph; precision comes from the "
+                "QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+            )
     elif precision == "fp16":
         if _platform_supports("platform_has_fast_fp16") is False:
             notes.append("this GPU has no fast fp16 support, so the engine will fall back to fp32")
@@ -345,9 +382,16 @@ def build_engine(
         if _platform_supports("platform_has_fast_int8") is False:
             notes.append("this GPU has no fast INT8 support; expect little or no speed-up")
         config.set_flag(trt.BuilderFlag.INT8)
-        config.int8_calibrator = _EntropyCalibrator(
-            calibration_batches or [], engine_path.with_suffix(".calib")
-        )
+        if qdq:
+            # The Q/DQ nodes already carry the scales calibration would compute,
+            # and attaching a calibrator on top of them makes TensorRT ignore
+            # one of the two. Let the graph win: it is the one that was checked
+            # for accuracy in benchmarks/reports/quantization.json.
+            notes.append("int8 scales taken from the QDQ graph, so no calibrator was attached")
+        else:
+            config.int8_calibrator = _EntropyCalibrator(
+                calibration_batches or [], engine_path.with_suffix(".calib")
+            )
 
     # An optimisation profile tells TensorRT the range of input shapes to
     # expect. Without one, a dynamic ONNX model cannot be built at all.
@@ -396,7 +440,9 @@ def build_engine(
 
     if verify:
         try:
-            result.max_abs_diff, result.verified = _verify_engine(onnx_path, engine_path, spatial)
+            result.max_abs_diff, result.verified = _verify_engine(
+                onnx_path, engine_path, spatial, precision
+            )
         except Exception as exc:
             result.notes.append(f"verification failed: {type(exc).__name__}: {exc}")
 
@@ -408,14 +454,23 @@ def build_engine(
     return result
 
 
-def _verify_engine(onnx_path: Path, engine_path: Path, spatial: list[int]) -> tuple[float, bool]:
-    """Run the ONNX model and the engine on the same input and compare.
+#: How far the engine may drift from the ONNX graph before the build is
+#: suspect. fp16 carries about three decimal digits, so 1e-2 is expected
+#: rounding. INT8 carries roughly two, and TensorRT and ONNX Runtime round
+#: and fuse the same QDQ graph differently, so a tight bound here would fail
+#: every honest build. The check is still worth running at 0.5: it catches a
+#: mis-parsed graph or a wrong optimisation profile, which produce garbage,
+#: not drift.
+_VERIFY_TOLERANCE = {"fp32": 1e-3, "fp16": 1e-2, "int8": 0.5}
 
-    fp16 tolerance is deliberately loose (1e-2): half precision has about
-    three decimal digits, so differences of that order are expected and
-    harmless. A difference far larger than that means a genuine compilation
-    problem.
-    """
+
+def _verify_engine(
+    onnx_path: Path,
+    engine_path: Path,
+    spatial: list[int],
+    precision: str = "fp16",
+) -> tuple[float, bool]:
+    """Run the ONNX model and the engine on the same input and compare."""
     import onnxruntime as ort
 
     from api.services.model_service import TensorRTBackend
@@ -430,7 +485,7 @@ def _verify_engine(onnx_path: Path, engine_path: Path, spatial: list[int]) -> tu
     backend.close()
 
     max_diff = float(np.abs(reference.astype(np.float64) - actual.astype(np.float64)).max())
-    return max_diff, max_diff < 1e-2
+    return max_diff, max_diff < _VERIFY_TOLERANCE.get(precision, 1e-2)
 
 
 def benchmark_engine(
@@ -479,7 +534,10 @@ def main() -> int:
         "--calibration-dir",
         type=Path,
         default=None,
-        help="Real images, required for --precision int8.",
+        help=(
+            "Real images. Needed for --precision int8 only when --onnx is a plain "
+            "fp32 graph; a QDQ graph already carries its scales."
+        ),
     )
     parser.add_argument("--benchmark", action="store_true")
     parser.add_argument(
@@ -501,9 +559,14 @@ def main() -> int:
         return 0
 
     calibration_batches = None
-    if args.precision == "int8":
+    if args.precision == "int8" and not has_qdq_nodes(args.onnx):
         if not args.calibration_dir:
-            print("error: --calibration-dir is required for INT8", file=sys.stderr)
+            print(
+                f"error: {args.onnx.name} is a plain fp32 graph, so an INT8 engine needs\n"
+                "       either --calibration-dir, or a QDQ graph built with:\n"
+                "         python -m models.optimization.quantize --mode static",
+                file=sys.stderr,
+            )
             return 2
         from api.utils.image_processing import PreprocessConfig
         from models.optimization.quantize import iter_calibration_images

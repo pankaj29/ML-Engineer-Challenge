@@ -56,8 +56,8 @@ the CPU-only development machine:
 
 1. **Full Tiny-ImageNet fine-tuning** — all 200 classes, 100,000 images, with
    real fp16 mixed precision.
-2. **TensorRT export and benchmarking** — never executed before, because
-   TensorRT requires an NVIDIA GPU.
+2. **TensorRT export and benchmarking** — fp32, fp16 and INT8 engines, built
+   and timed on the GPU in front of you. TensorRT has no CPU fallback.
 
 It then re-exports, quantizes, benchmarks and validates the trained model, and
 packages everything for download.
@@ -76,9 +76,13 @@ order.
 
 | GPU | Full 30-epoch run | TensorRT export |
 | --- | --- | --- |
-| A100 | ~25-40 min | ~5 min |
-| L4 / V100 | ~1-1.5 h | ~5 min |
-| T4 | ~3-5 h | ~10 min |
+| A100 | ~25-40 min | ~10 min |
+| L4 / V100 | ~1-1.5 h | ~10 min |
+| T4 | ~3-5 h | ~20 min |
+
+The TensorRT column covers all three engines. INT8 takes the longest to build:
+TensorRT times more candidate kernels when it has both int8 and fp32 versions
+of a layer to choose between.
 
 Training **resumes automatically** if the session drops — just re-run the
 training cell.
@@ -244,6 +248,50 @@ os.chdir(REPO)
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 print("working directory    : " + str(Path.cwd()))
+
+# --- Git LFS: the ONNX files may be pointers, not models -------------------
+#
+# models/artifacts/*.onnx, *.pt and *.engine are tracked with LFS. A clone on
+# a runtime without git-lfs configured succeeds and looks completely normal,
+# but every one of those files is a ~130 byte text pointer. Nothing complains
+# until section 8 hands one to the TensorRT ONNX parser, which reports a
+# parse error that says nothing about LFS - and by then the training run that
+# produced it is hours gone.
+#
+# Cheap to check and cheap to fix, so do both here.
+def _is_lfs_pointer(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(40).startswith(b"version https://git-lfs")
+    except OSError:
+        return False
+
+
+_tracked = sorted(Path("models/artifacts").glob("*.onnx")) + sorted(
+    Path("models/artifacts").glob("*.pt")
+)
+_pointers = [f for f in _tracked if _is_lfs_pointer(f)]
+
+if not _tracked:
+    print("git lfs              : no artifacts in the checkout yet")
+elif not _pointers:
+    print("git lfs              : " + str(len(_tracked)) + " artifacts are real files")
+else:
+    print("git lfs              : " + str(len(_pointers)) + " of " + str(len(_tracked))
+          + " artifacts are pointers, fetching ...")
+    git("lfs", "install", "--local", cwd=REPO)
+    pulled = git("lfs", "pull", cwd=REPO)
+    if pulled.returncode != 0:
+        print(pulled.stderr.strip(), file=sys.stderr)
+    still = [f for f in _tracked if _is_lfs_pointer(f)]
+    if still:
+        print("could not fetch LFS content for:", file=sys.stderr)
+        for f in still:
+            print("    " + str(f), file=sys.stderr)
+        print("Install git-lfs (`!apt-get install -y git-lfs`) and re-run this cell.",
+              file=sys.stderr)
+    else:
+        print("git lfs              : fetched, all " + str(len(_tracked)) + " are real files")
 
 # The dataset lives OUTSIDE the repository, and DATA_DIR is defined here
 # rather than in the download cell because later cells (quantisation
@@ -713,12 +761,27 @@ print(q.summary())
     md("""
 ## 8. TensorRT
 
-**This is the part that has never run.** TensorRT compiles the ONNX graph for
-this specific GPU: it fuses layers, picks the fastest kernel for each operation
-by timing candidates, and runs in fp16.
+TensorRT compiles the ONNX graph for this specific GPU: it fuses layers, picks
+the fastest kernel for each operation by timing candidates, and runs the result
+in the precision the graph asks for.
 
-Engines are **not portable** — built for one GPU architecture and one TensorRT
-version. Build on the machine that will serve.
+Three engines get built here, and they do not all come from the same file:
+
+| Engine | Built from | Why |
+|---|---|---|
+| fp32 | `resnet50-tiny-imagenet.onnx` | the baseline every speed-up is measured against |
+| fp16 | the same graph, converted to fp16 first | the usual production choice |
+| int8 | `resnet50-tiny-imagenet_int8_static.onnx` (section 7) | smallest and fastest, at some accuracy cost |
+
+TensorRT 11 dropped the `FP16` and `INT8` builder flags. Precision now comes
+from the dtypes in the ONNX graph, so there is no switch to flip — you have to
+hand it a graph that is already in the precision you want. That is why int8
+builds from the QDQ file section 7 wrote rather than from the fp32 one: its
+`QuantizeLinear` / `DequantizeLinear` nodes already carry the scales, measured
+on 200 real validation images.
+
+Engines are **not portable** — one is built for a specific GPU architecture and
+TensorRT version. Build on the machine that will serve.
 """),
     code("""
 from models.optimization.export_tensorrt import tensorrt_available
@@ -734,24 +797,46 @@ if not available and "tensorrt package" in reason:
     print(f"after install     : {available}  ({reason})")
 """),
     code("""
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 from models.optimization.export_tensorrt import (
     UnsupportedPrecisionError,
     benchmark_engine,
     build_engine,
+    has_qdq_nodes,
     tensorrt_available,
 )
 
+ARTIFACTS = Path("models/artifacts")
+FP32_ONNX = ARTIFACTS / "resnet50-tiny-imagenet.onnx"
+INT8_ONNX = ARTIFACTS / "resnet50-tiny-imagenet_int8_static.onnx"
+
+# int8 has its own source file, so the loop carries the path alongside the
+# precision rather than deriving one from the other.
+BUILDS = [("fp32", FP32_ONNX), ("fp16", FP32_ONNX), ("int8", INT8_ONNX)]
+
+trt_results = []
 available, reason = tensorrt_available()
 if not available:
     print(f"SKIPPED: {reason}")
 else:
-    for precision in ("fp16", "fp32"):
-        print(f"\\n--- building {precision} engine ---")
+    for precision, source in BUILDS:
+        print(f"\\n--- building {precision} engine from {source.name} ---")
+
+        if not source.exists():
+            # Only reachable for int8, and only if section 7 was skipped.
+            print(f"  SKIPPED: {source.name} does not exist. Run section 7 first.")
+            continue
+        if precision == "int8" and not has_qdq_nodes(source):
+            print(f"  SKIPPED: {source.name} carries no QuantizeLinear nodes,")
+            print("           so there is nothing to build an int8 engine from.")
+            continue
+
         try:
             res = build_engine(
-                Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
+                source,
                 precision=precision,
                 max_batch_size=32,
                 workspace_gb=8.0,
@@ -768,6 +853,11 @@ else:
             )
             print(f"  latency: p50 {bench['p50_ms']:.3f} ms | p95 {bench['p95_ms']:.3f} ms "
                   f"| {bench['throughput_ips']:.0f} img/s")
+
+            record = asdict(res)
+            record["source_onnx"] = source.name
+            record["benchmark"] = bench
+            trt_results.append(record)
         except UnsupportedPrecisionError as exc:
             # Not a failure: this TensorRT build cannot express the precision
             # without an ONNX file already in it. Recorded as a skip so the
@@ -775,6 +865,28 @@ else:
             print("  SKIPPED: " + str(exc))
         except Exception as exc:
             print(f"  FAILED: {type(exc).__name__}: {exc}")
+
+# Write the numbers down. The A100 session that produced the first fp16 and
+# fp32 figures printed them and stopped, so they had to be copied out of the
+# notebook output by hand. A report file rides home in the bundle instead.
+if trt_results:
+    report = Path("benchmarks/reports/tensorrt.json")
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(json.dumps(trt_results, indent=2), encoding="utf-8")
+    print(f"\\nwrote {report}")
+
+    baseline = next((r for r in trt_results if r["precision"] == "fp32"), None)
+    print()
+    print(f"{'precision':<10} {'engine MB':>10} {'p50 ms':>8} {'img/s':>8} {'vs fp32':>8}")
+    for r in trt_results:
+        speedup = ""
+        if baseline and r is not baseline:
+            speedup = format(
+                baseline["benchmark"]["p50_ms"] / r["benchmark"]["p50_ms"], ".2f"
+            ) + "x"
+        print(f"{r['precision']:<10} {r['engine_mb']:>10.1f} "
+              f"{r['benchmark']['p50_ms']:>8.3f} "
+              f"{r['benchmark']['throughput_ips']:>8.0f} {speedup:>8}")
 """),
     md("""
 ## 9. Benchmark every format on this GPU

@@ -725,7 +725,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
         "models/optimization/export_tensorrt.py; benchmarks/reports/BENCHMARKS_GPU.md",
         "EXECUTED on an A100 (TensorRT 11.3). fp16: 0.729 ms p50, 1369 img/s, 46.0 MB. "
         "fp32: 1.059 ms, 972 img/s. Handles the TRT 8/10/11 API differences by probing "
-        "attributes. INT8 via TRT not built - refused rather than faked.",
+        "attributes. INT8 builds from the QDQ graph quantize.py writes; engine pending "
+        "a GPU session (section 8 of notebooks/colab_gpu_pipeline.ipynb builds all three).",
     ),
     "Benchmark inference times across all formats": (
         "DONE",

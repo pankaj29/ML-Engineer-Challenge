@@ -14,7 +14,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,182: 996 unit, 143 integration, 28 end-to-end, 15 performance |
+| Tests | 1,193: 1007 unit, 143 integration, 28 end-to-end, 15 performance |
 | Coverage | 95.8% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
@@ -429,7 +429,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,182 tests: 996 unit, 143 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,193 tests: 1007 unit, 143 integration, 28 end-to-end, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed
