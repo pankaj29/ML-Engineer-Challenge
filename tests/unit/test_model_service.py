@@ -315,3 +315,66 @@ class TestHealth:
         )
         service.reload_registry()
         assert len(service.list_entries()) == 2
+
+
+class TestTensorRTRuntimeSelection:
+    """What the GPU overlay depends on, checked without a GPU.
+
+    The overlay sets PREFERRED_RUNTIME=tensorrt and registers an engine. None
+    of that helps if the runtime chain ignores the setting, and the failure is
+    invisible: the pod serves correct predictions from ONNX on CPU and looks
+    healthy doing it.
+    """
+
+    @staticmethod
+    def _entry(artifacts: dict[str, str]):
+        from api.services.model_service import ModelEntry
+
+        return ModelEntry(
+            name="m",
+            version="v",
+            task="classification",
+            artifacts=artifacts,
+            preprocess="imagenet_224",
+            labels_file=None,
+            num_classes=200,
+        )
+
+    def test_the_preference_setting_puts_tensorrt_first(self, monkeypatch) -> None:
+        from api.services.model_service import ModelService
+
+        service = ModelService()
+        monkeypatch.setattr(service.settings, "preferred_runtime", "tensorrt")
+
+        chain = service._runtime_preference(
+            self._entry({"onnx": "m.onnx", "tensorrt": "m.engine"}), None
+        )
+        assert chain[0] == "tensorrt", (
+            f"PREFERRED_RUNTIME=tensorrt but the chain starts with {chain[0]!r}, "
+            "so the GPU overlay would serve from CPU and report success"
+        )
+
+    def test_an_engine_only_entry_has_nothing_to_fall_back_to(self) -> None:
+        """How the GPU proof is registered. With ONNX alongside, a TensorRT
+        failure serves ONNX and returns 200, which proves nothing."""
+        from api.services.model_service import ModelService
+
+        chain = ModelService()._runtime_preference(self._entry({"tensorrt": "m.engine"}), None)
+        assert chain == ["tensorrt"]
+
+    def test_asking_for_tensorrt_on_a_cpu_host_fails_cleanly(self, tmp_path) -> None:
+        """Not with an ImportError from somewhere inside the backend."""
+        import pytest
+
+        from api.exceptions import ModelLoadError
+        from api.services.model_service import TensorRTBackend
+
+        pytest.importorskip  # noqa: B018 - referenced so the intent is clear
+        try:
+            import tensorrt  # noqa: F401
+        except ImportError:
+            with pytest.raises(ModelLoadError, match="TensorRT is not available"):
+                TensorRTBackend(tmp_path / "missing.engine")
+        else:
+            with pytest.raises(ModelLoadError, match="engine file is missing"):
+                TensorRTBackend(tmp_path / "missing.engine")
