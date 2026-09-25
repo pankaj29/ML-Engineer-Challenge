@@ -15,7 +15,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
 | Tests | 1,366: 1164 unit, 159 integration, 28 end-to-end, 15 performance |
-| Coverage | 94.3% on `api/`; cache, database and rate limiting at 100% |
+| Coverage | 95.7% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
 | Classifier | 78.91% top-1 on Tiny-ImageNet, 9 of 9 validation checks pass |
