@@ -409,7 +409,23 @@ def quantize_onnx_static(
         activation_type=QuantType.QInt8,
         weight_type=QuantType.QInt8,
         per_channel=per_channel,
-        calibrate_method=CalibrationMethod.MinMax,
+        # Percentile for TensorRT, MinMax otherwise. Symmetric quantization
+        # makes MinMax collapse: the range becomes [-max|x|, +max|x|], so a
+        # post-ReLU activation - never negative - spends half its 256 levels
+        # on values that cannot occur, and one outlier stretches the rest.
+        # Percentile clips at 99.999% instead, trading a few saturated
+        # outliers for resolution where the data actually is.
+        #
+        # Measured on 200 held-out Tiny-ImageNet val images, calibrated on a
+        # disjoint 200, top-1 agreement with fp32:
+        #
+        #     MinMax     asymmetric   70.0%   (TensorRT rejects the graph)
+        #     MinMax     symmetric    18.0%
+        #     Entropy    symmetric    18.0%   (and 4.6x slower to calibrate)
+        #     Percentile symmetric    95.0%
+        calibrate_method=(
+            CalibrationMethod.Percentile if trt_compatible else CalibrationMethod.MinMax
+        ),
         # Empty rather than None when off: ORT treats the two the same, and an
         # explicit dict keeps the call one shape instead of two.
         extra_options=_TRT_EXTRA_OPTIONS if trt_compatible else {},
@@ -420,9 +436,10 @@ def quantize_onnx_static(
     notes: list[str] = []
     if trt_compatible:
         notes.append(
-            "built for TensorRT: biases left in fp32 and quantization forced symmetric. "
-            "TensorRT rejects both of ONNX Runtime's defaults here - INT32 bias "
-            "DequantizeLinear, and non-zero zero points"
+            "built for TensorRT: biases in fp32, quantization symmetric, calibrated by "
+            "percentile. TensorRT rejects ONNX Runtime's INT32 bias DequantizeLinear "
+            "and its non-zero zero points; MinMax then collapses under the symmetric "
+            "constraint (18% top-1 agreement against percentile's 95%)"
         )
     max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples[:32], notes)
 

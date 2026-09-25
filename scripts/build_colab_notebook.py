@@ -842,9 +842,23 @@ input_QuantizeLinear: Non-zero zero point is not supported
 
 `_int8_trt` fixes both: biases in fp32, quantization forced symmetric. That
 removes 54 of 182 DequantizeLinear nodes and costs under 1% of the file size.
-Symmetric gives up a little precision on post-ReLU activations, which are
-one-sided, so half the int8 range goes unused — the price of an engine that
-builds at all.
+
+Symmetric quantization also forces a change of **calibration method**. The
+range becomes `[-max|x|, +max|x|]`, so a post-ReLU activation — never negative
+— spends half its 256 levels on values that cannot occur, and with MinMax a
+single outlier stretches what is left. Measured on 200 held-out validation
+images, calibrated on a disjoint 200:
+
+| calibration | top-1 agreement with fp32 | TensorRT |
+|---|---|---|
+| MinMax, asymmetric | 70.0% | rejects the graph |
+| MinMax, symmetric | 18.0% | accepts |
+| Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
+| **Percentile, symmetric** | **95.0%** | **accepts** |
+
+So `trt_compatible=True` calibrates by percentile, clipping at 99.999% rather
+than at the single most extreme activation seen. It ends up more faithful than
+the asymmetric MinMax graph it replaces, not less.
 
 The cell below runs a pre-flight against both rules before building, so a
 non-compliant graph is named here rather than by the parser ten minutes in.
