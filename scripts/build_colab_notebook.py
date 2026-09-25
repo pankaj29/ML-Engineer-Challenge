@@ -832,8 +832,22 @@ fc.bias_DequantizeLinear: input has type Int32 but must have type
 FP8, FP4, Int4, Int8, or UInt8
 ```
 
-`_int8_trt` leaves biases in fp32. On this model that removes 54 of 182
-DequantizeLinear nodes and costs under 1% of the file size.
+TensorRT also accepts only **symmetric** quantization — every zero point must
+be zero — while MinMax calibration fits each activation's true, usually
+lopsided range:
+
+```
+input_QuantizeLinear: Non-zero zero point is not supported
+```
+
+`_int8_trt` fixes both: biases in fp32, quantization forced symmetric. That
+removes 54 of 182 DequantizeLinear nodes and costs under 1% of the file size.
+Symmetric gives up a little precision on post-ReLU activations, which are
+one-sided, so half the int8 range goes unused — the price of an engine that
+builds at all.
+
+The cell below runs a pre-flight against both rules before building, so a
+non-compliant graph is named here rather than by the parser ten minutes in.
 
 Engines are **not portable** — one is built for a specific GPU architecture and
 TensorRT version. Build on the machine that will serve.
@@ -861,6 +875,7 @@ from models.optimization.export_tensorrt import (
     UnsupportedPrecisionError,
     benchmark_engine,
     build_engine,
+    check_trt_qdq_graph,
     has_qdq_nodes,
     tensorrt_available,
 )
@@ -899,6 +914,16 @@ else:
                 print(f"  SKIPPED: {source.name} carries no QuantizeLinear nodes,")
                 print("           so there is nothing to build an int8 engine from.")
                 continue
+
+            if precision == "int8":
+                # Report every violation before the build rather than letting
+                # the parser name whichever node it reached first. Two GPU
+                # sessions were spent discovering two constraints one at a
+                # time; this states both up front.
+                problems = check_trt_qdq_graph(source)
+                print("  pre-flight: " + ("clean" if not problems else "FAILS"))
+                for problem in problems:
+                    print("    - " + problem)
 
             res = build_engine(
                 source,

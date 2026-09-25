@@ -299,6 +299,27 @@ def quantize_onnx_dynamic(
     )
 
 
+#: What TensorRT needs that ONNX Runtime does not produce by default.
+#:
+#: ``QuantizeBias`` - ORT quantizes biases to INT32, since a bias scale is
+#: ``input_scale * weight_scale`` and int8 would overflow. TensorRT's
+#: DequantizeLinear takes only 8- and 4-bit types and rejects the graph at
+#: the first bias node ("input has type Int32 but must have type FP8, FP4,
+#: Int4, Int8, or UInt8"). False leaves biases in fp32.
+#:
+#: ``ActivationSymmetric`` / ``WeightSymmetric`` - TensorRT supports only
+#: symmetric quantization, so every zero point must be 0. MinMax calibration
+#: otherwise fits the true asymmetric range of each activation and fails with
+#: "Non-zero zero point is not supported" at the first QuantizeLinear.
+#: Symmetric costs a little precision on post-ReLU activations, which are
+#: one-sided, because half the int8 range goes unused.
+_TRT_EXTRA_OPTIONS = {
+    "QuantizeBias": False,
+    "ActivationSymmetric": True,
+    "WeightSymmetric": True,
+}
+
+
 def quantize_onnx_static(
     src: Path,
     calibration_dir: Path,
@@ -321,9 +342,10 @@ def quantize_onnx_static(
     from. ONNX Runtime quantizes biases to INT32, which is correct - a bias
     scale is ``input_scale * weight_scale``, and int8 would overflow - and
     which TensorRT rejects, because its ``DequantizeLinear`` accepts only 8-
-    and 4-bit types. It fails at the first bias node with *"input has type
-    Int32 but must have type FP8, FP4, Int4, Int8, or UInt8"*. The flag leaves
-    biases in fp32 instead; on resnet50-tiny-imagenet that drops 54 of 182 DQ
+    and 4-bit types. It also needs symmetric quantization - every zero point
+    zero - which MinMax calibration does not give by default. The flag sets
+    both; see :data:`_TRT_EXTRA_OPTIONS` for what each one fixes and what it
+    costs. On resnet50-tiny-imagenet it drops 54 of 182 DequantizeLinear
     nodes and changes the file size by under 1%.
 
     It writes to a separate file (``<name>_int8_trt.onnx``) on purpose. The
@@ -390,7 +412,7 @@ def quantize_onnx_static(
         calibrate_method=CalibrationMethod.MinMax,
         # Empty rather than None when off: ORT treats the two the same, and an
         # explicit dict keeps the call one shape instead of two.
-        extra_options={"QuantizeBias": False} if trt_compatible else {},
+        extra_options=_TRT_EXTRA_OPTIONS if trt_compatible else {},
     )
     duration = time.perf_counter() - started
     preprocessed.unlink(missing_ok=True)
@@ -398,8 +420,9 @@ def quantize_onnx_static(
     notes: list[str] = []
     if trt_compatible:
         notes.append(
-            "biases left in fp32 (QuantizeBias=False) so TensorRT will parse the graph; "
-            "ONNX Runtime's default INT32 bias DequantizeLinear is rejected by its builder"
+            "built for TensorRT: biases left in fp32 and quantization forced symmetric. "
+            "TensorRT rejects both of ONNX Runtime's defaults here - INT32 bias "
+            "DequantizeLinear, and non-zero zero points"
         )
     max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples[:32], notes)
 

@@ -248,6 +248,74 @@ def reject_lfs_pointer(path: Path) -> None:
     )
 
 
+def check_trt_qdq_graph(onnx_path: Path) -> list[str]:
+    """List the reasons TensorRT would refuse this QDQ graph. Empty means OK.
+
+    TensorRT is stricter than ONNX Runtime about what a QDQ graph may contain,
+    and its parser stops at the first offending node - so a graph with two
+    problems takes two builds to diagnose, each needing a GPU. Both known
+    constraints are properties of the file:
+
+    * **Every DequantizeLinear input must be 8- or 4-bit.** ONNX Runtime
+      quantizes biases to INT32, which TensorRT rejects with *"input has type
+      Int32 but must have type FP8, FP4, Int4, Int8, or UInt8"*.
+    * **Every zero point must be zero.** TensorRT supports only symmetric
+      quantization and fails with *"Non-zero zero point is not supported"*.
+
+    ``quantize.py --trt-compatible`` produces a graph that satisfies both.
+
+    This is a pre-flight, not a guarantee: it encodes the constraints we have
+    actually hit, and a build can still fail on something not listed here.
+    """
+    import numpy as np
+    import onnx
+    from onnx import TensorProto, numpy_helper
+
+    eight_bit = {
+        TensorProto.INT8,
+        TensorProto.UINT8,
+        TensorProto.INT4,
+        TensorProto.UINT4,
+        getattr(TensorProto, "FLOAT8E4M3FN", -1),
+    }
+    type_name = {v: k for k, v in TensorProto.DataType.items()}
+
+    graph = onnx.load(str(onnx_path), load_external_data=False).graph
+    dtype = {init.name: init.data_type for init in graph.initializer}
+    for info in list(graph.value_info) + list(graph.input):
+        dtype[info.name] = info.type.tensor_type.elem_type
+    constants = {init.name: numpy_helper.to_array(init) for init in graph.initializer}
+
+    wrong_dtype: list[tuple[str, str]] = []
+    nonzero_zp: list[str] = []
+    for node in graph.node:
+        if node.op_type not in ("QuantizeLinear", "DequantizeLinear"):
+            continue
+        if node.op_type == "DequantizeLinear":
+            found = dtype.get(node.input[0])
+            if found is not None and found not in eight_bit:
+                wrong_dtype.append((node.name, type_name.get(found, str(found))))
+        if len(node.input) > 2:
+            zero_point = constants.get(node.input[2])
+            if zero_point is not None and bool(np.any(np.asarray(zero_point) != 0)):
+                nonzero_zp.append(node.name)
+
+    problems: list[str] = []
+    if wrong_dtype:
+        name, found = wrong_dtype[0]
+        problems.append(
+            f"{len(wrong_dtype)} DequantizeLinear nodes take a non-8-bit input "
+            f"(first: {name}, {found}). TensorRT accepts only FP8, FP4, Int4, "
+            "Int8 or UInt8 there."
+        )
+    if nonzero_zp:
+        problems.append(
+            f"{len(nonzero_zp)} nodes have a non-zero zero point (first: "
+            f"{nonzero_zp[0]}). TensorRT supports only symmetric quantization."
+        )
+    return problems
+
+
 def has_qdq_nodes(onnx_path: Path) -> bool:
     """True when the graph carries QuantizeLinear/DequantizeLinear nodes.
 
@@ -377,6 +445,18 @@ def build_engine(
     def _platform_supports(attr: str) -> bool | None:
         value = getattr(builder, attr, None)
         return None if value is None else bool(value)
+
+    if precision == "int8" and qdq:
+        problems = check_trt_qdq_graph(onnx_path)
+        if problems:
+            raise UnsupportedPrecisionError(
+                f"{onnx_path.name} is a QDQ graph, but not one TensorRT will build:\n"
+                + "\n".join(f"  - {problem}" for problem in problems)
+                + "\n\nRegenerate it with:\n"
+                "    python -m models.optimization.quantize --onnx <fp32.onnx> "
+                "--mode static --trt-compatible --calibration-dir <images>\n"
+                "which writes <name>_int8_trt.onnx with both constraints satisfied."
+            )
 
     if typed_network_era and precision == "int8" and not qdq:
         # Strongly-typed era: there is no flag to set, so precision comes from
