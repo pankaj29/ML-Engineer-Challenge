@@ -274,11 +274,51 @@ def _fake_trt_modules(monkeypatch, *, engine=None, deserialise_to_none: bool = F
         memcpy_dtoh_async=_memcpy_dtoh_async,
     )
 
+    # A context that refuses CUDA work unless it has been pushed. The old
+    # fake let every call through, which is why a backend that only worked on
+    # one thread passed the whole suite and failed 6% of real requests.
+    class _FakeContext:
+        def __init__(self) -> None:
+            self.depth = 0
+            self.max_depth = 0
+            self.pushes = 0
+            self.detached = False
+
+        def push(self) -> None:
+            self.depth += 1
+            self.pushes += 1
+            self.max_depth = max(self.max_depth, self.depth)
+
+        def pop(self) -> None:
+            if self.depth == 0:
+                raise RuntimeError("pop without a matching push")
+            self.depth -= 1
+
+        def detach(self) -> None:
+            self.detached = True
+
+    context = _FakeContext()
+
+    def _require_current(what: str):
+        if context.depth == 0:
+            raise RuntimeError(f"{what}: invalid device context - no currently active context?")
+
+    cuda.init = lambda: None
+    cuda.Device = lambda index: SimpleNamespace(retain_primary_context=lambda: context)
+
+    _real_stream = cuda.Stream
+
+    def _guarded_stream():
+        _require_current("Stream")
+        return _real_stream()
+
+    cuda.Stream = _guarded_stream
+
     monkeypatch.setitem(sys.modules, "tensorrt", trt)
     monkeypatch.setitem(sys.modules, "pycuda", SimpleNamespace(driver=cuda))
     monkeypatch.setitem(sys.modules, "pycuda.driver", cuda)
     monkeypatch.setitem(sys.modules, "pycuda.autoinit", SimpleNamespace())
-    return SimpleNamespace(copied=copied, allocated=allocated, freed=freed)
+    return SimpleNamespace(copied=copied, allocated=allocated, freed=freed, context=context)
 
 
 @pytest.fixture
@@ -365,6 +405,76 @@ class TestTensorRTBackend:
         backend = TensorRTBackend(engine_file)
         backend.close()
         assert backend.engine is None and backend.context is None
+
+    def test_inference_works_off_the_loading_thread(self, engine_file: Path, monkeypatch) -> None:
+        """The bug that produced HTTP 500s on a real GPU.
+
+        A CUDA context is thread-local, and inference runs through
+        asyncio.to_thread, so it executes on whatever pool worker is free.
+        With the context bound to the importing thread, every call on another
+        worker failed with "invalid device context". Serving 100 requests
+        sequentially on an A100 produced 6 of them.
+        """
+        import threading
+
+        _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+
+        results: list[object] = []
+
+        def run() -> None:
+            try:
+                results.append(
+                    backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+                )
+            except Exception as exc:
+                results.append(exc)
+
+        # Several threads, none of them the one that loaded the engine.
+        threads = [threading.Thread(target=run) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        failures = [r for r in results if isinstance(r, Exception)]
+        assert not failures, f"{len(failures)} of 4 threads failed: {failures[0]}"
+
+    def test_the_context_is_pushed_and_popped_evenly(self, engine_file: Path, monkeypatch) -> None:
+        """An unbalanced push leaks the context onto the thread, and PyCUDA
+        aborts at shutdown with 'the context stack was not empty'."""
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+        for _ in range(3):
+            backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+
+        assert fake.context.pushes > 0, "the context was never made current"
+        assert (
+            fake.context.depth == 0
+        ), f"context stack left {fake.context.depth} deep; it must be balanced"
+
+    def test_the_context_is_popped_even_when_inference_fails(
+        self, engine_file: Path, monkeypatch
+    ) -> None:
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+
+        def explode(**kwargs):
+            raise RuntimeError("execution failed")
+
+        backend.context.execute_async_v3 = explode
+        with pytest.raises(RuntimeError, match="execution failed"):
+            backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+
+        assert fake.context.depth == 0
+
+    def test_close_releases_the_primary_context(self, engine_file: Path, monkeypatch) -> None:
+        """Detach, not destroy: it is retained, and something else in the
+        process may still hold it."""
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+        backend.close()
+        assert fake.context.detached is True
 
     def test_every_device_buffer_is_freed(self, engine_file: Path, monkeypatch) -> None:
         """Left to the garbage collector, these are released at an

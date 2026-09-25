@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import contextlib
 import hashlib
 import json
 import threading
@@ -275,7 +276,11 @@ class TensorRTBackend:
 
     def __init__(self, path: Path, device: str = "cuda") -> None:
         try:
-            import pycuda.autoinit  # noqa: F401  (side effect: creates CUDA context)
+            # Deliberately NOT pycuda.autoinit. It creates a context bound to
+            # the importing thread and registers an atexit handler that tears
+            # it down before anything else. Both were bugs here: inference
+            # runs on thread-pool workers, and the handler aborted the
+            # process at shutdown.
             import pycuda.driver as cuda
             import tensorrt as trt
         except ImportError as exc:
@@ -294,24 +299,31 @@ class TensorRTBackend:
         self._cuda = cuda
         self._closed = False
 
-        # Teardown order is the whole problem here. `pycuda.autoinit`
-        # registers an atexit handler that destroys the CUDA context, and if
-        # the engine and its device buffers are still alive when that runs,
-        # PyCUDA aborts the process:
+        # A CUDA context is thread-local: current only where it was made
+        # current. Inference runs through asyncio.to_thread, so it lands on
+        # whatever pool worker is free, and a context bound to one thread is
+        # absent on all the others. That is not a rare race; serving 100
+        # requests sequentially on an A100 produced 6 HTTP 500s, each one
+        # "invalid device context - no currently active context?".
         #
-        #     have been deinitialized, so there is no way we can finish
-        #     cleanly. The program will be aborted now.
-        #
-        # atexit runs handlers last-registered-first, and this registration
-        # happens after the autoinit import above, so this one runs first and
-        # the context is still valid when it does. Without it every process
-        # that ever served a prediction exits non-zero, which in Kubernetes
-        # makes a normal SIGTERM shutdown look like a crash.
+        # The primary context is retained here and pushed around every block
+        # of CUDA work below, which makes it current on the calling thread
+        # whichever thread that turns out to be.
+        cuda.init()
+        self._device_index = 0
+        self._context = cuda.Device(self._device_index).retain_primary_context()
+
+        # Release the engine before the process tears the driver down, and do
+        # it first: atexit runs handlers last-registered-first.
         atexit.register(self.close)
 
         trt_logger = trt.Logger(trt.Logger.WARNING)
-        with path.open("rb") as fh, trt.Runtime(trt_logger) as runtime:
-            self.engine = runtime.deserialize_cuda_engine(fh.read())
+        self._context.push()
+        try:
+            with path.open("rb") as fh, trt.Runtime(trt_logger) as runtime:
+                self.engine = runtime.deserialize_cuda_engine(fh.read())
+        finally:
+            self._context.pop()
         if self.engine is None:
             raise ModelLoadError(
                 "The TensorRT engine could not be deserialised.",
@@ -320,7 +332,12 @@ class TensorRTBackend:
                     "and are not portable across either."
                 ),
             )
-        self.context = self.engine.create_execution_context()
+        self._context.push()
+        try:
+            self.context = self.engine.create_execution_context()
+        finally:
+            self._context.pop()
+
         self.format = RuntimeFormat.TENSORRT
         self.device = device
         self._tensor_names = [
@@ -333,6 +350,12 @@ class TensorRTBackend:
         import tensorrt as trt
 
         inputs = np.ascontiguousarray(inputs, dtype=np.float32)
+
+        # Make the retained primary context current on this thread. Without
+        # it the next line raises "invalid device context", because
+        # asyncio.to_thread ran us on a pool worker that has never had a
+        # context.
+        self._context.push()
         stream = cuda.Stream()
         allocations: list[Any] = []
         outputs: list[np.ndarray] = []
@@ -370,8 +393,11 @@ class TensorRTBackend:
             # memory released by the garbage collector is released at an
             # unpredictable time, which under load means the allocator
             # fragments, and at shutdown means buffers outliving the context.
+            #
+            # Before the pop, because freeing needs the context current.
             for allocation in allocations:
                 allocation.free()
+            self._context.pop()
 
     def close(self) -> None:
         """Release the execution context and the engine, in that order.
@@ -387,6 +413,15 @@ class TensorRTBackend:
         # the engine first leaves it pointing at freed memory.
         self.context = None
         self.engine = None
+
+        # Release our reference to the primary context. Retained, not
+        # created, so this decrements a refcount rather than destroying a
+        # context another part of the process may still be using.
+        context = getattr(self, "_context", None)
+        if context is not None:
+            with contextlib.suppress(Exception):
+                context.detach()
+            self._context = None
 
 
 def _record_load(model: str, runtime: str, status: str) -> None:
