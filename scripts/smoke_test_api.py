@@ -38,8 +38,12 @@ Usage::
     python scripts/smoke_test_api.py --base-url https://api.example.com --api-key KEY
 
 Exit code is 0 when every check passes, 1 otherwise, so it can gate a deploy.
+
+To run one group at a time, in a notebook-style cell, use
+`scripts/smoke_cells.py`. It imports the group functions below and calls one
+per cell.
 """
-#%%
+
 from __future__ import annotations
 
 import argparse
@@ -47,6 +51,7 @@ import base64
 import json
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -60,9 +65,31 @@ DIRECT_URL = "http://localhost:8000"
 # (target, group, check, ok, detail)
 results: list[tuple[str, str, str, bool, str]] = []
 
-BASE = ""
-KEY = ""
 TARGET = ""
+
+
+@dataclass
+class Session:
+    """One deployment under test, plus the image every check sends.
+
+    Passed between the group functions so each can be called on its own. The
+    alternative, module-level globals for the client and the image, would make
+    the groups look independent while quietly sharing state.
+    """
+
+    base: str
+    key: str
+    client: httpx.Client
+    image_path: Path
+    image: bytes = field(repr=False)
+    b64: str = field(repr=False)
+
+    @property
+    def hk(self) -> dict[str, str]:
+        return {"X-API-Key": self.key}
+
+    def url(self, path: str) -> str:
+        return f"{self.base}{path}"
 
 
 def check(name: str, ok: bool, detail: str = "", group: str = "") -> None:
@@ -71,38 +98,63 @@ def check(name: str, ok: bool, detail: str = "", group: str = "") -> None:
     print(f"  [{mark}] {name}" + (f"  {detail}" if detail else ""))
 
 
-def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: float) -> None:
-    """Run every check against one deployment.
+def default_image() -> Path | None:
+    return next(iter(sorted((REPO_ROOT / "samples").glob("*.jpg"))), None)
 
-    The suite is identical for the gateway and for the API's own port, which is
-    the point: any difference between the two runs is nginx, not the test.
+
+def open_session(
+    target: str = "gateway",
+    base_url: str | None = None,
+    key: str = "dev-key-pro",
+    image: Path | None = None,
+    timeout: float = 120.0,
+) -> Session:
+    """Point the checks at a deployment.
+
+    Defaults chosen for interactive use: `open_session()` with no arguments
+    talks to the local gateway with the dev key, which is what the quick start
+    brings up.
     """
-    global BASE, KEY, TARGET
+    global TARGET
     TARGET = target
-    BASE = f"{base_url.rstrip('/')}/api/v1"
-    KEY = key
 
-    print(f"\n{'#' * 60}")
-    print(f"# {target}: {BASE}")
-    print("#" * 60)
+    if base_url is None:
+        base_url = DIRECT_URL if target == "direct" else GATEWAY_URL
+    base = f"{base_url.rstrip('/')}/api/v1"
 
-    image = image_path.read_bytes()
-    b64 = base64.b64encode(image).decode()
+    image_path = image or default_image()
+    if image_path is None or not image_path.is_file():
+        raise FileNotFoundError("no image to send: pass one, or add a .jpg to samples/")
 
-    client = httpx.Client(timeout=timeout)
-    hk = {"X-API-Key": KEY}
+    raw = image_path.read_bytes()
+    print(f"target: {base}")
+    print(f"image : {image_path.name}")
+    return Session(
+        base=base,
+        key=key,
+        client=httpx.Client(timeout=timeout),
+        image_path=image_path,
+        image=raw,
+        b64=base64.b64encode(raw).decode(),
+    )
 
-    # ---------------------------------------------------------------- health
+
+# --------------------------------------------------------------------- groups
+# One function per group of checks. Each is self-contained given a Session, so
+# they can be run in any order, individually, or all of them by run_suite.
+
+
+def check_health(s: Session) -> None:
     print("\nHealth and metrics (public)")
     for path in ("/health/live", "/health/ready", "/health"):
-        r = client.get(f"{BASE}{path}")
+        r = s.client.get(s.url(path))
         check(f"GET {path}", r.status_code in (200, 503), f"{r.status_code}", "health")
         if path == "/health":
             body = r.json()
             comps = {c["name"]: c["status"] for c in body.get("components", [])}
             print(f"         status={body.get('status')}  {comps}")
 
-    r = client.get(f"{BASE}/metrics")
+    r = s.client.get(s.url("/metrics"))
     check(
         "GET /metrics",
         r.status_code == 200 and "http_requests_total" in r.text,
@@ -110,9 +162,11 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
         "health",
     )
 
-    # ------------------------------------------------------------------ auth
+
+def check_auth(s: Session) -> str:
+    """Returns the issued token, so a cell can reuse it."""
     print("\nAuthentication")
-    r = client.post(f"{BASE}/auth/token", json={"api_key": KEY})
+    r = s.client.post(s.url("/auth/token"), json={"api_key": s.key})
     token_ok = r.status_code == 200 and "access_token" in r.json()
     check("POST /auth/token with a valid key", token_ok, f"{r.status_code}", "auth")
     token = r.json().get("access_token", "") if token_ok else ""
@@ -120,7 +174,7 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
         b = r.json()
         print(f"         tier={b['tier']} expires_in={b['expires_in']}s")
 
-    r = client.post(f"{BASE}/auth/token", json={"api_key": "not-a-real-key"})
+    r = s.client.post(s.url("/auth/token"), json={"api_key": "not-a-real-key"})
     check(
         "POST /auth/token with a bad key is refused",
         r.status_code == 401,
@@ -128,16 +182,19 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
         "auth",
     )
 
-    r = client.get(f"{BASE}/models")
+    r = s.client.get(s.url("/models"))
     check("an unauthenticated call is refused", r.status_code == 401, f"{r.status_code}", "auth")
 
     if token:
-        r = client.get(f"{BASE}/models", headers={"Authorization": f"Bearer {token}"})
+        r = s.client.get(s.url("/models"), headers={"Authorization": f"Bearer {token}"})
         check("the issued token authenticates", r.status_code == 200, f"{r.status_code}", "auth")
 
-    # ---------------------------------------------------------- classification
+    return token
+
+
+def check_classification(s: Session) -> None:
     print("\nClassification")
-    r = client.post(f"{BASE}/classify", headers=hk, json={"image_base64": b64, "top_k": 3})
+    r = s.client.post(s.url("/classify"), headers=s.hk, json={"image_base64": s.b64, "top_k": 3})
     ok = r.status_code == 200
     check("POST /classify (base64)", ok, f"{r.status_code}", "classify")
     if ok:
@@ -155,22 +212,23 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
             "classify",
         )
 
-    r = client.post(
-        f"{BASE}/classify/upload",
-        headers=hk,
-        files={"file": (image_path.name, image, "image/jpeg")},
+    r = s.client.post(
+        s.url("/classify/upload"),
+        headers=s.hk,
+        files={"file": (s.image_path.name, s.image, "image/jpeg")},
         data={"top_k": "2"},
     )
     check("POST /classify/upload (multipart)", r.status_code == 200, f"{r.status_code}", "classify")
 
-    # ---------------------------------------------------------------- detection
+
+def check_detection(s: Session) -> None:
     print("\nDetection")
-    r = client.post(f"{BASE}/detect", headers=hk, json={"image_base64": b64})
+    r = s.client.post(s.url("/detect"), headers=s.hk, json={"image_base64": s.b64})
     ok = r.status_code == 200
     check("POST /detect (base64)", ok, f"{r.status_code}", "detect")
     if ok:
         body = r.json()
-        print(f"         {len(body['detections'])} detections, " f"{body['timing']['total_ms']} ms")
+        print(f"         {len(body['detections'])} detections, {body['timing']['total_ms']} ms")
         if body["detections"]:
             d = body["detections"][0]
             check(
@@ -180,28 +238,33 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
                 "detect",
             )
 
-    r = client.post(
-        f"{BASE}/detect/upload", headers=hk, files={"file": (image_path.name, image, "image/jpeg")}
+    r = s.client.post(
+        s.url("/detect/upload"),
+        headers=s.hk,
+        files={"file": (s.image_path.name, s.image, "image/jpeg")},
     )
     check("POST /detect/upload (multipart)", r.status_code == 200, f"{r.status_code}", "detect")
 
-    # --------------------------------------------------------------- similarity
+
+def check_similarity(s: Session) -> None:
     print("\nSimilarity")
-    r = client.post(f"{BASE}/similarity/embed", headers=hk, json={"image_base64": b64})
+    r = s.client.post(s.url("/similarity/embed"), headers=s.hk, json={"image_base64": s.b64})
     ok = r.status_code == 200
     check("POST /similarity/embed", ok, f"{r.status_code}", "similarity")
     if ok:
         print(f"         {len(r.json()['embedding'])}-dimensional embedding")
 
-    r = client.post(
-        f"{BASE}/similarity/index",
-        headers=hk,
-        json={"image_base64": b64, "label": "smoke-test", "image_id": "smoke-1"},
+    r = s.client.post(
+        s.url("/similarity/index"),
+        headers=s.hk,
+        json={"image_base64": s.b64, "label": "smoke-test", "image_id": "smoke-1"},
     )
     indexed = r.status_code == 201
     check("POST /similarity/index", indexed, f"{r.status_code}", "similarity")
 
-    r = client.post(f"{BASE}/similarity/search", headers=hk, json={"image_base64": b64, "top_k": 3})
+    r = s.client.post(
+        s.url("/similarity/search"), headers=s.hk, json={"image_base64": s.b64, "top_k": 3}
+    )
     ok = r.status_code == 200
     check("POST /similarity/search", ok, f"{r.status_code}", "similarity")
     if ok:
@@ -215,16 +278,20 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
                 "similarity",
             )
 
-    r = client.get(f"{BASE}/similarity/stats", headers=hk)
+    r = s.client.get(s.url("/similarity/stats"), headers=s.hk)
     ok = r.status_code == 200
     check("GET /similarity/stats", ok, f"{r.status_code}", "similarity")
     if ok:
         print(f"         {r.json()}")
 
-    # -------------------------------------------------------------------- batch
+
+def check_batch(s: Session) -> None:
+    """The slow one: it submits a job and polls until it finishes."""
     print("\nBatch (async)")
-    items = [{"image_base64": b64, "image_id": f"batch-{i}"} for i in range(3)]
-    r = client.post(f"{BASE}/batch", headers=hk, json={"task": "classification", "items": items})
+    items = [{"image_base64": s.b64, "image_id": f"batch-{i}"} for i in range(3)]
+    r = s.client.post(
+        s.url("/batch"), headers=s.hk, json={"task": "classification", "items": items}
+    )
     submitted = r.status_code == 202
     check("POST /batch returns 202", submitted, f"{r.status_code}", "batch")
 
@@ -232,9 +299,9 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
     if job_id:
         final: dict[str, Any] = {}
         for _ in range(60):
-            s = client.get(f"{BASE}/batch/{job_id}", headers=hk)
-            if s.status_code == 200:
-                final = s.json()
+            poll = s.client.get(s.url(f"/batch/{job_id}"), headers=s.hk)
+            if poll.status_code == 200:
+                final = poll.json()
                 if final.get("status") in ("completed", "failed"):
                     break
             time.sleep(1)
@@ -246,10 +313,12 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
             "batch",
         )
 
-    r = client.post(f"{BASE}/batch", headers=hk, json={"task": "classification", "items": items})
+    r = s.client.post(
+        s.url("/batch"), headers=s.hk, json={"task": "classification", "items": items}
+    )
     if r.status_code == 202:
         cancel_id = r.json()["job_id"]
-        r = client.delete(f"{BASE}/batch/{cancel_id}", headers=hk)
+        r = s.client.delete(s.url(f"/batch/{cancel_id}"), headers=s.hk)
         check(
             "DELETE /batch/{job_id}",
             r.status_code in (200, 202, 204, 409),
@@ -257,9 +326,10 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
             "batch",
         )
 
-    # ------------------------------------------------------------------- models
+
+def check_models(s: Session) -> None:
     print("\nModels")
-    r = client.get(f"{BASE}/models", headers=hk)
+    r = s.client.get(s.url("/models"), headers=s.hk)
     ok = r.status_code == 200
     check("GET /models", ok, f"{r.status_code}", "models")
     names = []
@@ -268,42 +338,90 @@ def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: f
         print(f"         {len(names)} registered: {', '.join(sorted(set(names)))}")
 
     if names:
-        r = client.get(f"{BASE}/models/{names[0]}", headers=hk)
+        r = s.client.get(s.url(f"/models/{names[0]}"), headers=s.hk)
         check("GET /models/{name}", r.status_code == 200, f"{r.status_code}", "models")
 
-    r = client.get(f"{BASE}/models/does-not-exist", headers=hk)
+    r = s.client.get(s.url("/models/does-not-exist"), headers=s.hk)
     check("an unknown model returns 404", r.status_code == 404, f"{r.status_code}", "models")
 
-    r = client.post(f"{BASE}/models/reload", headers=hk)
+    r = s.client.post(s.url("/models/reload"), headers=s.hk)
     check("POST /models/reload", r.status_code in (200, 403), f"{r.status_code}", "models")
 
-    # ------------------------------------------------------------- input safety
+
+def check_input_validation(s: Session) -> None:
     print("\nInput validation")
-    r = client.post(f"{BASE}/classify", headers=hk, json={"image_base64": "not-base64!!"})
+    r = s.client.post(s.url("/classify"), headers=s.hk, json={"image_base64": "not-base64!!"})
     check("malformed base64 is refused", r.status_code in (400, 422), f"{r.status_code}", "safety")
 
-    r = client.post(
-        f"{BASE}/classify",
-        headers=hk,
+    r = s.client.post(
+        s.url("/classify"),
+        headers=s.hk,
         json={"image_base64": base64.b64encode(b"this is not an image").decode()},
     )
     check(
         "a non-image payload is refused", r.status_code in (400, 422), f"{r.status_code}", "safety"
     )
 
-    r = client.post(
-        f"{BASE}/classify",
-        headers=hk,
+    r = s.client.post(
+        s.url("/classify"),
+        headers=s.hk,
         json={"image_url": "http://169.254.169.254/latest/meta-data/"},
     )
     check(
         "SSRF to link-local is refused", r.status_code in (400, 422), f"{r.status_code}", "safety"
     )
 
-    r = client.post(f"{BASE}/classify", headers=hk, json={})
+    r = s.client.post(s.url("/classify"), headers=s.hk, json={})
     check("an empty body is refused", r.status_code == 422, f"{r.status_code}", "safety")
 
-    client.close()
+
+GROUPS = (
+    check_health,
+    check_auth,
+    check_classification,
+    check_detection,
+    check_similarity,
+    check_batch,
+    check_models,
+    check_input_validation,
+)
+
+
+def summarise(targets: list[tuple[str, str]] | None = None) -> int:
+    """Print the tally. Returns the count of failures."""
+    passed = sum(1 for row in results if row[3])
+    total = len(results)
+    print(f"\n{'=' * 60}")
+    if targets and len(targets) > 1:
+        for target, _ in targets:
+            rows = [row for row in results if row[0] == target]
+            print(f"{target:>8}: {sum(1 for row in rows if row[3])}/{len(rows)} passed")
+    print(f"{passed}/{total} checks passed")
+
+    failures = [(t, g, n, d) for t, g, n, ok, d in results if not ok]
+    if failures:
+        print("\nFailures:")
+        for target, group, name, detail in failures:
+            print(f"  [{target}/{group}] {name}: {detail}")
+    return len(failures)
+
+
+def run_suite(target: str, base_url: str, key: str, image_path: Path, timeout: float) -> None:
+    """Run every group against one deployment.
+
+    The suite is identical for the gateway and for the API's own port, which is
+    the point: any difference between the two runs is nginx, not the test.
+    """
+    print(f"\n{'#' * 60}")
+    print(f"# {target}")
+    print("#" * 60)
+
+    s = open_session(target=target, base_url=base_url, key=key, image=image_path, timeout=timeout)
+    try:
+        for group in GROUPS:
+            group(s)
+    finally:
+        s.client.close()
 
 
 def main() -> int:
@@ -351,11 +469,10 @@ def main() -> int:
     else:
         targets = [("gateway", GATEWAY_URL)]
 
-    image_path = args.image or next(iter(sorted((REPO_ROOT / "samples").glob("*.jpg"))), None)
+    image_path = args.image or default_image()
     if image_path is None or not image_path.is_file():
         print("no image to send: pass --image or add one to samples/", file=sys.stderr)
         return 2
-    print(f"image : {image_path.name}")
 
     for target, base_url in targets:
         try:
@@ -366,28 +483,16 @@ def main() -> int:
             print(f"\ncannot reach {base_url}: {exc}", file=sys.stderr)
             results.append((target, "connection", f"reach {base_url}", False, str(exc)))
 
-    # ------------------------------------------------------------------ summary
-    passed = sum(1 for row in results if row[3])
-    total = len(results)
-    print(f"\n{'=' * 60}")
-    if len(targets) > 1:
-        for target, _ in targets:
-            rows = [row for row in results if row[0] == target]
-            print(f"{target:>8}: {sum(1 for row in rows if row[3])}/{len(rows)} passed")
-    print(f"{passed}/{total} checks passed")
-    failures = [(t, g, n, d) for t, g, n, ok, d in results if not ok]
-    if failures:
-        print("\nFailures:")
-        for target, group, name, detail in failures:
-            print(f"  [{target}/{group}] {name}: {detail}")
+    failures = summarise(targets)
+
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(
             json.dumps(
                 {
                     "targets": dict(targets),
-                    "passed": passed,
-                    "total": total,
+                    "passed": sum(1 for row in results if row[3]),
+                    "total": len(results),
                     "checks": [
                         {"target": t, "group": g, "check": n, "ok": ok, "detail": d}
                         for t, g, n, ok, d in results
@@ -401,9 +506,6 @@ def main() -> int:
 
     return 0 if not failures else 1
 
-#%%
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-#%%
