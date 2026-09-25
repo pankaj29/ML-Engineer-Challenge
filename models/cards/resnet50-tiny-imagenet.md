@@ -166,7 +166,10 @@ xychart-beta
 | ONNX Runtime | fp32 | 14.84 ms | 15.73 ms | 66.4 img/s | 91.2 MB |
 | ONNX Runtime | INT8 static | 24.80 ms | 26.84 ms | 40.0 img/s | 23.3 MB |
 
-The two ONNX Runtime rows are CPU numbers, not GPU. The run requested CUDA but
+The two ONNX Runtime rows are CPU numbers, not GPU, **and they are the GPU
+host's CPU**, not the development laptop's. That host is considerably faster:
+the same model measures 34.3 ms on the laptop. Do not compare these rows with
+the CPU tables elsewhere in the repository, which are all laptop numbers. The run requested CUDA but
 `onnxruntime-gpu` had no usable CUDAExecutionProvider, and ONNX Runtime falls
 back to CPU without raising. The tell is INT8 being slower than fp32, which is
 the CPU signature; on a GPU INT8 is faster. Only the TensorRT rows are GPU
@@ -203,7 +206,7 @@ through the same `ModelService` the API uses. Nine of nine checks pass:
 | Calibration | Pass, ECE 0.1244 against a 0.15 threshold |
 | Latency | Pass, p95 33.8 ms on CPU against a 1,000 ms budget |
 
-ONNX export fidelity against PyTorch: max abs diff 3.46e-06, mean 3.69e-07,
+ONNX export fidelity against PyTorch: max abs diff 3.81e-06, mean 3.88e-07,
 identical top-1 prediction, dynamic batching verified at batch 4.
 
 All three TensorRT engines verify against the fp32 ONNX graph. The check bounds
@@ -224,14 +227,18 @@ measured on 500 held-out images:
 
 | | fp32 | INT8 static |
 | --- | ---: | ---: |
-| Size | 95.6 MB | 24.4 MB (3.91× smaller) |
-| CPU p50, batch 1 | 14.84 ms | 24.80 ms |
-| Top-1 | 76.80% | 65.60% |
-| Agreement with fp32 | — | 71.20% |
+| Size | 91.2 MB | 23.3 MB (3.91× smaller) |
+| CPU p50, batch 1 | 34.3 ms | 46.9 ms |
+| Top-1 | 80.0% | 63.0% |
+| Agreement with fp32 | — | 67.0% |
 
-Nearly four times smaller, but it disagrees with the full-precision model on
-almost three images in ten and costs 11 points of top-1. It is registered and
-selectable per request. It is not the default, and these numbers are why.
+Latency on the development laptop, from `benchmark_results.json`. Accuracy on
+500 held-out validation images put through the API's own preprocessing, from
+`quantization_accuracy.json`, so it describes the model as it is served.
+
+Nearly four times smaller, but it disagrees with the full-precision model on a
+third of images and costs 17 points of top-1. It is registered and selectable
+per request. It is not the default, and these numbers are why.
 
 ---
 

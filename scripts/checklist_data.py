@@ -677,7 +677,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Performance monitoring and alerting": (
         "DONE",
         "monitoring/prometheus/alerts.yml; monitoring/grafana/",
-        "13 Prometheus metrics (counters, histograms, gauges) covering requests, "
+        "15 Prometheus metrics (counters, histograms, gauges) covering requests, "
         "inference, cache, model loads and batch jobs. 11 alert rules validated by "
         "promtool, each alerting on a user-visible symptom rather than a cause and "
         "carrying a description of what to do about it. 22-panel Grafana dashboard, "
@@ -732,10 +732,11 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Benchmark inference times across all formats": (
         "DONE",
         "benchmarks/reports/BENCHMARKS.md",
-        "fp32 ONNX vs INT8 static, batch 1 and 4, all 3 models, p50/p95/p99 with environment "
-        "recorded, plus fp32/fp16/int8 TensorRT engines on an A100. Key findings: dynamic "
-        "INT8 is 13x SLOWER than fp32 on this CPU, static QDQ is 1.4x slower and 3.9x "
-        "smaller, and on GPU int8 matches fp16 on latency while halving engine size.",
+        "fp32 ONNX vs INT8 static, batch 1 and 4, all 4 models, p50/p95/p99 with "
+        "environment recorded, plus fp32/fp16/int8 TensorRT engines on an A100. Key "
+        "findings: dynamic INT8 will not even load on this CPU (no ConvInteger kernel), "
+        "static QDQ is 1.07x to 2.30x slower depending on the model and 3.9x smaller, "
+        "and on GPU int8 matches fp16 on latency while halving engine size.",
     ),
     "Comprehensive model validation pipeline": (
         "DONE",
@@ -1072,8 +1073,9 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Performance: sub-second inference": (
         "DONE",
         "benchmarks/reports/BENCHMARKS.md",
-        "p99 at batch 1: resnet50 131ms, yolov8n 235ms, embed 388ms. All inside "
-        "the 1s budget; the slowest is ~4x inside it.",
+        "p99 at batch 1: resnet50 146ms, resnet50-tiny-imagenet 93ms, yolov8n "
+        "166ms, embed 63ms. Every model and both precisions stay inside the 1s "
+        "budget; the slowest overall is yolov8n INT8 at 338ms, 3x inside it.",
     ),
     "Security: no hardcoded secrets": (
         "DONE",

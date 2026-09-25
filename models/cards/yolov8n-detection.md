@@ -103,9 +103,9 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
 
 | Format | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | **120.6 ms** | 153.5 ms | 235.2 ms | 8.0 img/s | 12.1 MB |
+| ONNX fp32 | 1 | **97.1 ms** | 154.4 ms | 166.1 ms | 9.6 img/s | 12.1 MB |
 | ONNX fp32 | 4 | 437.6 ms | 740.9 ms | 1097.3 ms | 8.6 img/s | 12.1 MB |
-| ONNX INT8 (static) | 1 | 283.3 ms | 379.2 ms | 410.7 ms | 3.5 img/s | **3.4 MB** |
+| ONNX INT8 (static) | 1 | 223.6 ms | 309.4 ms | 337.6 ms | 4.4 img/s | **3.4 MB** |
 | ONNX INT8 (static) | 4 | 1431.8 ms | 1841.6 ms | 2071.4 ms | 2.8 img/s | 3.4 MB |
 
 p99 at batch 1 is 235 ms, inside the 1-second budget.

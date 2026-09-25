@@ -106,13 +106,13 @@ CPU only**, ONNX Runtime 1.26.0. Reproduce with
 
 | Format | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | **84.8 ms** | 109.1 ms | 131.5 ms | 13.1 img/s | 97.4 MB |
-| ONNX fp32 | 4 | 266.9 ms | 348.0 ms | 423.8 ms | 14.2 img/s | 97.4 MB |
-| ONNX INT8 (static) | 1 | 120.3 ms | 202.8 ms | 274.4 ms | 7.2 img/s | **24.9 MB** |
-| ONNX INT8 (static) | 4 | 523.8 ms | 666.3 ms | 788.9 ms | 8.1 img/s | 24.9 MB |
+| ONNX fp32 | 1 | **69.9 ms** | 90.4 ms | 145.6 ms | 15.0 img/s | 97.4 MB |
+| ONNX fp32 | 4 | 201.2 ms | 302.3 ms | 354.7 ms | 18.8 img/s | 97.4 MB |
+| ONNX INT8 (static) | 1 | 74.5 ms | 88.1 ms | 131.7 ms | 13.9 img/s | **24.9 MB** |
+| ONNX INT8 (static) | 4 | 344.2 ms | 515.8 ms | 863.8 ms | 10.8 img/s | 24.9 MB |
 
 The brief asks for sub-second single-image inference.
-p99 at batch 1 is 131 ms, roughly 7x inside budget.
+p99 at batch 1 is 146 ms, roughly 7x inside budget.
 
 INT8 is not the default. It is 3.92x smaller but about 1.4x
 *slower* on this CPU. The reasoning, and the much worse result from dynamic

@@ -29,9 +29,9 @@ accuracy did.
 
 | Task | Model | Params | p50 (CPU) | Size |
 | --- | --- | ---: | ---: | ---: |
-| Classification | ResNet-50 | 25.6 M | 84.8 ms | 97.4 MB |
-| Detection | YOLOv8n | 3.2 M | 120.6 ms | 12.1 MB |
-| Similarity | ResNet-50 (headless) | 23.5 M | 43.4 ms | 89.6 MB |
+| Classification | ResNet-50 | 25.6 M | 69.9 ms | 97.4 MB |
+| Detection | YOLOv8n | 3.2 M | 97.1 ms | 12.1 MB |
+| Similarity | ResNet-50 (headless) | 23.5 M | 49.6 ms | 89.6 MB |
 
 ### Classification: ResNet-50
 
@@ -125,36 +125,45 @@ The fix is to opt out of the dynamo exporter explicitly.
 ### INT8 quantization
 
 The brief asks for INT8 quantization on all models. It is applied to all
-three, and measurement showed the obvious approach is dramatically wrong.
+four, and measurement showed the obvious approach is dramatically wrong.
 
 ResNet-50, batch 1, same machine:
 
 | Variant | p50 latency | Size |
 | --- | ---: | ---: |
-| ONNX float32 | **75.7 ms** | 97.4 MB |
-| INT8 **dynamic** | **1008.0 ms** | 24.5 MB |
-| INT8 **static QDQ** | **104.6 ms** | 24.9 MB |
+| ONNX float32 | **69.9 ms** | 97.4 MB |
+| INT8 **dynamic** | **will not load** | 24.5 MB |
+| INT8 **static QDQ** | **74.5 ms** | 24.9 MB |
 
-Dynamic quantization was **13x slower than float32**.
+Dynamic quantization does not merely run badly. It produces a model this
+runtime cannot execute:
 
-Dynamic quantization computes activation scales on every single call,
-and ONNX Runtime falls back to poorly-optimised integer convolution kernels
-for it. That is tolerable for a transformer dominated by large matrix
-multiplies; for a convolutional network it is catastrophic. The size reduction
-is real, but shipping it as an "optimisation" would have made the service 13x
-slower.
+```
+NOT_IMPLEMENTED : Could not find an implementation for
+ConvInteger(10) node with name '/conv1/Conv_quant'
+```
 
-Static QDQ quantization measures those activation ranges once, ahead of
-time, from real calibration images (100 images from Tiny-ImageNet). That made
-it **~10x faster than dynamic**, and the pipeline now prefers it
-automatically, falling back to dynamic only when no calibration data is
-available, and saying so.
+Dynamic quantization computes activation scales on every call, and for
+convolutions ONNX Runtime represents that as `ConvInteger`, for which the CPU
+provider ships no kernel. The session fails to open, so there is no latency to
+quote. That is tolerable for a transformer dominated by large matrix
+multiplies, which quantize to `MatMulInteger`; for a convolutional network it
+is a dead end. The size reduction is real and worth nothing if the file cannot
+be loaded.
 
-Static INT8 is still about 1.4x slower than float32 here, while being 3.9x
-smaller.
+Static QDQ quantization measures those activation ranges once, ahead of time,
+from real calibration images (100 images from Tiny-ImageNet), and produces a
+graph of ordinary `QuantizeLinear`/`DequantizeLinear` pairs the runtime does
+support. The pipeline prefers it automatically, falling back to dynamic only
+when no calibration data is available, and saying so.
 
-So float32 ONNX is the serving default. INT8 is registered
-alongside it and selectable per request for memory-constrained deployments.
+Static INT8 costs almost nothing in latency for this model, 1.07x, while being
+3.9x smaller. Across the four models the latency penalty ranges from 1.07x
+(resnet50) to 2.30x (yolov8n), so it is worth measuring per model rather than
+assuming.
+
+So float32 ONNX is the serving default. INT8 is registered alongside it and
+selectable per request for memory-constrained deployments.
 
 This is the one place where following the brief literally would have produced
 a worse system. Quantization is applied, measured, documented, and not
@@ -165,11 +174,15 @@ enabled by default, because the measurement says not to.
 > the binding constraint. Benchmark on your own hardware, that is what
 > `models/optimization/benchmark.py` is for.
 
-One more caveat: static INT8 agrees with float32 on only 71.2% of
-top-1 predictions, measured on 500 held-out images. Roughly 29 in 100 get a
-different top class, and top-1 accuracy drops from 76.8% to 65.6%. Many of the
-disagreements are near-ties, but that is an 11-point cost. Do not switch on
-size alone without evaluating on your own data.
+The real cost is accuracy, not latency. On 500 held-out Tiny-ImageNet
+validation images, put through the API's own preprocessing so the number
+describes the model as it is actually served, the fine-tuned classifier scores
+80.0% top-1 in float32 and 63.0% in INT8, agreeing on 67.0% of top-1
+predictions. A third of images get a different top class, for a 17-point drop.
+Measured by `benchmarks/reports/quantization_accuracy.json`.
+
+Do not switch on size alone without evaluating on your own data. This is the
+number that keeps INT8 off the default path, more than the latency.
 
 ### TensorRT
 
@@ -301,10 +314,12 @@ comparisons. The CPU numbers are the ones the serving budget is judged
 against; the GPU numbers exist because the brief asks for TensorRT.
 
 CPU environment: Intel Core Ultra 7 155H, 22 logical cores, 64 GB RAM,
-CPU only. ONNX Runtime 1.26.0, PyTorch 2.9.0+cpu, Python 3.13.
-40 iterations after 8 warmup runs.
+CPU only. ONNX Runtime 1.20.1, Python 3.13. 50 iterations after 10 warmups,
+with the Docker stack stopped. That last part matters more than it sounds: on
+a machine running the seven-container stack the same models measure 20 to 40%
+slower, and the measurement is then partly of the other containers.
 
-Reproduce: `python -m models.optimization.benchmark --iterations 40 --warmup 8 --batch-sizes 1,4`
+Reproduce: `python -m models.optimization.benchmark --iterations 50 --warmup 10 --batch-sizes 1,4`
 
 ### Single-image latency (the requirement)
 
@@ -313,38 +328,48 @@ xychart-beta
     title "CPU p50 latency, batch 1 (ms, lower is better)"
     x-axis ["resnet50 fp32", "resnet50 INT8", "yolov8n fp32", "yolov8n INT8", "embed fp32", "embed INT8"]
     y-axis "milliseconds" 0 --> 300
-    bar [84.8, 120.3, 120.6, 283.3, 43.4, 110.6]
+    bar [69.9, 74.5, 97.1, 223.6, 49.6, 77.6]
 ```
 
 Every bar for INT8 is **taller** than its fp32 counterpart. That is the
 headline finding of section 2, visible at a glance: on this CPU, quantisation
-costs latency and buys only size.
+costs latency and buys only size. How much latency varies a lot by model, from
+almost nothing on resnet50 to more than double on yolov8n.
 
 
 | Model | Runtime | p50 | p95 | p99 | Throughput | Size |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| resnet50 | onnx | **84.8** | 109.1 | 131.5 | 13.1/s | 97.4 MB |
-| resnet50 | onnx_int8 | 120.3 | 202.8 | 274.4 | 7.2/s | 24.9 MB |
-| yolov8n | onnx | **120.6** | 153.5 | 235.2 | 8.0/s | 12.1 MB |
-| yolov8n | onnx_int8 | 283.3 | 379.2 | 410.7 | 3.5/s | 3.4 MB |
-| resnet50-embed | onnx | **43.4** | 278.3 | 387.9 | 10.8/s | 89.6 MB |
-| resnet50-embed | onnx_int8 | 110.6 | 135.2 | 182.1 | 8.8/s | 22.9 MB |
+| resnet50 | onnx | **69.9** | 90.4 | 145.6 | 15.0/s | 97.4 MB |
+| resnet50 | onnx_int8 | 74.5 | 88.1 | 131.7 | 13.9/s | 24.9 MB |
+| resnet50-tiny-imagenet | onnx | **34.3** | 75.8 | 92.7 | 25.9/s | 91.2 MB |
+| resnet50-tiny-imagenet | onnx_int8 | 46.9 | 72.6 | 127.4 | 19.6/s | 23.3 MB |
+| yolov8n | onnx | **97.1** | 154.4 | 166.1 | 9.6/s | 12.1 MB |
+| yolov8n | onnx_int8 | 223.6 | 309.4 | 337.6 | 4.4/s | 3.4 MB |
+| resnet50-embed | onnx | **49.6** | 62.3 | 63.1 | 22.9/s | 89.6 MB |
+| resnet50-embed | onnx_int8 | 77.6 | 104.8 | 129.5 | 12.9/s | 22.9 MB |
 
-Every model meets the sub-second requirement at p99, with the slowest
-(yolov8n) at 235 ms, roughly 4x inside budget.
+Every model meets the sub-second requirement at p99, in both precisions. The
+slowest is `yolov8n_int8_static` at 337.6 ms, three times inside budget; the
+slowest default runtime is yolov8n at 166.1 ms, six times inside it.
 
 ### Batch 4
 
 | Model | Runtime | p50 | p99 | Per-image |
 | --- | --- | ---: | ---: | ---: |
-| resnet50 | onnx | 266.9 | 423.8 | 66.7 ms |
-| yolov8n | onnx | 437.6 | **1097.3** | 109.4 ms |
-| resnet50-embed | onnx | 302.7 | 453.6 | 75.7 ms |
+| resnet50 | onnx | 201.2 | 354.7 | 50.3 ms |
+| resnet50-tiny-imagenet | onnx | 129.2 | 260.6 | 32.3 ms |
+| yolov8n | onnx | 325.8 | 473.7 | 81.4 ms |
+| resnet50-embed | onnx | 178.2 | 354.2 | 44.6 ms |
+| yolov8n | onnx_int8 | 887.5 | **1140.2** | 221.9 ms |
 
-Batching improves *per-image* cost (resnet50: 84.8 → 66.7 ms) but worsens tail
-latency, yolov8n at batch 4 exceeds one second at p99. This is precisely why
-the batch endpoint is **asynchronous**: batching is a throughput optimisation,
-and forcing it into a synchronous request would blow the latency budget.
+Batching improves *per-image* cost (resnet50: 69.9 → 50.3 ms) and worsens tail
+latency. At batch 4 the fp32 models stay inside a second at p99, but
+`yolov8n_int8_static` does not, at 1140.2 ms. That is with four images; the
+batch endpoint accepts far more.
+
+This is why the batch endpoint is **asynchronous**. Batching is a throughput
+optimisation, and a synchronous request that grows its own latency budget with
+the size of the payload is a timeout waiting to happen.
 
 ### GPU: the fine-tuned classifier
 

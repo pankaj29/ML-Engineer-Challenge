@@ -13,13 +13,13 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| CI | 6 jobs green on Python 3.11 and 3.12 |
+| CI | 8 jobs green on Python 3.11 and 3.12 |
 | Tests | 1,388: 1186 unit, 159 integration, 28 end-to-end, 15 performance |
 | Coverage | 95.7% on `api/`, 100% on `worker/`; nothing on the request path below 85% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
 | Classifier | 78.91% top-1 on Tiny-ImageNet, 9 of 9 validation checks pass |
-| Latency | 0.92 ms p50 on A100 via TensorRT INT8; 43-121 ms on CPU |
+| Latency | 0.92 ms p50 on A100 via TensorRT INT8; 34-97 ms on CPU |
 | Load tested | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
 
 CI skips the Tiny-ImageNet dataset tests. The dataset is 519 MB across 120,203
@@ -340,10 +340,10 @@ Four models covering three tasks:
 
 | Task | Model | p50 (CPU) | Size | Endpoint |
 | --- | --- | ---: | ---: | --- |
-| Classification | ResNet-50 (ImageNet-1k) | 84.8 ms | 97.4 MB | `POST /api/v1/classify` |
-| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 14.8 ms | 95.6 MB | same, `model_name` pinned |
-| Detection | YOLOv8n (COCO) | 120.6 ms | 12.1 MB | `POST /api/v1/detect` |
-| Similarity | ResNet-50 embeddings | 43.4 ms | 89.6 MB | `POST /api/v1/similarity/*` |
+| Classification | ResNet-50 (ImageNet-1k) | 69.9 ms | 97.4 MB | `POST /api/v1/classify` |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 34.3 ms | 91.2 MB | same, `model_name` pinned |
+| Detection | YOLOv8n (COCO) | 97.1 ms | 12.1 MB | `POST /api/v1/detect` |
+| Similarity | ResNet-50 embeddings | 49.6 ms | 89.6 MB | `POST /api/v1/similarity/*` |
 
 Each has a [model card](models/cards/) with its measured performance and, more
 usefully, its limitations.
@@ -361,21 +361,33 @@ measurement showed the obvious approach makes things much worse:
 
 | ResNet-50, batch 1 | p50 latency | Size |
 | --- | ---: | ---: |
-| ONNX float32 | 75.7 ms | 97.4 MB |
-| INT8 dynamic | 1008.0 ms | 24.5 MB |
-| INT8 static QDQ | 104.6 ms | 24.9 MB |
+| ONNX float32 | 69.9 ms | 97.4 MB |
+| INT8 dynamic | does not run | 24.5 MB |
+| INT8 static QDQ | 74.5 ms | 24.9 MB |
 
-Dynamic quantization was 13× slower than float32. It recomputes activation
-scales on every call and falls back to poorly optimised integer convolution
-kernels, which is fine for a transformer and bad for a convolutional network.
+Dynamic quantization does not produce a usable model here at all. It emits
+`ConvInteger`, which the ONNX Runtime CPU provider has no kernel for, so the
+session fails to open:
 
-Static QDQ, calibrated on 100 real images, is about ten times faster than
-dynamic. It is still roughly 1.4× slower than float32 on this CPU, while being
-3.9× smaller.
+```
+NOT_IMPLEMENTED : Could not find an implementation for
+ConvInteger(10) node with name '/conv1/Conv_quant'
+```
+
+That is a property of convolutional networks rather than a bug: dynamic
+quantization suits transformers dominated by large matrix multiplies. The
+pipeline therefore prefers static, falls back to dynamic only when no
+calibration data exists, and says so when it does.
+
+Static QDQ, calibrated on 100 real images, runs. It is 3.9× smaller and, on
+this CPU, 1.07× slower. The cost is accuracy rather than speed: it agrees with
+float32 on 67% of top-1 predictions, measured on 500 held-out images with the
+API's own preprocessing.
 
 So float32 is the serving default, with INT8 registered alongside and
-selectable per request. Shipping a 13× slower optimisation as the default,
-because the brief said to apply quantization, would have been the wrong call.
+selectable per request. Shipping a model that loses 17 points of top-1, or one
+that will not load at all, because the brief said to apply quantization, would
+have been the wrong call.
 
 Full analysis in [TECHNICAL.md §2](docs/TECHNICAL.md#2-optimisation-what-worked-and-what-did-not).
 
@@ -433,7 +445,9 @@ in [TECHNICAL.md](docs/TECHNICAL.md#tensorrt).
 
 ## Measured performance
 
-Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
+Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.20.1.
+50 iterations after 10 warmups, with the Docker stack stopped, because a
+contended machine measures the other containers as much as the model.
 
 ### Single image
 
@@ -441,11 +455,17 @@ The requirement is sub-second.
 
 | Model | p50 | p95 | p99 | Throughput |
 | --- | ---: | ---: | ---: | ---: |
-| resnet50 | 84.8 ms | 109.1 ms | 131.5 ms | 13.1/s |
-| yolov8n | 120.6 ms | 153.5 ms | 235.2 ms | 8.0/s |
-| resnet50-embed | 43.4 ms | 278.3 ms | 387.9 ms | 10.8/s |
+| resnet50 | 69.9 ms | 90.4 ms | 145.6 ms | 15.0/s |
+| resnet50-tiny-imagenet | 34.3 ms | 75.8 ms | 92.7 ms | 25.9/s |
+| yolov8n | 97.1 ms | 154.4 ms | 166.1 ms | 9.6/s |
+| resnet50-embed | 49.6 ms | 62.3 ms | 63.1 ms | 22.9/s |
 
-All three meet it at p99, the slowest about 4× inside budget.
+All four meet it at p99, the slowest six times inside budget. The INT8
+variants are slower and also stay inside it: the worst, `yolov8n_int8_static`,
+is 337.6 ms at p99.
+
+Full table, including batch 4 and every INT8 variant, in
+[BENCHMARKS.md](benchmarks/reports/BENCHMARKS.md).
 
 ### End to end through the Docker stack
 
@@ -481,7 +501,8 @@ Reproduce with `python -m models.optimization.benchmark`.
   bf16 on CPU), gradient clipping and cosine LR scheduling with warmup
 - Augmentation written from scratch: RandAugment (13 operations),
   RandomResizedCrop, RandomErasing, MixUp, CutMix
-- ONNX export verified numerically against PyTorch, max diff 3.46e-06
+- ONNX export verified numerically against PyTorch, max diff 3.81e-06 for
+  the fine-tuned classifier and 2.86e-06 for the ImageNet ResNet-50
 - INT8 quantization, static and dynamic, with the accuracy cost measured
 - TensorRT fp32, fp16 and INT8 all built, verified and benchmarked on an
   A100: INT8 at 0.920 ms p50 and 1068 img/s, 1.41× faster than fp32 and a

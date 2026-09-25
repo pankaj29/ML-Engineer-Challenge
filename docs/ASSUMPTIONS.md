@@ -197,9 +197,9 @@ For the fine-tuned classifier:
 
 | | |
 | --- | --- |
-| Size | 95.6 MB |
-| Max absolute difference vs PyTorch | 3.46e-06 |
-| Mean absolute difference | 3.69e-07 |
+| Size | 95.6 MB on disk (91.2 MiB, which is how the benchmark tool reports it) |
+| Max absolute difference vs PyTorch | 3.81e-06 |
+| Mean absolute difference | 3.88e-07 |
 | Top-1 prediction | identical |
 | Dynamic batch | verified at batch 4 |
 
@@ -210,31 +210,37 @@ calibrated on 200 real validation images:
 
 | | fp32 | INT8 static |
 | --- | ---: | ---: |
-| Size | 95.6 MB | 24.4 MB (3.91× smaller) |
-| CPU p50, batch 1 | 14.84 ms | 24.80 ms |
-| Top-1 on 500 validation images | 76.80% | 65.60% |
-| Agreement with fp32 | — | 71.20% |
+| Size | 91.2 MB | 23.3 MB (3.91× smaller) |
+| CPU p50, batch 1 | 34.3 ms | 46.9 ms |
+| Top-1 on 500 validation images | 80.0% | 63.0% |
+| Agreement with fp32 | — | 67.0% |
+
+Accuracy measured through the API's own preprocessing, so the figure describes
+the model as it is served rather than as a benchmark script happens to resize.
+Recorded in `benchmarks/reports/quantization_accuracy.json`; latency and size
+in `benchmark_results.json`.
 
 INT8 is registered but is not the default. It is nearly four times smaller,
-but on this hardware it is also slower, and it changes the answer on almost
-three images in ten. Callers who want the smaller model can ask for it per
-request.
+but on this hardware it is also slower, and it changes the top-1 answer on a
+third of images, for a 17-point drop. Callers who want the smaller model can
+ask for it per request.
 
 The same pattern holds for the ImageNet ResNet-50, where I also measured
 dynamic quantization:
 
 | Variant | p50, batch 1 | Size |
 | --- | ---: | ---: |
-| ONNX fp32 | 75.7 ms | 97.4 MB |
-| INT8 dynamic | 1008.0 ms | 24.5 MB |
-| INT8 static QDQ | 104.6 ms | 24.9 MB |
+| ONNX fp32 | 69.9 ms | 97.4 MB |
+| INT8 dynamic | will not load | 24.5 MB |
+| INT8 static QDQ | 74.5 ms | 24.9 MB |
 
-Dynamic quantization was 13× slower than fp32. It recomputes activation scales
-on every call and falls back to poorly optimised integer convolution kernels,
-which suits convolutional networks badly. Static QDQ with real calibration
-images is about ten times faster than dynamic, though still around 1.4× slower
-than fp32. Shipping a 13× slower optimisation as the default because the brief
-said to apply quantization would have been the wrong call.
+Dynamic quantization does not produce a runnable model for a convolutional
+network. It emits `ConvInteger`, which the ONNX Runtime CPU provider has no
+kernel for, so the session fails to open with `NOT_IMPLEMENTED`. The file is
+written and is nearly four times smaller, and it is useless. Static QDQ with
+real calibration images loads and runs, at 1.07× the fp32 latency for this
+model. Shipping an artifact that cannot be loaded, because the brief said to
+apply quantization, would have been the wrong call.
 
 ### 2.4 TensorRT
 

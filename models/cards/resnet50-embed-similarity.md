@@ -92,9 +92,9 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only.
 
 | Format | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | **43.4 ms** | 278.3 ms | 387.9 ms | 10.8 img/s | 89.6 MB |
+| ONNX fp32 | 1 | **49.6 ms** | 62.3 ms | 63.1 ms | 22.9 img/s | 89.6 MB |
 | ONNX fp32 | 4 | 302.7 ms | 420.7 ms | 453.6 ms | 12.7 img/s | 89.6 MB |
-| ONNX INT8 (static) | 1 | 110.6 ms | 135.2 ms | 182.1 ms | 8.8 img/s | **22.9 MB** |
+| ONNX INT8 (static) | 1 | 77.6 ms | 104.8 ms | 129.5 ms | 12.9 img/s | **22.9 MB** |
 | ONNX INT8 (static) | 4 | 567.8 ms | 791.0 ms | 892.4 ms | 7.1 img/s | 22.9 MB |
 
 The unusually wide p50-to-p95 gap at batch 1 (43 ms → 278 ms) is measurement

@@ -376,7 +376,7 @@ EOF
   "top_prediction": { "class_id": 654, "label": "minibus", "confidence": 0.190, "rank": 1 },
   "model":  { "name": "resnet50", "version": "1.0.0", "task": "classification",
               "runtime": "onnx", "device": "cpu" },
-  "timing": { "preprocess_ms": 12.4, "inference_ms": 84.8,
+  "timing": { "preprocess_ms": 12.4, "inference_ms": 69.9,
               "postprocess_ms": 0.3, "total_ms": 97.5 },
   "correlation_id": "3803dbb1d6274a2e9f1c...",
   "cached": false,
@@ -423,7 +423,7 @@ Find objects and where they are.
   "image_height": 1080,
   "model": { "name": "yolov8n", "version": "1.0.0", "task": "detection",
              "runtime": "onnx", "device": "cpu" },
-  "timing": { "preprocess_ms": 18.2, "inference_ms": 120.6,
+  "timing": { "preprocess_ms": 18.2, "inference_ms": 97.1,
               "postprocess_ms": 4.1, "total_ms": 142.9 },
   "correlation_id": "...", "cached": false
 }
@@ -486,7 +486,7 @@ Find the indexed images most similar to the supplied one.
   ],
   "count": 1,
   "index_size": 1,
-  "timing": { "preprocess_ms": 9.1, "inference_ms": 43.4, "postprocess_ms": 0.1, "total_ms": 53.2 }
+  "timing": { "preprocess_ms": 9.1, "inference_ms": 49.6, "postprocess_ms": 0.1, "total_ms": 53.2 }
 }
 ```
 
@@ -597,7 +597,7 @@ currently-resident models.
       "name": "resnet50", "version": "1.0.0", "task": "classification",
       "runtime": "onnx", "device": "cpu", "loaded": true, "is_default": true,
       "num_classes": 1000, "input_shape": [1, 3, 224, 224],
-      "metrics": { "p50_latency_ms": 84.8, "size_mb": 97.4 },
+      "metrics": { "p50_latency_ms": 69.9, "size_mb": 97.4 },
       "description": "resnet50 pretrained on ImageNet-1k, exported to ONNX...",
       "limitations": [
         "Trained on ImageNet-1k: only recognises those 1000 categories...",
