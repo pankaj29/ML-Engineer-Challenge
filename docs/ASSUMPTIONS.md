@@ -371,8 +371,8 @@ detection read an empty table, reported no drift, and the retraining loop
 agreed. It was found by deploying to a cluster and looking for the rows.
 
 `env.py` excludes `similarity_vectors` from autogenerate. That table is
-created by `pgvector_index.py`, because its column width comes from the
-embedding model, so autogenerate sees a table with no model
+created by `pgvector_index.py` instead of the ORM, because its column width
+comes from the embedding model, so autogenerate sees a table with no model
 behind it and writes a `DROP`. Without the exclusion the first migration after
 any schema change would delete the similarity index.
 
@@ -415,10 +415,10 @@ Three different choices:
 - The rate limiter fails open. If Redis is down traffic is allowed, with a
   per-process bucket as a partial backstop.
 
-The third is the arguable one. Failing closed would turn a Redis
-blip into a full outage; failing open means a brief window where limits are
-per-process. For this system that is the better trade, and the local bucket
-keeps it bounded.
+The third is the arguable one. Failing closed would turn a Redis blip into a
+full outage; failing open means a brief window where limits are per-process
+instead of global. For this system that is the better trade, and the local
+bucket keeps it bounded.
 
 ### 3.3 Single images are synchronous, batches are not
 
@@ -446,10 +446,10 @@ container serving an artefact the host replaced looks healthy to every
 in-process test; only a request through the gateway notices. They skip
 cleanly when those are absent. That split matters because the substitutes hide
 real differences. SQLite has no native boolean, which is why `inference_stats`
-sums a `case()` expression, and only PostgreSQL can confirm that workaround
-is right. The rate limiter's Lua script exists for
-atomicity, and only a real server can show 20 concurrent requests against a
-15-token bucket letting exactly 15 through.
+sums a `case()` expression instead of casting, and only PostgreSQL can confirm
+that workaround is right. The rate limiter's Lua script exists for atomicity,
+and only a real server can show 20 concurrent requests against a 15-token
+bucket letting exactly 15 through.
 
 Coverage of `api/` is 95.7%, with the cache, database and rate-limiting
 services at 100%. `worker/` is at 100%. Nothing on the request path sits below
