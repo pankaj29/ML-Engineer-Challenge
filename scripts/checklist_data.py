@@ -723,17 +723,19 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Convert models to TensorRT format": (
         "DONE",
         "models/optimization/export_tensorrt.py; benchmarks/reports/BENCHMARKS_GPU.md",
-        "EXECUTED on an A100 (TensorRT 11.3). fp16: 0.729 ms p50, 1369 img/s, 46.0 MB. "
-        "fp32: 1.059 ms, 972 img/s. Handles the TRT 8/10/11 API differences by probing "
-        "attributes. INT8 builds from the QDQ graph quantize.py writes; engine pending "
-        "a GPU session (section 8 of notebooks/colab_gpu_pipeline.ipynb builds all three).",
+        "EXECUTED on an A100 (TensorRT 11.3.0.99). All three precisions built and "
+        "verified: int8 0.920 ms p50, 1068 img/s, 24.1 MB; fp16 0.990 ms, 1066 img/s, "
+        "46.0 MB; fp32 1.298 ms, 822 img/s, 91.5 MB. Handles the TRT 8/10/11 API "
+        "differences by probing attributes. INT8 needed a separate QDQ graph: fp32 "
+        "biases, symmetric, percentile calibration, stem conv excluded.",
     ),
     "Benchmark inference times across all formats": (
         "DONE",
         "benchmarks/reports/BENCHMARKS.md",
         "fp32 ONNX vs INT8 static, batch 1 and 4, all 3 models, p50/p95/p99 with environment "
-        "recorded. Key finding: dynamic INT8 is 13x SLOWER than fp32 on this CPU; static QDQ "
-        "is 1.4x slower and 3.9x smaller.",
+        "recorded, plus fp32/fp16/int8 TensorRT engines on an A100. Key findings: dynamic "
+        "INT8 is 13x SLOWER than fp32 on this CPU, static QDQ is 1.4x slower and 3.9x "
+        "smaller, and on GPU int8 matches fp16 on latency while halving engine size.",
     ),
     "Comprehensive model validation pipeline": (
         "DONE",

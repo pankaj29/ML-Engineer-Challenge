@@ -245,13 +245,13 @@ TensorRT 11.3.0.99, batch 1:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :-: |
 | fp32 | 91.2 MB | 91.5 MB | 24 s | 1.298 ms | 1.336 ms | 822 img/s | 2.62e-03 | yes |
 | fp16 | 45.6 MB | 46.0 MB | 29 s | 0.990 ms | 1.008 ms | 1066 img/s | 2.19e-02 | yes |
-| int8 | 23.1 MB | 24.1 MB | 24 s | **0.920 ms** | 1.017 ms | **1068 img/s** | 1.10e-01 | yes |
+| int8 | 23.1 MB | 24.1 MB | 24 s | 0.920 ms | 1.017 ms | 1068 img/s | 1.10e-01 | yes |
 
 INT8 is 1.41x faster than fp32 and a quarter of its size.
 
-**INT8 and fp16 are the same speed.** Across four runs they traded places
-between 0.87 and 1.00 ms, which is Colab's A100 contention rather than a real
-difference. At batch 1 this model is bound by memory traffic and kernel launch
+INT8 and fp16 run at the same speed here. Across four runs they traded
+places between 0.87 and 1.00 ms, which is contention on a shared A100
+rather than a real difference. At batch 1 this model is bound by memory traffic and kernel launch
 overhead, not arithmetic, so halving the precision of the arithmetic buys
 nothing. What INT8 does buy is half the engine. Anyone reading this table for a
 throughput service should benchmark at their real batch size, where the tensor
@@ -262,16 +262,16 @@ cores become the bottleneck and INT8 should separate from fp16.
 Four independent constraints, found one at a time, three of them only on real
 hardware:
 
-1. **No INT32 into DequantizeLinear.** ONNX Runtime quantizes biases to INT32,
+1. No INT32 into DequantizeLinear. ONNX Runtime quantizes biases to INT32,
    which is correct - a bias scale is `input_scale * weight_scale` and int8
    would overflow - but TensorRT's `DequantizeLinear` accepts only 8- and
    4-bit types. It fails at the first bias node. Fixed with
    `QuantizeBias: False`, which leaves biases in fp32.
-2. **Symmetric quantization only.** Every zero point must be zero; MinMax
+2. Symmetric quantization only. Every zero point must be zero, and MinMax
    calibration fits each activation's true, lopsided range. Fixed with
    `ActivationSymmetric` and `WeightSymmetric`.
-3. **MinMax collapses once symmetric.** This one produced no error at all - it
-   built a perfectly valid engine that was useless. Symmetric makes the range
+3. MinMax collapses once symmetric. This one produced no error at all. It
+   built a valid engine that was useless. Symmetric makes the range
    `[-max|x|, +max|x|]`, so a post-ReLU activation, never negative, wastes half
    its 256 levels, and one outlier stretches the rest. Measured on 200 held-out
    validation images, calibrated on a disjoint 200:
@@ -281,13 +281,13 @@ hardware:
    | MinMax, asymmetric | 70.0% | rejects the graph |
    | MinMax, symmetric | 18.0% | accepts |
    | Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
-   | **Percentile, symmetric** | **95.0%** | **accepts** |
+   | Percentile, symmetric | 95.0% | accepts |
 
    Percentile clips at 99.999% rather than at the single most extreme
-   activation seen, and ends up more faithful than the asymmetric MinMax graph
-   it replaces. This is the failure mode worth remembering: the other three
-   announce themselves, this one ships.
-4. **INT8 convolutions need input channels divisible by 4.** A hardware kernel
+   activation seen. It ends up more faithful than the asymmetric MinMax
+   graph it replaces. The other three constraints stop the build. This one
+   ships.
+4. INT8 convolutions need input channels divisible by 4. A hardware kernel
    limit, so no amount of checking the file catches it. ResNet's stem conv
    takes 3 channels (RGB) and has no INT8 tactic, so the build dies at kernel
    selection with *"Could not find any implementation for node ... /conv1/Conv
@@ -306,7 +306,7 @@ would have invalidated them.
 #### Verification
 
 `_verify_engine` compares the engine against the fp32 ONNX graph and bounds the
-difference as a **fraction of the reference's peak magnitude**, not as an
+difference as a fraction of the reference's peak magnitude, not as an
 absolute number. Logit scale is a property of the model - this classifier spans
 about ±6.7 - so an absolute bound means something different on every model.
 Limits are 0.1% for fp32, 1% for fp16 and 10% for INT8; measured 0.05%, 0.40%
@@ -315,7 +315,7 @@ and 1.96%.
 fp32 is not bit-exact because TensorRT defaults to TF32 for fp32 matmuls on
 Ampere, keeping 10 mantissa bits against fp32's 23.
 
-The comparison runs on a **real photograph** from `samples/`, not random noise.
+The comparison runs on a real photograph from `samples/`, not random noise.
 Noise broke the check in both directions at once: it produces smaller logits
 (peak 2.63 against 5.61) and larger quantization error (0.710 against 0.125),
 because the INT8 ranges were calibrated on photographs and noise falls outside

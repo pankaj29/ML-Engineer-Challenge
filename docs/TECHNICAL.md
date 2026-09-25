@@ -179,13 +179,13 @@ Tiny-ImageNet classifier at 224x224, batch 1:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | fp32 | 91.2 MB | 91.5 MB | 24 s | 1.298 ms | 1.336 ms | 822 img/s | - |
 | fp16 | 45.6 MB | 46.0 MB | 29 s | 0.990 ms | 1.008 ms | 1066 img/s | 1.31x |
-| int8 | 23.1 MB | 24.1 MB | 24 s | **0.920 ms** | 1.017 ms | **1068 img/s** | **1.41x** |
+| int8 | 23.1 MB | 24.1 MB | 24 s | 0.920 ms | 1.017 ms | 1068 img/s | 1.41x |
 
 The same model through ONNX Runtime on CPU runs at about 15 ms, so TensorRT on
 an A100 is roughly **16x faster**. That gap is what justifies a compiled,
 hardware-specific runtime existing in the codebase at all.
 
-**INT8 and fp16 are the same speed at batch 1.** Across four runs they traded
+INT8 and fp16 run at the same speed at batch 1. Across four runs they traded
 places between 0.87 and 1.00 ms, which is contention on a shared A100 rather
 than a real difference. A ResNet-50 at batch 1 is bound by memory traffic and
 kernel launch overhead, not arithmetic, so halving the precision of the
@@ -193,8 +193,8 @@ arithmetic changes little. INT8's win here is size: 24.1 MB against 46.0 MB.
 Anyone sizing a throughput service should re-benchmark at their real batch
 size, where the tensor cores become the bottleneck.
 
-**The TensorRT API differs by two generations across the versions this has
-to run on.** Code written against 10.x does not work on 11.3; three calls were
+The TensorRT API differs by two generations across the versions this has to
+run on. Code written against 10.x does not work on 11.3. Three calls were
 removed between them:
 
 | Removed | Gone in | What replaced it |
@@ -203,8 +203,8 @@ removed between them:
 | `Builder.platform_has_fast_fp16` / `_int8` | 10 | advisory only; skip when absent |
 | `BuilderFlag.FP16` / `.INT8` | 11 | networks are `STRONGLY_TYPED`; precision comes from the graph |
 
-`export_tensorrt.py` selects behaviour by **probing for attributes rather
-than parsing `trt.__version__`**, and supports all three eras. A version
+`export_tensorrt.py` picks its behaviour by probing for attributes rather
+than parsing `trt.__version__`, and supports all three eras. A version
 comparison would encode a guess about which release dropped what, and that
 guess is exactly the thing that keeps being wrong.
 
@@ -225,7 +225,7 @@ previous one was fixed:
 | --- | --- | --- |
 | 1 | `DequantizeLinear` takes only 8- and 4-bit inputs | parse error at `fc.bias_DequantizeLinear`: *"input has type Int32"* |
 | 2 | Symmetric quantization only, every zero point 0 | parse error at `input_QuantizeLinear`: *"Non-zero zero point is not supported"* |
-| 3 | MinMax calibration collapses once symmetric | **nothing** - a valid engine, quietly 18% faithful |
+| 3 | MinMax calibration collapses once symmetric | nothing at all: a valid engine, quietly 18% faithful |
 | 4 | INT8 convolutions need input channels divisible by 4 | build error: *"Could not find any implementation for node ... /conv1/Conv"* |
 
 On (1): ONNX Runtime quantizes biases to INT32, which is correct, since a bias
@@ -243,12 +243,12 @@ calibrated on a disjoint 200:
 | MinMax, asymmetric | 70.0% | rejects the graph |
 | MinMax, symmetric | 18.0% | accepts |
 | Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
-| **Percentile, symmetric** | **95.0%** | **accepts** |
+| Percentile, symmetric | 95.0% | accepts |
 
 Percentile clips at 99.999% instead of at the single most extreme activation
-seen, and ends up *more* faithful than the asymmetric MinMax graph it replaces.
-The other three constraints stop the build; this one ships a working engine
-that is wrong, which is the failure mode that actually reaches production.
+seen, and ends up more faithful than the asymmetric MinMax graph it replaces.
+The other three constraints stop the build. This one ships a working engine
+that is wrong, which is the kind that reaches production.
 
 On (4): a hardware kernel limit, not a graph property, so no file inspection
 catches it. ResNet's stem convolution takes 3 channels and has no INT8 tactic.
@@ -270,7 +270,7 @@ name contains would have invalidated them.
 #### Verifying an engine
 
 `_verify_engine` compares the engine against the fp32 ONNX graph and bounds the
-difference as a **fraction of the reference's peak magnitude**:
+difference as a fraction of the reference's peak magnitude:
 
 | Precision | Limit | Measured | Why not tighter |
 | --- | ---: | ---: | --- |
@@ -283,7 +283,7 @@ about -6.7 to +6.7 - so an absolute bound means something different on every
 model and tightens silently as outputs grow. An earlier absolute version failed
 the fp32 and fp16 engines of a perfectly good build while passing INT8.
 
-The comparison runs on a **real photograph** from `samples/`, not random noise.
+The comparison runs on a real photograph from `samples/`, not random noise.
 Noise broke the check in both directions at once: it produces smaller logits
 (peak 2.63 against 5.61) and larger quantization error (0.710 against 0.125),
 because the INT8 ranges were calibrated on photographs and noise falls outside
@@ -361,7 +361,7 @@ xychart-beta
 
 | Runtime | Precision | p50 | p95 | Throughput | Size |
 | --- | --- | ---: | ---: | ---: | ---: |
-| TensorRT | INT8 | **0.920 ms** | 1.017 ms | **1068 img/s** | 24.1 MB |
+| TensorRT | INT8 | 0.920 ms | 1.017 ms | 1068 img/s | 24.1 MB |
 | TensorRT | fp16 | 0.990 ms | 1.008 ms | 1066 img/s | 46.0 MB |
 | TensorRT | fp32 | 1.298 ms | 1.336 ms | 822 img/s | 91.5 MB |
 | ONNX Runtime | fp32 | 11.50 ms | 11.64 ms | 86.9 img/s | 91.2 MB |
