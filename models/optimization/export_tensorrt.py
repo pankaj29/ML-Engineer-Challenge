@@ -395,7 +395,23 @@ def build_engine(
             "fp16 engine instead."
         )
 
-    logger = trt.Logger(trt.Logger.WARNING)
+    class _CapturingLogger(trt.ILogger):
+        """Print as before, but keep the messages so a failure can quote them."""
+
+        def __init__(self) -> None:
+            trt.ILogger.__init__(self)
+            self.messages: list[tuple[str, str]] = []
+
+        def log(self, severity: object, msg: str) -> None:
+            name = getattr(severity, "name", str(severity))
+            self.messages.append((name, msg))
+            if name in ("ERROR", "INTERNAL_ERROR", "WARNING"):
+                print(f"[TensorRT {name}] {msg}", file=sys.stderr)
+
+        def errors(self) -> list[str]:
+            return [m for level, m in self.messages if level in ("ERROR", "INTERNAL_ERROR")]
+
+    logger = _CapturingLogger()
     builder = trt.Builder(logger)
 
     # On TensorRT 11 the precision lives in the graph, so an fp16 engine is
@@ -530,13 +546,59 @@ def build_engine(
 
     started = time.perf_counter()
     serialized = builder.build_serialized_network(network, config)
+
+    if (
+        serialized is None
+        and qdq
+        and strongly_typed is not None
+        and flags & (1 << int(strongly_typed))
+    ):
+        # STRONGLY_TYPED makes TensorRT honour the graph's types exactly, with
+        # no per-layer fallback - so a single layer with no int8 kernel fails
+        # the whole build. The Q/DQ nodes already say what should be
+        # quantized, so dropping the flag lets TensorRT choose per layer
+        # without turning this into an fp32 engine wearing an int8 label.
+        print(
+            "  strongly-typed int8 build failed; retrying with per-layer type selection",
+            file=sys.stderr,
+        )
+        retry_flags = flags & ~(1 << int(strongly_typed))
+        retry_network = builder.create_network(retry_flags)
+        retry_parser = trt.OnnxParser(retry_network, logger)
+        if retry_parser.parse(source_onnx.read_bytes()):
+            retry_input = retry_network.get_input(0)
+            retry_profile = builder.create_optimization_profile()
+            retry_profile.set_shape(
+                retry_input.name,
+                min=(1, *spatial),
+                opt=(1, *spatial),
+                max=(max_batch_size, *spatial),
+            )
+            retry_config = builder.create_builder_config()
+            retry_config.set_memory_pool_limit(
+                trt.MemoryPoolType.WORKSPACE, int(workspace_gb * (1 << 30))
+            )
+            retry_config.add_optimization_profile(retry_profile)
+            serialized = builder.build_serialized_network(retry_network, retry_config)
+            if serialized is not None:
+                network = retry_network
+                notes.append(
+                    "built without STRONGLY_TYPED: the strongly-typed build failed, most "
+                    "likely a layer with no int8 kernel and no fallback allowed. Precision "
+                    "still comes from the graph's Q/DQ nodes"
+                )
+
     build_seconds = time.perf_counter() - started
 
     if serialized is None:
-        raise RuntimeError(
-            "TensorRT failed to build the engine. The usual causes are an unsupported "
-            "operator in the graph, or insufficient workspace memory."
+        reported = logger.errors()
+        detail = (
+            "\n\nTensorRT reported:\n" + "\n".join(f"  {m}" for m in reported[-8:])
+            if reported
+            else "\n\nTensorRT logged no error, which usually means it ran out of "
+            "workspace while timing kernels. Try a larger workspace_gb."
         )
+        raise RuntimeError(f"TensorRT failed to build the engine.{detail}")
 
     engine_path.write_bytes(serialized)
 
