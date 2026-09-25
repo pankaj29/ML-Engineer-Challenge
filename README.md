@@ -199,7 +199,7 @@ whether it came from cache.
 | Object detection | `POST /api/v1/detect`, bounding boxes in pixels of the original image |
 | Image similarity | `POST /api/v1/similarity/{embed,index,search}`, 2048-dim vectors and nearest-neighbour search |
 | Batch | `POST /api/v1/batch`, background jobs returning an id to poll |
-| File upload | Add `/upload` to any inference endpoint for multipart instead of base64 |
+| File upload | Add `/upload` to any inference endpoint to send multipart |
 | Models | `GET /api/v1/models`, what is registered and which is default |
 | Health | `/health`, `/health/live`, `/health/ready` |
 | Tokens | `POST /api/v1/auth/token`, trades an API key for a short-lived JWT |
@@ -216,7 +216,7 @@ the code: <http://localhost:8000/docs>.
 | `ModelLoadError` or `503` on every request | The model files are LFS placeholders. Run `git lfs pull`. |
 | A service shows as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
 | Port 80 already in use | `GATEWAY_PORT=8080 docker compose up -d`, then use `http://localhost:8080`. |
-| The container serves an old model after you replace a file | Docker Desktop on Windows does not always propagate a bind-mounted file that was replaced instead of edited. Compare `docker compose exec ml-api md5sum models/artifacts/<file>` against the host, and rebuild if they differ. |
+| The container serves an old model after you replace a file | Docker Desktop on Windows does not always propagate a bind-mounted file that was replaced on the host. Compare `docker compose exec ml-api md5sum models/artifacts/<file>` against the host, and rebuild if they differ. |
 | PowerShell: "The term 'base64' is not recognized" | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("samples\dog.jpg"))`. |
 | PowerShell: "Could not find file" naming the **wrong folder** | The file exists but `[IO.File]` resolves relative paths against .NET's current directory, which `cd` does not change. Wrap the path: `(Resolve-Path "samples\dog.jpg").Path`. |
 | `Argument list too long` from curl | The base64 is too big for a command-line argument. Use the `/upload` endpoint, or pipe the JSON through stdin with `-d @-`, as shown in [Classify an image](#classify-an-image). |
@@ -332,7 +332,7 @@ A few things to know before applying it:
 - The overlays are `kind` for local verification, `gpu` for TensorRT serving on
   a GPU node, and `canary` plus `canary-kind` for progressive delivery.
 
-I applied these to a kind cluster instead of only rendering them. With the
+I applied these to a kind cluster. With the
 overlay's floor of 1 replica, the HPA scaled `ml-api` to 2 under a forced
 target. That run is what surfaced the missing
 registry file in the image, the `CREATE EXTENSION` race between replicas and
@@ -554,7 +554,7 @@ Reproduce with `python -m models.optimization.benchmark`.
   SQLite and fake runtimes, so a fresh clone needs nothing installed
 - Integration tests use the real thing: real ONNX artefacts, and real
   PostgreSQL and Redis when reachable. That is what catches a
-  dialect-specific query or a Lua script that is not actually atomic
+  dialect-specific query or a Lua script that is not atomic
 - End-to-end tests drive the deployed stack over HTTP, so they cross nginx,
   the container image, Redis, PostgreSQL and the Celery worker. That is what
   catches a container serving a stale artefact, which every in-process test
@@ -587,7 +587,7 @@ stops being true the moment you need a second machine.
   and a NetworkPolicy, verified on a kind cluster
 - pgvector as a shared similarity index, so replicas agree on what has been
   indexed
-- Alembic migrations, applied by an init container instead of at API startup
+- Alembic migrations, applied by an init container before the API starts
 - Canary releases: a second deployment on a new model version taking 5% of
   traffic, compared against stable on real predictions
 - GPU serving overlay: TensorRT, engine built on the serving node, autoscaling
@@ -650,14 +650,13 @@ Two paths are generated. Do not edit them by hand:
 - `DELIVERABLES_CHECKLIST.xlsx` comes from `scripts/generate_checklist.py`.
 
 `models/artifacts/` is tracked with Git LFS. Those files cannot be regenerated
-without a GPU session, unlike the dataset, which one command rebuilds. A clone
+without a GPU session. The dataset, by contrast, one command rebuilds. A clone
 made without git-lfs gets 130-byte pointer files, and the model tests skip
 with `git lfs pull` as the stated remedy.
 
 Two files extend the brief's prescribed structure: `api/config.py`, required
 by "environment-based configuration" and "no hardcoded secrets", and
-`api/dependencies.py`, so image extraction is defined once instead of once
-per router. The extra routers exist because the brief requires those endpoints.
+`api/dependencies.py`, so image extraction is defined once for every router. The extra routers exist because the brief requires those endpoints.
 
 ---
 
@@ -749,7 +748,7 @@ storage so checkpoints outlive the container.
   any pixel buffer is allocated.
 - Format detected from magic bytes, never from a filename or a client-declared
   content type.
-- TorchScript instead of pickle, because loading a pickled checkpoint would
+- TorchScript, because loading a pickled checkpoint would
   execute arbitrary code from the artefact.
 - JWT algorithm pinning, so an `alg: none` forgery is rejected.
 - Non-root containers, read-only root filesystems in production,
@@ -794,4 +793,4 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 3. Measure accuracy against the real ImageNet and COCO validation sets
 4. Add OpenTelemetry tracing
 5. Restore least-connections balancing at the gateway
-6. Alert when the rate limiter falls back to local buckets instead of Redis
+6. Alert when the rate limiter falls back to local buckets

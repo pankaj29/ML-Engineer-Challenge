@@ -125,8 +125,8 @@ on 2000 held-out images. Nine of nine checks pass:
 | artefact integrity | all artefacts present |
 | latency | p95 84.4 ms on CPU, against a 1,000 ms budget |
 
-78.60% against 78.91% is the 2000-sample subset versus the full 10,000-image
-validation set. Ordinary sampling variance.
+78.60% comes from the 2000-sample subset and 78.91% from the full
+10,000-image validation set. Ordinary sampling variance.
 
 #### Input resolution
 
@@ -161,8 +161,7 @@ schedule away.
 
 `TINY_IMAGENET_PREPROCESS` is 224x224, and
 `tests/unit/test_preprocessing_parity.py` reads its expected size from that
-constant instead of hard-coding a number, so training and serving cannot
-drift apart unnoticed.
+constant, so training and serving cannot drift apart unnoticed.
 
 #### Why not CPU
 
@@ -216,7 +215,8 @@ calibrated on 200 real validation images:
 | Agreement with fp32 | — | 67.0% |
 
 Accuracy measured through the API's own preprocessing, so the figure describes
-the model as it is served instead of as a benchmark script happens to resize.
+the model as it is served. A benchmark script with its own resize would report
+a different number.
 Recorded in `benchmarks/reports/quantization_accuracy.json`; latency and size
 in `benchmark_results.json`.
 
@@ -261,8 +261,8 @@ TensorRT 11.3.0.99, batch 1:
 INT8 is 1.41x faster than fp32 and a quarter of its size.
 
 INT8 and fp16 run at the same speed here. Across four runs they traded places
-between 0.87 and 1.00 ms, which is contention on a shared A100 instead of a
-real difference. At batch 1 this model is bound by memory traffic and kernel
+between 0.87 and 1.00 ms, which is contention on a shared A100. At batch 1
+this model is bound by memory traffic and kernel
 launch overhead, not arithmetic, so halving the precision of the arithmetic
 buys nothing. What INT8 does buy is half the engine. Anyone reading this table
 for a throughput service should benchmark at their own batch size, where the
@@ -294,8 +294,8 @@ hardware:
    | Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
    | Percentile, symmetric | 95.0% | accepts |
 
-   Percentile clips at 99.999% instead of at the single most extreme
-   activation seen. It ends up more faithful than the asymmetric MinMax
+   Percentile clips at 99.999%, ignoring the single most extreme activation
+   seen. It ends up more faithful than the asymmetric MinMax
    graph it replaces. The other three constraints stop the build. This one
    ships.
 4. INT8 convolutions need input channels divisible by 4. A hardware kernel
@@ -306,8 +306,8 @@ hardware:
    in fp32 - one node here, 52 of 53 convolutions still quantized.
 
 The first two are properties of the file, so `check_trt_qdq_graph()` now
-reports both at once before any GPU work starts, instead of letting the parser
-name whichever node it reaches first.
+reports both at once before any GPU work starts. The parser alone names only
+whichever node it reaches first, which costs a GPU session per violation.
 
 The INT8 graph is a separate artefact, `<name>_int8_trt.onnx`, not a
 replacement for `<name>_int8_static.onnx`. The CPU INT8 figures in §2.3 were
@@ -371,8 +371,8 @@ detection read an empty table, reported no drift, and the retraining loop
 agreed. It was found by deploying to a cluster and looking for the rows.
 
 `env.py` excludes `similarity_vectors` from autogenerate. That table is
-created by `pgvector_index.py` instead of the ORM, because its column width
-comes from the embedding model, so autogenerate sees a table with no model
+created by `pgvector_index.py`, because its column width comes from the
+embedding model, so autogenerate sees a table with no model
 behind it and writes a `DROP`. Without the exclusion the first migration after
 any schema change would delete the similarity index.
 
@@ -383,8 +383,8 @@ so 0.9 does not mean 90% correct. Temperature scaling would fix it.
 ONNX Runtime fell back to CPU on the GPU box. The benchmark run on the A100 had
 no CUDA execution provider available, so the ONNX numbers in
 `benchmarks/reports/BENCHMARKS_GPU_CPU_FALLBACK.md` are CPU numbers. The file
-is named that way on purpose: the benchmark script checks which device was
-actually used and renames the report instead of publishing CPU timings under
+is named that way by the tooling: the benchmark script checks which device
+ran and renames the report, so CPU timings never appear under
 a GPU filename. The TensorRT figures in §2.4 are the only true GPU
 measurements here.
 
@@ -399,14 +399,14 @@ The brief's tree is followed exactly, plus:
 - `api/config.py`, required by "no hardcoded secrets" and "environment-based
   configuration".
 - `api/dependencies.py`, so image extraction and validation are defined once
-  instead of repeated in each router.
+  for every router.
 
 The extra routers (`batch.py`, `models.py`, `health.py`, `metrics.py`,
 `similarity.py`) exist because the brief requires those endpoints.
 
 ### 3.2 Auth fails closed, the cache fails soft, the rate limiter fails open
 
-Three deliberately different choices:
+Three different choices:
 
 - Authentication fails closed. With no API keys configured, every request is
   rejected. There is no default credential.
@@ -417,8 +417,8 @@ Three deliberately different choices:
 
 The third is the arguable one. Failing closed would turn a Redis
 blip into a full outage; failing open means a brief window where limits are
-per-process instead of global. For this system that is the better trade, and
-the local bucket keeps it bounded.
+per-process. For this system that is the better trade, and the local bucket
+keeps it bounded.
 
 ### 3.3 Single images are synchronous, batches are not
 
@@ -446,8 +446,8 @@ container serving an artefact the host replaced looks healthy to every
 in-process test; only a request through the gateway notices. They skip
 cleanly when those are absent. That split matters because the substitutes hide
 real differences. SQLite has no native boolean, which is why `inference_stats`
-sums a `case()` expression instead of casting, and only PostgreSQL can
-confirm that workaround is right. The rate limiter's Lua script exists for
+sums a `case()` expression, and only PostgreSQL can confirm that workaround
+is right. The rate limiter's Lua script exists for
 atomicity, and only a real server can show 20 concurrent requests against a
 15-token bucket letting exactly 15 through.
 
@@ -470,7 +470,7 @@ tests does not read as a coverage regression.
 
 ### 3.6 Data lives inside the repository
 
-Requested explicitly. Worth knowing: the repository sits inside a
+Requested explicitly. One consequence: the repository sits inside a
 OneDrive-synced folder, so 120k dataset files will sync. `data/` is gitignored,
 and pausing OneDrive sync during dataset work is advisable.
 
@@ -500,8 +500,8 @@ exhausts the bandwidth. For a take-home submission that is the right trade. For
 a busy repository it would not be, and Release assets would win.
 
 A clone made without git-lfs gets pointer files instead of models. Tests that
-need a real artefact detect this and skip with `git lfs pull` as the remedy,
-instead of failing with something unhelpful.
+need a real artefact detect this and skip, naming `git lfs pull` as the
+remedy.
 
 ### 3.8 Replacing weights invalidates the cache automatically
 

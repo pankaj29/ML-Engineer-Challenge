@@ -30,13 +30,13 @@ several instances of the same class.
 
 **YOLOv8n** ("nano"): ~3.2 M parameters, 12.1 MB as ONNX.
 
-YOLO, "You Only Look Once", predicts every box in a single forward pass,
-instead of the older two-stage approach of proposing regions and then
-classifying each one. One pass instead of hundreds is why it is fast enough to
+YOLO, "You Only Look Once", predicts every box in a single forward pass. The
+older two-stage approach proposes regions first and classifies each one after.
+One pass over the image is why it is fast enough to
 run on a CPU at all.
 
 YOLOv8 in particular is *anchor-free*: it predicts box coordinates directly
-instead of adjusting a set of predefined box shapes. That removes a whole
+without adjusting a set of predefined box shapes. That removes a whole
 category of tuning (choosing anchor sizes for your dataset) and simplifies the
 postprocessing, which matters because we implement that postprocessing
 ourselves in `api/services/inference_service.py`.
@@ -64,13 +64,13 @@ about this. Moving to `yolov8s` or `yolov8m` is a single argument change
 
 **COCO 2017** ("Common Objects in Context"): ~118,000 training images with
 ~860,000 labelled object instances across 80 categories. Photographs of
-everyday scenes, deliberately cluttered and unposed, which is why COCO models
+everyday scenes, cluttered and unposed, which is why COCO models
 generalise to real photographs better than models trained on isolated objects.
 
 The weights are Ultralytics' published COCO checkpoint. **No fine-tuning was
 performed for this project**; the brief asks for a detector on a COCO subset,
 and the pretrained COCO weights are exactly that, evaluated on the full set
-instead of a subset.
+and not a subset.
 
 ### Preprocessing (must match exactly)
 
@@ -91,7 +91,7 @@ that maps boxes back to original coordinates lives in
 Note also that YOLO expects **un-normalised** 0-1 input. Applying ImageNet
 mean/std here, the reflex from the classification path, silently wrecks the
 output. This is why preprocessing config travels with each model in the
-registry instead of being global.
+registry, with no global state.
 
 ---
 
@@ -111,7 +111,7 @@ Intel Core Ultra 7 155H, 22 logical cores, CPU only, ONNX Runtime 1.26.0.
 p99 at batch 1 is 166 ms, inside the 1-second budget.
 Note that **batch 4 at p99 exceeds 1 second**, batching detection trades
 per-image efficiency for worse tail latency, which is why the batch endpoint
-is asynchronous instead of synchronous.
+is asynchronous.
 
 INT8 is 3.55x smaller and 2.3x slower here; fp32 remains the default.
 
@@ -168,7 +168,7 @@ substantially weaker than larger YOLOv8 models on:
 
 If recall on small objects matters, use a larger variant. Do not compensate by
 lowering `confidence_threshold`: that trades misses for false positives rather
-than actually finding the objects.
+than finding the objects.
 
 ### Fixed 640x640 input loses detail
 
@@ -178,7 +178,7 @@ effectively vanish. For high-resolution imagery where small objects matter,
 tiled inference (running the detector over overlapping crops) is the standard
 answer; it is not implemented here.
 
-### NMS merges genuinely overlapping objects
+### NMS merges truly overlapping objects
 
 Non-maximum suppression removes boxes that overlap a higher-scoring box by
 more than `iou_threshold`. In a crowd, two people standing close together can
@@ -214,7 +214,7 @@ formality. The options are:
    output layout is a registry change.
 3. **Comply with the AGPL** and publish your source.
 
-Flagged here instead of buried, because licence problems are cheap to fix at
+Flagged here at the top, because licence problems are cheap to fix at
 the design stage and expensive to fix after launch.
 
 ---

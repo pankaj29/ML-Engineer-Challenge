@@ -33,13 +33,13 @@ location and counting, use `POST /api/v1/detect` instead.
 **ResNet-50**: a 50-layer residual convolutional network, ~25.6 M parameters.
 
 The defining idea is the *residual connection*: each block learns a small
-adjustment to its input instead of a whole new representation, and adds it
+adjustment to its input, and adds it
 on. Before residual connections, networks past about 20 layers got *worse*
 with depth because the training signal faded before reaching the early layers.
 Residual connections give that signal a direct path, which is what made
 50-layer networks trainable at all.
 
-Why this instead of something newer:
+Why this and not something newer:
 
 * **Accuracy per millisecond on CPU.** A Vision Transformer of comparable
   accuracy needs roughly 3-4x the compute, and this system is CPU-first. At
@@ -74,7 +74,7 @@ which the brief requires. That model is trained in full, 78.91% top-1,
 a separate model with its own card:
 [`resnet50-tiny-imagenet.md`](resnet50-tiny-imagenet.md).
 
-It is deliberately **not** the default here. A 200-class model built from 64x64
+It is **not** the default here. A 200-class model built from 64x64
 thumbnails is a poor general-purpose classification API next to ImageNet-1k at
 224px, see `docs/ASSUMPTIONS.md` §1.4. Swapping the default is a one-line
 registry change.
@@ -184,8 +184,8 @@ Error of 0.22**, badly calibrated.
 
 Practical consequence: do not build a business rule on a raw confidence
 threshold without calibrating first (temperature scaling on a held-out set is
-the standard remedy). Use the *ranking* of predictions, which is reliable,
-instead of the absolute values, which are not.
+the standard remedy). Use the *ranking* of predictions, which is reliable.
+The absolute values are not.
 
 ### Demographic and geographic bias
 

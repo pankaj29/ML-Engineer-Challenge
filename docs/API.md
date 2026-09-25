@@ -79,7 +79,7 @@ Check they loaded:
 Invoke-Api health -Method Get      # -> status : healthy
 ```
 
-`Get-ImageB64` uses `Resolve-Path` deliberately. `[IO.File]` is a .NET call and
+`Get-ImageB64` needs `Resolve-Path`. `[IO.File]` is a .NET call and
 resolves relative paths against .NET's own current directory, which `cd` does
 **not** update - so a bare relative path fails with "Could not find file"
 naming a folder you are not in.
@@ -334,7 +334,7 @@ Every endpoint at a glance:
 | `/api/v1/health/ready` | GET | Ready for traffic? Checks dependencies |
 | `/api/v1/metrics` | GET | Prometheus metrics (private networks only) |
 
-The two health probes differ deliberately. `live` checks nothing external, so a
+The two health probes answer different questions. `live` checks nothing external, so a
 Redis hiccup cannot make the orchestrator restart healthy containers; `ready`
 checks dependencies, so a degraded instance leaves the load balancer without
 being killed.
@@ -461,7 +461,7 @@ Embed an image and store it so future searches can find it.
 | --- | --- | --- |
 | `label` | string | Human-readable name, returned with any hit |
 | `metadata` | object | Arbitrary JSON, returned with any hit |
-| `image_id` | string | Use your own id instead of a generated one |
+| `image_id` | string | Supply your own id; one is generated otherwise |
 
 ```json
 { "id": "a3f2...", "index_size": 1, "correlation_id": "..." }
@@ -613,7 +613,7 @@ currently-resident models.
 ```
 
 The `limitations` come straight from the model cards, so the caveats travel
-with the model instead of living in a document nobody reads.
+with the model, so it cannot rot in a separate document.
 
 ### `GET /api/v1/models/{name}`, one model, `?version=` to pin.
 
@@ -632,7 +632,7 @@ was removed, so predictions from retired weights cannot keep being served.
 | `GET /health/ready` | Can it serve right now? | Load-balancer membership |
 | `GET /health` | Full dependency status | Dashboards, humans |
 
-These are genuinely different, and conflating them causes outages.
+These are different, and conflating them causes outages.
 Liveness checks nothing external. If it depended on the
 database, a brief database blip would restart every container simultaneously
 and turn a small problem into a total one.
@@ -738,10 +738,9 @@ By default you get each task's current default model. To pin:
 `model_version: "latest"` (or omitting it) takes the highest version of that
 model.
 
-A typo gives a 404 instead of a silent substitution. Asking for a model that does
-not exist returns `MODEL_NOT_FOUND` instead of serving something
-else, being handed predictions from a different model than you asked for is
-worse than an error.
+A typo gives a 404, never a silent substitution. Asking for a model that does
+not exist returns `MODEL_NOT_FOUND`. Being handed predictions from a different
+model than the one you asked for is worse than an error.
 
 The fallback that *does* exist is for **failures**, not typos: if a registered
 model cannot be loaded, the task default serves the request and the response

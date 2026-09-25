@@ -36,7 +36,7 @@ choices more than accuracy did.
 
 The two classifiers share an architecture and differ only in their head and
 their label space, which is why the fine-tuned one is faster: 200 classes
-instead of 1000.
+against 1000 for the ImageNet model.
 
 ### Classification: ResNet-50
 
@@ -74,11 +74,11 @@ Chosen to reuse a backbone already in memory.
 
 Removing the final classification layer leaves the 2,048-number description
 the network built before collapsing to a class. That is a good general-purpose
-image feature, and it costs one download instead of two.
+image feature, and it costs one download.
 
 The trade-off: CLIP or DINOv2 would produce better embeddings, because they
 are trained contrastively, optimised to put similar images close together
-instead of letting that emerge as a side effect
+without letting that emerge as a side effect
 of classification. CLIP also enables text-to-image search, which this cannot
 do. It was not chosen because CLIP ViT-B/32 is ~350 MB on top of a backbone
 already loaded, and the brief's priority is a working similarity capability
@@ -189,7 +189,7 @@ enabled by default, because the measurement says not to.
 
 The real cost is accuracy, not latency. On 500 held-out Tiny-ImageNet
 validation images, put through the API's own preprocessing so the number
-describes the model as it is actually served, the fine-tuned classifier scores
+describes the model as it is served, the fine-tuned classifier scores
 80.0% top-1 in float32 and 63.0% in INT8, agreeing on 67.0% of top-1
 predictions. A third of images get a different top class, for a 17-point drop.
 Measured by `benchmarks/reports/quantization_accuracy.json`.
@@ -239,7 +239,7 @@ guess is exactly the thing that keeps being wrong.
 fp16 requires an fp16 graph. Since TensorRT 11 reads precision from ONNX
 dtypes, `convert_onnx_to_fp16()` rewrites the model first, with
 `keep_io_types=True` so inputs and outputs stay fp32 and no caller needs to
-change. It uses `onnxruntime.transformers.float16` instead of the more
+change. It uses `onnxruntime.transformers.float16`, not the more
 obvious `onnxconverter-common`, which hard-pins `protobuf==3.20.2` and would
 drag protobuf below the `>=6.31.1` that onnx requires.
 
@@ -273,7 +273,7 @@ calibrated on a disjoint 200:
 | Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
 | Percentile, symmetric | 95.0% | accepts |
 
-Percentile clips at 99.999% instead of at the single most extreme activation
+Percentile clips at 99.999%, ignoring the single most extreme activation
 seen, and ends up more faithful than the asymmetric MinMax graph it replaces.
 The other three constraints stop the build. This one ships a working engine
 that is wrong, which is the kind that reaches production.
@@ -416,7 +416,7 @@ documented in section 2 and the opposite of what INT8 does on a GPU.
 That fallback is now impossible to miss: `benchmark_onnx` emits a
 `RuntimeWarning` when the requested device is not the device used,
 `BenchmarkResult.summary()` prints the device, and the report is written to
-`BENCHMARKS_GPU_CPU_FALLBACK.md` unless every result genuinely ran on CUDA. A
+`BENCHMARKS_GPU_CPU_FALLBACK.md` unless every result really ran on CUDA. A
 file named for a device it did not use is exactly the sort of artefact that
 gets quoted months later.
 
@@ -562,7 +562,7 @@ Response ←  Monitoring  ←  CORS  ←  Auth  ←  RateLimit  ←  route
 
 This is what makes the same inference logic usable from both the API and the
 Celery worker without duplication, and what makes swapping ONNX for TensorRT a
-config change instead of a rewrite.
+config change.
 
 ---
 
@@ -647,7 +647,7 @@ the standard way teams take down their own Prometheus.
 | **redis** | Vertical, then Cluster | Single instance is fine well past this system's needs. |
 | **postgres** | Read replicas | Writes are append-only inference logs. |
 
-API and worker scale **independently on purpose**: connection concurrency and
+API and worker scale **independently by design**: connection concurrency and
 batch throughput are different problems with different cost curves.
 
 ### What does not scale yet
@@ -693,7 +693,7 @@ engines in section 3 run the fine-tuned classifier at 822 to 1068 img/s on an
 A100. The same model on this laptop manages 25.9 img/s (`BENCHMARKS.md`, batch
 1, fp32), so the A100 is 32x to 41x faster depending on precision. Section 3
 quotes a smaller multiple, 12.5x, because it compares latency against the GPU
-host's own CPU, 11.50 ms against 0.920 ms, instead of against this laptop.
+host's own CPU, 11.50 ms against 0.920 ms, not against this laptop.
 Either way it is the reason the TensorRT path exists.
 Deploying it means building the engine on the serving host, since an engine is
 tied to one GPU architecture and TensorRT version.
@@ -713,10 +713,10 @@ that Compose got to duck.
 replicas at 70% CPU, the worker from 1 to 6 at 75%. I chose 70% over 90%
 because a new pod needs about 20 seconds to load its models: scaling at 90%
 means the capacity arrives after the overload has already cost you. Scale-down
-is deliberately slow for the same reason, since pods here are expensive to
+is slow for the same reason, since pods here are expensive to
 start and flapping costs more than an idle replica.
 
-CPU is a proxy for what actually matters, which is latency. Scaling on the
+CPU is a proxy for latency, which is the thing that matters. Scaling on the
 request metrics the API already publishes needs prometheus-adapter, and the
 manifests show the HPA stanza for it. CPU is the version that works with only
 metrics-server installed.
@@ -871,7 +871,7 @@ registry token.
 
 It re-runs the tests first, because a tag can be pushed at any commit
 including one CI never saw green. It publishes `1.2.0`, `1.2` and `1`, and
-deliberately no `latest`, which is the tag that makes a rollback ambiguous.
+no `latest`, which is the tag that makes a rollback ambiguous.
 Each image gets a provenance attestation and a Trivy scan.
 
 There is no deploy step. Pushing an image and rolling a cluster are different
@@ -901,6 +901,6 @@ arbitrary code in production. Promotion is left to Argo CD, Flux or a person.
   but kept running, so it can recover.
 * **`degraded` is healthy enough to serve**, both return HTTP 200.
 * **Batch jobs use `acks_late`**, so a worker killed mid-task returns the job
-  to the queue instead of losing it.
+  to the queue.
 * **Graceful shutdown**: 30 s for the API, 60 s for the worker, so in-flight
-  work finishes instead of being cut off mid-deploy.
+  work finishes before the process exits.

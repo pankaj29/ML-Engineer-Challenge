@@ -12,7 +12,7 @@ without hunting for a picture first.
 `dog.jpg` is the one the docs use by default: it scores well on both the
 classifier and the detector, so a single image exercises two endpoints.
 
-`person.jpg` is a deliberately awkward case for the classifier. ImageNet-1k
+`person.jpg` is an awkward case for the classifier, chosen for that. ImageNet-1k
 has no "person" class, so a photo of someone gets forced into the nearest
 clothing or object category with low confidence, while the detector finds the
 person easily. It is a useful reminder that a confident-looking label is not
@@ -40,5 +40,5 @@ Picsum id each was fetched by, so any of them can be re-downloaded:
 curl -L -o samples/dog.jpg https://picsum.photos/id/237/640/480
 ```
 
-Each is 640x480 and around 50 KB, so they are committed directly instead of
+Each is 640x480 and around 50 KB, so they are committed directly and not
 through Git LFS.

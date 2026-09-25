@@ -19,7 +19,7 @@ so that visually similar images end up close together.
 
 That single idea supports several things without retraining: finding
 near-duplicates, "more like this" search, clustering a collection, and
-detecting when new uploads look unlike anything seen before.
+detecting when new uploads resemble nothing seen before.
 
 Because every vector is normalised to length 1, the **dot product of two
 vectors is their cosine similarity** directly: `1.0` identical direction,
@@ -37,23 +37,23 @@ before it decided on a class. That description is what we want: it encodes
 shapes, textures and parts, without having collapsed everything down to one of
 1,000 labels.
 
-L2 normalisation is baked into the exported graph instead of applied in
+L2 normalisation is baked into the exported graph, not applied in
 Python afterwards. The artefact is therefore self-contained, anyone who runs
 it gets unit vectors without having to remember an extra step, and the API and
 the index cannot disagree about whether normalisation happened.
 
-Why this instead of a purpose-built embedding model:
+Why this and not a purpose-built embedding model:
 
 * **It reuses a model already being downloaded.** The classifier and the
   embedder share one backbone, so the system serves three tasks from two
   downloads. On a CPU-first deployment that is real memory saved.
-* **It is genuinely good at "same kind of thing".** ImageNet features are
+* **It is good at "same kind of thing".** ImageNet features are
   strong semantic features.
 * **It is fast**: 49.6 ms p50.
 
 The trade-off: a model trained with a contrastive objective
 ,  CLIP, DINOv2, produces materially better embeddings for retrieval, because
-they are trained to make similar images close instead of having that emerge
+they are trained to make similar images close, without that emerging
 as a side effect of classification. CLIP also allows text-to-image search,
 which this cannot do at all. They were not chosen here because CLIP ViT-B/32
 is ~350 MB against reusing a backbone already in memory, and the brief's
@@ -183,7 +183,7 @@ The index compares the query against every stored vector, so both time and
 memory grow linearly. It is fast and exact up to roughly a million vectors.
 Beyond that, switch to an approximate index (FAISS HNSW, pgvector, a vector
 database), which trades a little recall for a very large speed-up. The
-interface in `api/services/similarity_index.py` is deliberately narrow so that
+interface in `api/services/similarity_index.py` is narrow so that
 swap is contained.
 
 ### The index is not replicated

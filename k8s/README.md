@@ -54,16 +54,16 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 kubectl -n mlcv get hpa    # TARGETS shows <unknown> until metrics-server is up
 ```
 
-70% instead of 90% because a new pod takes about 20 seconds to load its
+The target is 70% because a new pod takes about 20 seconds to load its
 models. Scaling at 90% means the replacement capacity arrives after the
 overload has already hurt.
 
-Scale-down is deliberately slow, 300 seconds of stabilisation and one pod
-every two minutes. Pods are expensive to start here, so flapping costs more
+Scale-down is slow by design, 300 seconds of stabilisation and one pod every
+two minutes. Pods are expensive to start here, so flapping costs more
 than carrying an idle replica for five minutes. The worker is slower still
 because it drains for up to 120 seconds.
 
-CPU is a proxy for what actually matters, which is request latency. To scale
+CPU is a proxy for request latency, which is the thing that matters. To scale
 on the real thing, install `prometheus-adapter` and use the metrics the API
 already publishes at `/api/v1/metrics`:
 
@@ -102,8 +102,8 @@ container api                   reads the emptyDir, read-only
 ```
 
 `ARTIFACT_SOURCE` in the ConfigMap says where from: `s3://bucket/prefix`,
-`https://host/path`, or `file:///path`. Version the prefix instead of
-overwriting it in place, so rolling a model back is changing that string back.
+`https://host/path`, or `file:///path`. Version the prefix and never overwrite
+it in place, so rolling a model back is changing that string back.
 
 Three alternatives were considered.
 
@@ -122,7 +122,7 @@ on one node, which defeats the autoscaler.
 
 The cost of the current approach is a download per pod start. The fetch script
 skips files already present with a matching checksum, so a restart on a warm
-volume is a checksum pass instead of a re-download.
+volume is a checksum pass, with nothing downloaded.
 
 ### Checksums are the point
 
@@ -139,12 +139,11 @@ python scripts/fetch_artifacts.py \
 ```
 
 A test asserts the committed manifest matches the files on disk, so forgetting
-this fails CI instead of every pod start.
+this fails CI, where it is cheap to notice.
 
 ## Scheduled drift checks
 
-`drift-watch` is a CronJob instead of a GitHub Action, and the reason is
-data. Drift is computed from the inference log, and the database is in this
+`drift-watch` is a CronJob, and the reason is data. Drift is computed from the inference log, and the database is in this
 namespace. A runner outside the cluster can only read a committed snapshot,
 which means deciding on stale data.
 
@@ -165,7 +164,7 @@ kubectl -n mlcv logs job/drift-now
 
 ## Serving on a GPU
 
-`k8s/overlays/gpu` runs the API through TensorRT instead of ONNX on CPU. On an
+`k8s/overlays/gpu` runs the API through TensorRT on a GPU node. On an
 A100 that is 0.92 ms against 11.50 ms on the same host's CPU, which is the
 reason the optimisation work exists.
 
@@ -209,18 +208,18 @@ taking 5% of traffic.
 ```bash
 kubectl apply -k k8s/overlays/canary
 
-# Hit the canary deliberately, before any real traffic reaches it
+# Hit the canary directly, before any real traffic reaches it
 curl -H "X-Canary: always" http://your-host/api/v1/health
 ```
 
 This is the control the rest of the system lacks. Validation and the
 regression gate both run before a model is live, against held-out data.
-Neither can tell you how it behaves on the traffic you actually get, which is
-where a model usually disappoints.
+Neither can tell you how it behaves on your real traffic, which is where a
+model usually disappoints.
 
 Both deployments write to the same inference log with their model version
 recorded, so after a canary period the existing A/B machinery compares them on
-real traffic instead of on a benchmark:
+real traffic:
 
 ```bash
 python -m models.validation.ab_test --champion 1.0.0 --challenger 1.1.0
@@ -230,8 +229,8 @@ Promote by setting `ARTIFACT_SOURCE` in `mlcv-config` to the canary's value,
 rolling `ml-api`, then deleting the overlay. Roll back by deleting the
 overlay: stable was never touched.
 
-The canary has no HPA on purpose. One that scales with traffic stops being a
-fixed-size sample, and its share of the comparison drifts mid-experiment.
+The canary has no HPA. One that scales with traffic stops being a fixed-size
+sample, and its share of the comparison drifts mid-experiment.
 
 ## Differences from Compose
 
@@ -241,7 +240,7 @@ second proxy in series for no benefit. The body cap is 10 MB, matching the
 API's own image limit, so oversized uploads are rejected before crossing the
 cluster.
 
-That differs from the Compose gateway on purpose, and it changes what a caller
+That differs from the Compose gateway by design, and it changes what a caller
 sees. `docker/nginx/nginx.conf` allows 12 MB so an 11 MB upload reaches the API
 and gets its JSON `IMAGE_TOO_LARGE` error; here the same upload gets the
 ingress controller's plain HTML 413. Compose favours the clearer message, the
@@ -266,8 +265,8 @@ until they have. Budget is 150 seconds (30 failures x 5s). Without it the
 liveness probe restarts the pod mid-load, forever.
 
 `livenessProbe` asks whether the process is wedged, and restart is the only
-answer. It hits `/health/live`, which checks nothing external, on purpose: a
-liveness probe that checks dependencies restarts healthy pods whenever Redis
+answer. It hits `/health/live`, which checks nothing external: a liveness
+probe that checks dependencies restarts healthy pods whenever Redis
 hiccups.
 
 `readinessProbe` asks whether traffic should come here, and hits
@@ -338,7 +337,7 @@ savepoint, and still propagates anything else, such as a permissions error.
 version of this overlay mounted the repo's artefacts directly and every
 ReplicaSet was rejected at admission. That is the control working. Serving the
 files over HTTP from an in-cluster pod keeps the security posture identical to
-production and exercises the real network fetch path instead of a `file://`
+production and exercises the real network fetch path, not a `file://`
 shortcut.
 
 An earlier run also confirmed why the `ReadOnlyMany` PVC had to go: on
@@ -350,7 +349,7 @@ it.
 A single node cannot exercise the multi-node behaviour the base targets, and
 TensorRT is not involved: these are the CPU ONNX runtimes. The artefact store
 here is a pod serving static files, not S3, so the `s3://` branch of the fetch
-script is covered by unit tests instead of by this run.
+script is covered by unit tests, not by this run.
 
 ## Verifying changes
 

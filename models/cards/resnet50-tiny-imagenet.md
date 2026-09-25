@@ -68,7 +68,7 @@ away pretrained stem weights and leaves every later layer running at four
 times the spatial area.
 
 A larger input through the original stem uses the network as pretrained. All
-three configurations were measured instead of guessed:
+three configurations were measured:
 
 | Configuration | s/epoch | Top-1 |
 | --- | ---: | ---: |
@@ -138,7 +138,7 @@ The rightmost panel of the chart marks the seven epochs where the raw weights
 won.
 
 Non-finite gradients occurred in 8 of the 60 epochs (12, 18, 25, 30, 40, 43,
-49, 59). That is normal fp16 behaviour instead of a fault: `GradScaler`
+49, 59). That is normal fp16 behaviour, not a fault: `GradScaler`
 detects the overflow, skips that optimiser step and halves the loss scale. It
 is recorded here because an `inf` in a training log looks alarming and is
 easier to dismiss with evidence.
@@ -175,7 +175,7 @@ in the repository, which are all laptop numbers. The run requested CUDA but
 back to CPU without raising. The tell is INT8 being slower than fp32, which is
 the CPU signature; on a GPU INT8 is faster. Only the TensorRT rows are GPU
 figures. The benchmark script detects this and names the report
-`BENCHMARKS_GPU_CPU_FALLBACK.md` instead of publishing CPU timings under a
+`BENCHMARKS_GPU_CPU_FALLBACK.md`, so CPU timings never appear under a
 GPU filename.
 
 ### Size
@@ -261,7 +261,7 @@ units on identical input, with no error and no crash, just worse
 accuracy in production than in validation.
 
 `tests/unit/test_preprocessing_parity.py` (17 tests) reads its expected size
-from `TINY_IMAGENET_PREPROCESS` instead of hard-coding a number, so changing
+from `TINY_IMAGENET_PREPROCESS`, so changing
 the training resolution cannot desync the two.
 
 ---
@@ -302,7 +302,7 @@ data. Temperature scaling would fix this and has not been applied.
 
 Not evaluated on medical or satellite imagery, artwork or line drawings, heavy
 motion blur, or adversarial inputs. Robustness was tested only against σ=0.01
-Gaussian noise, which is a smoke test instead of an adversarial guarantee.
+Gaussian noise, which is a smoke test and not an adversarial guarantee.
 
 ---
 
