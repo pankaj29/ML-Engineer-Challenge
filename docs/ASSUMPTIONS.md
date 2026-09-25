@@ -249,13 +249,13 @@ TensorRT 11.3.0.99, batch 1:
 
 INT8 is 1.41x faster than fp32 and a quarter of its size.
 
-INT8 and fp16 run at the same speed here. Across four runs they traded
-places between 0.87 and 1.00 ms, which is contention on a shared A100
-rather than a real difference. At batch 1 this model is bound by memory traffic and kernel launch
-overhead, not arithmetic, so halving the precision of the arithmetic buys
-nothing. What INT8 does buy is half the engine. Anyone reading this table for a
-throughput service should benchmark at their real batch size, where the tensor
-cores become the bottleneck and INT8 should separate from fp16.
+INT8 and fp16 run at the same speed here. Across four runs they traded places
+between 0.87 and 1.00 ms, which is contention on a shared A100 rather than a
+real difference. At batch 1 this model is bound by memory traffic and kernel
+launch overhead, not arithmetic, so halving the precision of the arithmetic
+buys nothing. What INT8 does buy is half the engine. Anyone reading this table
+for a throughput service should benchmark at their own batch size, where the
+tensor cores become the bottleneck and INT8 should pull ahead.
 
 #### What it took to build INT8
 
