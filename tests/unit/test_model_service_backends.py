@@ -160,7 +160,22 @@ class TestTorchRuntimeBackend:
 # TensorRT, against a fake driver
 # ---------------------------------------------------------------------------
 class _FakeDevicePtr(int):
-    pass
+    """Stands in for a pycuda DeviceAllocation.
+
+    It grew a `free()` because the real one has it and the backend now calls
+    it. A fake missing a method the production code relies on is a fake that
+    passes while production aborts, which is exactly what happened: device
+    buffers were left to the garbage collector and the process died at exit
+    on a real GPU.
+    """
+
+    def __new__(cls, value: int, freed: list[int] | None = None):
+        ptr = super().__new__(cls, value)
+        ptr._freed = freed if freed is not None else []
+        return ptr
+
+    def free(self) -> None:
+        self._freed.append(int(self))
 
 
 def _fake_trt_modules(monkeypatch, *, engine=None, deserialise_to_none: bool = False):
@@ -172,6 +187,7 @@ def _fake_trt_modules(monkeypatch, *, engine=None, deserialise_to_none: bool = F
     """
     copied: dict[int, np.ndarray] = {}
     allocated: list[int] = []
+    freed: list[int] = []
 
     class _IOMode:
         INPUT = "input"
@@ -241,7 +257,7 @@ def _fake_trt_modules(monkeypatch, *, engine=None, deserialise_to_none: bool = F
             pass
 
     def _mem_alloc(nbytes):
-        ptr = _FakeDevicePtr(len(allocated) + 1)
+        ptr = _FakeDevicePtr(len(allocated) + 1, freed)
         allocated.append(nbytes)
         return ptr
 
@@ -262,7 +278,7 @@ def _fake_trt_modules(monkeypatch, *, engine=None, deserialise_to_none: bool = F
     monkeypatch.setitem(sys.modules, "pycuda", SimpleNamespace(driver=cuda))
     monkeypatch.setitem(sys.modules, "pycuda.driver", cuda)
     monkeypatch.setitem(sys.modules, "pycuda.autoinit", SimpleNamespace())
-    return SimpleNamespace(copied=copied, allocated=allocated)
+    return SimpleNamespace(copied=copied, allocated=allocated, freed=freed)
 
 
 @pytest.fixture
@@ -349,6 +365,46 @@ class TestTensorRTBackend:
         backend = TensorRTBackend(engine_file)
         backend.close()
         assert backend.engine is None and backend.context is None
+
+    def test_every_device_buffer_is_freed(self, engine_file: Path, monkeypatch) -> None:
+        """Left to the garbage collector, these are released at an
+        unpredictable time: the allocator fragments under load, and at process
+        exit the buffers outlive the CUDA context and PyCUDA aborts."""
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+        backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+
+        assert fake.allocated, "the test fake recorded no allocations at all"
+        assert len(fake.freed) == len(fake.allocated), (
+            f"allocated {len(fake.allocated)} device buffers and freed " f"{len(fake.freed)}"
+        )
+
+    def test_buffers_are_freed_even_when_inference_fails(
+        self, engine_file: Path, monkeypatch
+    ) -> None:
+        """A failing engine must not leak the buffers of that call. Repeated
+        failures would otherwise exhaust device memory."""
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+
+        def explode(**kwargs):
+            raise RuntimeError("execution failed")
+
+        backend.context.execute_async_v3 = explode
+
+        with pytest.raises(RuntimeError, match="execution failed"):
+            backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+
+        assert len(fake.freed) == len(fake.allocated)
+
+    def test_repeated_inference_does_not_accumulate_buffers(
+        self, engine_file: Path, monkeypatch
+    ) -> None:
+        fake = _fake_trt_modules(monkeypatch)
+        backend = TensorRTBackend(engine_file)
+        for _ in range(5):
+            backend.infer(np.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=np.float32))
+        assert len(fake.freed) == len(fake.allocated)
 
 
 # ---------------------------------------------------------------------------
