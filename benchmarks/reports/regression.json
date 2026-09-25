@@ -1,97 +1,75 @@
 [
   {
-    "model": "resnet50-tiny-imagenet:1.0.0",
-    "baseline_recorded_at": "2026-09-24T14:09:50.040120+00:00",
-    "checked_at": "2026-09-24T14:09:56.288698+00:00",
+    "model": "resnet50:1.0.0",
+    "baseline_recorded_at": "2026-09-22T13:48:14.073765+00:00",
+    "checked_at": "2026-09-25T04:08:46.821831+00:00",
     "passed": true,
     "checks": [
       {
         "name": "p50_latency_ms",
-        "baseline": 54.277,
-        "current": 56.285,
-        "delta": 2.008,
-        "delta_percent": 3.7,
+        "baseline": 67.774,
+        "current": 40.319,
+        "delta": -27.455,
+        "delta_percent": -40.51,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "p50_latency_ms moved within tolerance: 54.2770 -> 56.2850 (+3.7%, limit 13.5693)"
+        "message": "p50_latency_ms improved: 67.7740 -> 40.3190 (-40.5%)"
       },
       {
         "name": "p95_latency_ms",
-        "baseline": 66.51,
-        "current": 70.053,
-        "delta": 3.543,
-        "delta_percent": 5.327,
+        "baseline": 91.753,
+        "current": 48.392,
+        "delta": -43.361,
+        "delta_percent": -47.258,
         "tolerance": 0.3,
         "higher_is_better": false,
         "passed": true,
-        "message": "p95_latency_ms moved within tolerance: 66.5100 -> 70.0530 (+5.3%, limit 19.9530)"
+        "message": "p95_latency_ms improved: 91.7530 -> 48.3920 (-47.3%)"
       },
       {
         "name": "p99_latency_ms",
-        "baseline": 102.733,
-        "current": 93.566,
-        "delta": -9.167,
-        "delta_percent": -8.923,
+        "baseline": 91.83,
+        "current": 48.392,
+        "delta": -43.438,
+        "delta_percent": -47.303,
         "tolerance": 0.4,
         "higher_is_better": false,
         "passed": true,
-        "message": "p99_latency_ms improved: 102.7330 -> 93.5660 (-8.9%)"
+        "message": "p99_latency_ms improved: 91.8300 -> 48.3920 (-47.3%)"
       },
       {
         "name": "mean_latency_ms",
-        "baseline": 50.389,
-        "current": 48.031,
-        "delta": -2.358,
-        "delta_percent": -4.68,
+        "baseline": 64.651,
+        "current": 36.354,
+        "delta": -28.297,
+        "delta_percent": -43.769,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "mean_latency_ms improved: 50.3890 -> 48.0310 (-4.7%)"
+        "message": "mean_latency_ms improved: 64.6510 -> 36.3540 (-43.8%)"
       },
       {
         "name": "throughput_ips",
-        "baseline": 19.85,
-        "current": 20.82,
-        "delta": 0.97,
-        "delta_percent": 4.887,
+        "baseline": 15.47,
+        "current": 27.51,
+        "delta": 12.04,
+        "delta_percent": 77.828,
         "tolerance": 0.1,
         "higher_is_better": true,
         "passed": true,
-        "message": "throughput_ips improved: 19.8500 -> 20.8200 (+4.9%)"
+        "message": "throughput_ips improved: 15.4700 -> 27.5100 (+77.8%)"
       },
       {
         "name": "size_mb",
-        "baseline": 91.161,
-        "current": 91.161,
+        "baseline": 97.414,
+        "current": 97.414,
         "delta": 0.0,
         "delta_percent": 0.0,
         "tolerance": 0.1,
         "higher_is_better": false,
         "passed": true,
-        "message": "size_mb improved: 91.1610 -> 91.1610 (+0.0%)"
-      },
-      {
-        "name": "top1",
-        "baseline": 78.91,
-        "current": 78.91,
-        "delta": 0.0,
-        "delta_percent": 0.0,
-        "tolerance": 0.1,
-        "higher_is_better": false,
-        "passed": true,
-        "message": "top1 improved: 78.9100 -> 78.9100 (+0.0%)"
-      },
-      {
-        "name": "top5",
-        "baseline": 92.12,
-        "current": 92.12,
-        "delta": 0.0,
-        "delta_percent": 0.0,
-        "tolerance": 0.1,
-        "higher_is_better": false,
-        "passed": true,
-        "message": "top5 improved: 92.1200 -> 92.1200 (+0.0%)"
+        "message": "size_mb improved: 97.4140 -> 97.4140 (+0.0%)"
       }
     ],
     "failures": [],

@@ -14,7 +14,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | | |
 | --- | --- |
 | CI | 6 jobs green on Python 3.11 and 3.12 |
-| Tests | 1,140: 995 unit, 130 integration, 15 performance |
+| Tests | 1,153: 995 unit, 143 integration, 15 performance |
 | Coverage | 95.8% on `api/`; cache, database and rate limiting at 100% |
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
@@ -124,17 +124,39 @@ shells, is in [`docs/API.md`](docs/API.md).
 
 ### Classify an image
 
+The repository ships three photographs in [`samples/`](samples/) so these
+examples run as written. `samples/dog.jpg` classifies as a Labrador retriever
+and detects a dog, so one image exercises both endpoints. Any JPEG or PNG of
+your own works just as well.
+
+The simplest form uploads the file directly:
+
+```bash
+# bash or PowerShell, using real curl. On Windows type curl.exe, because
+# PowerShell's `curl` is an alias for Invoke-WebRequest.
+curl -X POST http://localhost/api/v1/classify/upload \
+     -H "X-API-Key: dev-key-pro" \
+     -F "file=@samples/dog.jpg" -F "top_k=5"
+```
+
+To send base64 in a JSON body instead, pipe it through stdin. Putting the
+base64 in the command line itself looks tidier and breaks: a 50 KB photo is
+67 KB of base64, which is past the maximum argument length, so the shell
+fails with "Argument list too long" before curl runs.
+
 ```bash
 # bash. Will not work in PowerShell.
 curl -X POST http://localhost/api/v1/classify \
      -H "X-API-Key: dev-key-pro" \
      -H "Content-Type: application/json" \
-     -d "{\"image_base64\": \"$(base64 -w0 photo.jpg)\", \"top_k\": 5}"
+     -d @- <<EOF
+{"image_base64": "$(base64 -w0 samples/dog.jpg)", "top_k": 5}
+EOF
 ```
 
 ```powershell
 # Windows PowerShell
-$bytes = [IO.File]::ReadAllBytes((Resolve-Path "photo.jpg").Path)
+$bytes = [IO.File]::ReadAllBytes((Resolve-Path "samples\dog.jpg").Path)
 $body  = @{ image_base64 = [Convert]::ToBase64String($bytes); top_k = 5 } | ConvertTo-Json
 
 $r = Invoke-RestMethod -Uri "http://localhost/api/v1/classify" -Method Post `
@@ -185,8 +207,9 @@ the code: <http://localhost:8000/docs>.
 | A service shows as `unhealthy` | `docker compose logs <service> --tail 50`. The API needs up to 90 seconds on first start while it loads three models. |
 | Port 80 already in use | `GATEWAY_PORT=8080 docker compose up -d`, then use `http://localhost:8080`. |
 | The container serves an old model after you replace a file | Docker Desktop on Windows does not always propagate a bind-mounted file that was replaced rather than edited. Compare `docker compose exec ml-api md5sum models/artifacts/<file>` against the host, and rebuild if they differ. |
-| PowerShell: "The term 'base64' is not recognized" | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("photo.jpg"))`. |
-| PowerShell: "Could not find file" naming the wrong folder | `[IO.File]` resolves relative paths against .NET's current directory, which `cd` does not change. Wrap the path: `(Resolve-Path "photo.jpg").Path`. |
+| PowerShell: "The term 'base64' is not recognized" | `base64` is a Unix tool. Use `[Convert]::ToBase64String([IO.File]::ReadAllBytes("samples\dog.jpg"))`. |
+| PowerShell: "Could not find file" naming the **wrong folder** | The file exists but `[IO.File]` resolves relative paths against .NET's current directory, which `cd` does not change. Wrap the path: `(Resolve-Path "samples\dog.jpg").Path`. |
+| `Argument list too long` from curl | The base64 is too big for a command-line argument. Use the `/upload` endpoint, or pipe the JSON through stdin with `-d @-`, as shown in [Classify an image](#classify-an-image). |
 | PowerShell: "Cannot bind parameter 'Headers'" | `curl` is an alias for `Invoke-WebRequest`, which takes a dictionary rather than `-H` strings. Use `curl.exe`, or `Invoke-RestMethod` with `-Headers @{...}` as above. |
 
 ---
@@ -406,7 +429,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 
 ### Part 3, testing
 
-- 1,140 tests: 995 unit, 130 integration, 15 performance, plus Locust load
+- 1,153 tests: 995 unit, 143 integration, 15 performance, plus Locust load
   tests
 - The unit suite runs with no external services, using fakeredis, in-memory
   SQLite and fake runtimes, so a fresh clone needs nothing installed
@@ -461,6 +484,7 @@ Reproduce with `python -m models.optimization.benchmark`.
 ├── docker/                   Dockerfile.worker, nginx/
 ├── monitoring/               prometheus config + alerts, grafana provisioning
 ├── scripts/                  prepare_models, download_datasets, checklist
+├── samples/                  three photos so the doc examples run as written
 ├── benchmarks/               baselines and generated reports
 ├── docs/                     API, TECHNICAL, ASSUMPTIONS, DEPLOYMENT, openapi
 ├── .gitattributes            Git LFS rules

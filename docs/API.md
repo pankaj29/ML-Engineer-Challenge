@@ -86,9 +86,12 @@ naming a folder you are not in.
 
 ### One call per task, in PowerShell
 
+`samples/dog.jpg` ships with the repository, so these run as written. Any
+image of your own works too.
+
 ```powershell
 # Windows PowerShell
-$img = Get-ImageB64 "photo.jpg"
+$img = Get-ImageB64 "samples\dog.jpg"
 
 # classification
 (Invoke-Api classify @{ image_base64 = $img; top_k = 5 }).predictions |
@@ -127,7 +130,7 @@ Multipart upload needs real curl, so use `curl.exe`:
 # Windows PowerShell - note curl.exe, not curl
 curl.exe -X POST http://localhost/api/v1/classify/upload `
          -H "X-API-Key: dev-key-pro" `
-         -F "file=@photo.jpg" -F "top_k=5"
+         -F "file=@samples/dog.jpg" -F "top_k=5"
 ```
 
 ---
@@ -319,7 +322,9 @@ Identify what an image contains.
 ```bash
 curl -X POST http://localhost/api/v1/classify \
      -H "X-API-Key: dev-key-pro" -H "Content-Type: application/json" \
-     -d '{"image_base64": "'"$(base64 -w0 photo.jpg)"'", "top_k": 3}'
+     -d @- <<EOF
+{"image_base64": "$(base64 -w0 samples/dog.jpg)", "top_k": 3}
+EOF
 ```
 
 **Response `200`**

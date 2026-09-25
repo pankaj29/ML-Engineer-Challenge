@@ -239,22 +239,50 @@ class TestDetection:
         assert isinstance(response.json()["detections"], list)
 
     def test_boxes_lie_inside_the_image(self, real_client, headers) -> None:
-        """Coordinates outside the frame mean the letterbox maths is wrong."""
-        img = Image.new("RGB", (640, 480), (120, 120, 120))
-        for x in range(200, 440):
-            for y in range(150, 330):
-                img.putpixel((x, y), (30, 30, 30))
+        """Coordinates outside the frame mean the letterbox maths is wrong.
 
-        body = real_client.post(
-            "/api/v1/detect",
-            headers=headers,
-            json={"image_base64": _encode(img), "confidence_threshold": 0.05},
-        ).json()
+        This needs an image the detector actually fires on. A synthetic shape
+        returns zero detections, which is correct behaviour and makes the
+        assertion vacuous: the loop body never runs and the test passes
+        whatever the box maths does. Real photos are scanned until one
+        produces a detection.
+        """
+        from pathlib import Path
 
-        for det in body["detections"]:
-            box = det["bbox"]
-            assert 0 <= box["x1"] <= box["x2"] <= 640 + 1
-            assert 0 <= box["y1"] <= box["y2"] <= 480 + 1
+        try:
+            from models.training.dataset import find_dataset_root
+
+            root = find_dataset_root(Path("data"))
+        except Exception:
+            pytest.skip("Tiny-ImageNet is not present")
+
+        candidates = sorted((root / "val" / "images").glob("*.JPEG"))[:60]
+        if not candidates:
+            pytest.skip("no validation images found")
+
+        checked = 0
+        for path in candidates:
+            encoded = base64.b64encode(path.read_bytes()).decode()
+            body = real_client.post(
+                "/api/v1/detect",
+                headers=headers,
+                json={"image_base64": encoded, "confidence_threshold": 0.25},
+            ).json()
+
+            width, height = body["image_width"], body["image_height"]
+            for det in body["detections"]:
+                box = det["box"]
+                assert 0 <= box["x1"] <= box["x2"] <= width + 1, f"{path.name}: {box}"
+                assert 0 <= box["y1"] <= box["y2"] <= height + 1, f"{path.name}: {box}"
+                checked += 1
+
+            if checked >= 3:
+                break
+
+        assert checked > 0, (
+            "no detection was produced across 60 real photos, so the box "
+            "geometry was never actually checked"
+        )
 
     def test_max_detections_is_honoured(self, real_client, headers, photo) -> None:
         body = real_client.post(

@@ -1,0 +1,17 @@
+{
+  "dog.jpg": {
+    "picsum_id": 237,
+    "author": "André Spieker",
+    "url": "https://unsplash.com/photos/8wTPqxlnKM4"
+  },
+  "street.jpg": {
+    "picsum_id": 111,
+    "author": "Gabe Rodriguez",
+    "url": "https://unsplash.com/photos/eLUegVAjN7s"
+  },
+  "person.jpg": {
+    "picsum_id": 1025,
+    "author": "Matthew Wiebe",
+    "url": "https://unsplash.com/photos/U5rMrSI7Pn4"
+  }
+}
