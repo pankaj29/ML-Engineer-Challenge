@@ -320,6 +320,39 @@ _TRT_EXTRA_OPTIONS = {
 }
 
 
+def convs_without_int8_kernels(onnx_path: Path) -> list[str]:
+    """Conv nodes TensorRT has no INT8 implementation for.
+
+    TensorRT's INT8 convolution kernels need the input channel count to be a
+    multiple of four - they load four bytes at a time. A convolution that
+    misses it has no int8 tactic at all, and the build dies at kernel
+    selection rather than at parse time:
+
+        Could not find any implementation for node
+        onnx::Conv_497_quantized + /conv1/Conv + PWN(/relu/Relu) + /maxpool/MaxPool
+
+    On any RGB network that is the stem convolution, with three input
+    channels. Leaving it in fp32 is what NVIDIA's own toolkits do, and it is
+    normal practice for accuracy anyway: the first layer sees raw pixels and
+    is the most sensitive to quantization, while being a tiny share of total
+    compute.
+    """
+    import onnx
+
+    graph = onnx.load(str(onnx_path), load_external_data=False).graph
+    weights = {init.name: init for init in graph.initializer}
+
+    excluded = []
+    for node in graph.node:
+        if node.op_type != "Conv" or len(node.input) < 2:
+            continue
+        weight = weights.get(node.input[1])
+        # Conv weights are (out_channels, in_channels/groups, *kernel).
+        if weight is not None and len(weight.dims) >= 2 and weight.dims[1] % 4 != 0:
+            excluded.append(node.name)
+    return excluded
+
+
 def quantize_onnx_static(
     src: Path,
     calibration_dir: Path,
@@ -401,6 +434,10 @@ def quantize_onnx_static(
     except Exception:
         quant_pre_process(str(src), str(preprocessed), skip_symbolic_shape=True)
 
+    # Do this after preprocessing: quant_pre_process can fuse and rename, and
+    # a name from the original graph would then match nothing.
+    excluded_nodes = convs_without_int8_kernels(preprocessed) if trt_compatible else []
+
     quantize_static(
         model_input=str(preprocessed),
         model_output=str(dst),
@@ -426,6 +463,7 @@ def quantize_onnx_static(
         calibrate_method=(
             CalibrationMethod.Percentile if trt_compatible else CalibrationMethod.MinMax
         ),
+        nodes_to_exclude=excluded_nodes,
         # Empty rather than None when off: ORT treats the two the same, and an
         # explicit dict keeps the call one shape instead of two.
         extra_options=_TRT_EXTRA_OPTIONS if trt_compatible else {},
@@ -441,6 +479,11 @@ def quantize_onnx_static(
             "and its non-zero zero points; MinMax then collapses under the symmetric "
             "constraint (18% top-1 agreement against percentile's 95%)"
         )
+        if excluded_nodes:
+            notes.append(
+                f"left in fp32 for lack of an INT8 kernel: {', '.join(excluded_nodes)} "
+                "(TensorRT INT8 convolutions need input channels divisible by 4)"
+            )
     max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples[:32], notes)
 
     original_mb = src.stat().st_size / 1_048_576

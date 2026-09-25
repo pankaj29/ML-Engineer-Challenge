@@ -860,6 +860,22 @@ So `trt_compatible=True` calibrates by percentile, clipping at 99.999% rather
 than at the single most extreme activation seen. It ends up more faithful than
 the asymmetric MinMax graph it replaces, not less.
 
+One last constraint is a hardware limit rather than a graph-format one, so no
+amount of checking the file catches it: TensorRT's INT8 convolution kernels
+need the input channel count to be a multiple of four. ResNet's stem conv
+takes three channels (RGB), has no int8 tactic at all, and the build dies at
+kernel selection:
+
+```
+Could not find any implementation for node
+onnx::Conv_497_quantized + /conv1/Conv + PWN(/relu/Relu) + /maxpool/MaxPool
+```
+
+`quantize.py` finds those convolutions by weight shape and leaves them in
+fp32 — one node here, 52 of 53 convolutions still quantized. That is standard
+practice anyway: the first layer sees raw pixels, is the most sensitive to
+quantization, and is a tiny share of the compute.
+
 The cell below runs a pre-flight against both rules before building, so a
 non-compliant graph is named here rather than by the parser ten minutes in.
 
