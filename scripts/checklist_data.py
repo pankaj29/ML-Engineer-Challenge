@@ -775,11 +775,12 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Unit tests, target >90% coverage": (
         "DONE",
         "tests/unit/",
-        "95.7% on api/ and 100% on worker/, the two halves of the request path; "
-        "88.8% across api+worker+models. The async batch endpoint was the last "
-        "gap at 82.6% and is now fully covered, including the URL fetch with its "
-        "SSRF checks, the soft-timeout partial-results path and the completion "
-        "callback at both the helper and its call site.",
+        "95.9% across api/ and worker/ together, the request path end to end: "
+        "95.7% on api/, 100% on worker/. 89.3% repo-wide including the training "
+        "and MLOps code. The async batch endpoint was the last gap at 82.6% and "
+        "is now fully covered, including the URL fetch with its SSRF checks, the "
+        "soft-timeout partial-results path and the completion callback at both "
+        "the helper and its call site.",
     ),
     "Test model inference functions": (
         "DONE",
@@ -818,8 +819,11 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Test API endpoint integration": (
         "DONE",
-        "tests/unit/test_api_routes.py, tests/integration/",
-        "Plus a verified live run through the Docker stack.",
+        "tests/unit/test_api_routes.py, tests/integration/, scripts/smoke_test_api.py",
+        "Plus a verified live run through the Docker stack: 30 checks over every "
+        "documented endpoint, 30/30 through the gateway and 30/30 against the "
+        "API's own port. It is a script rather than a transcript, so it reruns "
+        "against any deployment and exits non-zero on a failure.",
     ),
     "Stress testing for model inference": (
         "DONE",
@@ -963,15 +967,22 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Documentation for deployment and scaling": (
         "DONE",
-        "docs/DEPLOYMENT.md",
-        "First run, production checklist, scaling guide with measured sizing, "
-        "monitoring, model rollout/rollback, troubleshooting, backup and recovery.",
+        "docs/DEPLOYMENT.md, k8s/README.md",
+        "First run, production checklist, scaling guide with measured sizing, a "
+        "Kubernetes section covering when to move, prerequisites, what changes "
+        "from Compose and how to verify it, then monitoring, model "
+        "rollout/rollback, troubleshooting, backup and recovery. The manifests "
+        "have their own README with the cluster evidence.",
     ),
     # --- Documentation -----------------------------------------------------
     "README: Architecture overview and design decisions": (
         "DONE",
         "README.md + docs/TECHNICAL.md",
-        "Architecture diagram, middleware ordering rationale, layering.",
+        "A diagram per deployment target, Compose and Kubernetes, with the "
+        "middleware ordering rationale and layering. TECHNICAL.md §6 covers why "
+        "the cluster topology differs: HPA instead of a typed replica count, "
+        "ingress instead of the gateway container, fetched rather than baked-in "
+        "artifacts, and migrations in an init container.",
     ),
     "README: Setup and installation instructions": (
         "DONE",
@@ -1051,11 +1062,12 @@ UPDATES: dict[str, tuple[str, str, str]] = {
         "DONE",
         "pytest --cov",
         "Zero modules below 85% on the critical path, counting worker/ as well as "
-        "api/: 95.7% on api/, 100% on worker/tasks.py and worker/celery_app.py. "
-        "88.8% across the whole repo. The weakest critical-path module is "
-        "health.py at 86.8%. What remains under 85% is training and MLOps code "
-        "no request touches: registry.py (a CLI, not imported by api/ or "
-        "worker/), train_classifier.py, retraining.py, dataset.py, tracking.py.",
+        "api/: 95.9% across the two, 95.7% on api/, 100% on worker/tasks.py and "
+        "worker/celery_app.py. 89.3% across the whole repo. The weakest "
+        "critical-path module is health.py at 86.8%. What remains under 85% is "
+        "training and MLOps code no request touches: registry.py (a CLI, not "
+        "imported by api/ or worker/), train_classifier.py, retraining.py, "
+        "dataset.py, tracking.py.",
     ),
     "Performance: sub-second inference": (
         "DONE",
