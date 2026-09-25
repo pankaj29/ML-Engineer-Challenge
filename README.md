@@ -324,8 +324,8 @@ Details worth knowing before applying it:
 - **Overlays**: `kind` for local verification, `gpu` for TensorRT serving on a
   GPU node, `canary` and `canary-kind` for progressive delivery.
 
-Verified on a kind cluster rather than asserted: the HPA scaled `ml-api` from
-1 pod to 2 under a forced target. That run is what surfaced the missing
+Verified on a kind cluster rather than asserted: with the overlay's floor of
+1 replica, the HPA scaled `ml-api` to 2 under a forced target. That run is what surfaced the missing
 registry file in the image, the `CREATE EXTENSION` race between replicas and
 the `hostPath` the restricted policy rejects.
 
