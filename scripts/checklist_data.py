@@ -110,7 +110,7 @@ ITEMS: list[Item] = [
         "Convert models to TensorRT format",
         "TODO",
         "models/optimization/export_tensorrt.py",
-        "Requires NVIDIA GPU. User supplies a GPU session in VS Code.",
+        "Built and served on an A100.",
     ),
     Item(
         "Part 1: Optimisation",
@@ -775,8 +775,11 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Unit tests, target >90% coverage": (
         "DONE",
         "tests/unit/",
-        "83% overall; critical paths 85-100%. Routers 97-100%, validators 92%, "
-        "image_processing 98%, schemas/responses 97-98%.",
+        "95.7% on api/ and 100% on worker/, the two halves of the request path; "
+        "88.8% across api+worker+models. The async batch endpoint was the last "
+        "gap at 82.6% and is now fully covered, including the URL fetch with its "
+        "SSRF checks, the soft-timeout partial-results path and the completion "
+        "callback at both the helper and its call site.",
     ),
     "Test model inference functions": (
         "DONE",
@@ -842,13 +845,17 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "CI/CD pipeline configuration": (
         "DONE",
         ".github/workflows/ci.yml",
-        "Lint, type-check, test, coverage gate, Docker build and security scan.",
+        "Eight jobs: lint, tests on 3.11 and 3.12, security scan, image build, "
+        "end-to-end against the deployed stack, real model export. Plus release.yml "
+        "(publishes attested, scanned images on a version tag) and drift-watch.yml "
+        "(weekly retraining decision, verified by a manual run).",
     ),
     # --- Part 4: containerisation -----------------------------------------
     "Multi-stage builds": (
         "DONE",
-        "docker/Dockerfile.api, docker/Dockerfile.worker",
-        "Builder stage keeps compilers out of the runtime image.",
+        "Dockerfile, docker/Dockerfile.worker, docker/Dockerfile.gpu",
+        "Builder stage keeps compilers out of the runtime image. A third "
+        "Dockerfile builds the CUDA/TensorRT serving image.",
     ),
     "Security best practices (non-root": (
         "DONE",
@@ -1043,8 +1050,12 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Test coverage minimum 85%": (
         "DONE",
         "pytest --cov",
-        "83.5% overall; critical paths 85-100% (routers 97-100%, validators 92%, "
-        "image_processing 98%). The gap is GPU-only and lifespan code.",
+        "Zero modules below 85% on the critical path, counting worker/ as well as "
+        "api/: 95.7% on api/, 100% on worker/tasks.py and worker/celery_app.py. "
+        "88.8% across the whole repo. The weakest critical-path module is "
+        "health.py at 86.8%. What remains under 85% is training and MLOps code "
+        "no request touches: registry.py (a CLI, not imported by api/ or "
+        "worker/), train_classifier.py, retraining.py, dataset.py, tracking.py.",
     ),
     "Performance: sub-second inference": (
         "DONE",
@@ -1061,10 +1072,12 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Scalability: design for horizontal scaling": (
         "DONE",
-        "docs/TECHNICAL.md, docker-compose.prod.yml",
+        "k8s/, docs/TECHNICAL.md, docker-compose.prod.yml",
         "Stateless API, Redis-backed distributed rate limiting, independent worker "
-        "scaling. The per-process similarity index is documented as the one "
-        "component that does not yet scale out.",
+        "scaling, and a pgvector-backed similarity index shared by every replica "
+        "(the per-process default does not scale, which is why the Kubernetes "
+        "config sets SIMILARITY_BACKEND=pgvector). Verified on a kind cluster: "
+        "the HPA scaled ml-api from 1 pod to 2 under a forced target.",
     ),
     "Environment-based configuration": (
         "DONE",
