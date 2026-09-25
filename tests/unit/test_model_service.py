@@ -378,3 +378,72 @@ class TestTensorRTRuntimeSelection:
         else:
             with pytest.raises(ModelLoadError, match="engine file is missing"):
                 TensorRTBackend(tmp_path / "missing.engine")
+
+
+class TestTensorRTTeardown:
+    """Resource release, which only misbehaves on a machine with a GPU.
+
+    Found by running the API on a real A100: every process that served a
+    prediction aborted at exit with
+
+        have been deinitialized, so there is no way we can finish cleanly.
+        The program will be aborted now.
+
+    `pycuda.autoinit` destroys the CUDA context from an atexit handler, and
+    the engine was still alive when it ran. In Kubernetes that turns every
+    SIGTERM into a non-zero exit, so a normal rolling update looks like a
+    crashing container.
+    """
+
+    def test_close_is_registered_to_run_before_pycuda_tears_down(self) -> None:
+        """atexit runs handlers last-registered-first.
+
+        The registration has to come after the pycuda.autoinit import, or it
+        runs second and the context is already gone.
+        """
+        import inspect
+
+        from api.services.model_service import TensorRTBackend
+
+        source = inspect.getsource(TensorRTBackend.__init__)
+        assert (
+            "atexit.register(self.close)" in source
+        ), "nothing releases the engine before pycuda destroys the context"
+        assert source.index("pycuda.autoinit") < source.index("atexit.register"), (
+            "registered before the autoinit import, so it runs after pycuda's "
+            "own handler and the context is already destroyed"
+        )
+
+    def test_device_buffers_are_freed_explicitly(self) -> None:
+        """Relying on refcounting frees them at an unpredictable time, which
+        fragments the allocator under load and outlives the context at exit."""
+        import inspect
+
+        from api.services.model_service import TensorRTBackend
+
+        source = inspect.getsource(TensorRTBackend.infer)
+        assert (
+            "finally:" in source and ".free()" in source
+        ), "device allocations are left to the garbage collector"
+
+    def test_close_is_idempotent(self) -> None:
+        """Both atexit and the model service's unload call it."""
+        from api.services.model_service import TensorRTBackend
+
+        backend = TensorRTBackend.__new__(TensorRTBackend)
+        backend._closed = False
+        backend.context = object()
+        backend.engine = object()
+
+        backend.close()
+        assert backend.engine is None
+        backend.close()  # must not raise
+
+    def test_the_context_is_released_before_the_engine(self) -> None:
+        """The execution context holds a reference to the engine."""
+        import inspect
+
+        from api.services.model_service import TensorRTBackend
+
+        source = inspect.getsource(TensorRTBackend.close)
+        assert source.index("self.context = None") < source.index("self.engine = None")

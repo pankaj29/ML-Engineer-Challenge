@@ -31,6 +31,7 @@ through :meth:`ModelService.resolve`.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import hashlib
 import json
 import threading
@@ -291,6 +292,23 @@ class TensorRTBackend:
             )
 
         self._cuda = cuda
+        self._closed = False
+
+        # Teardown order is the whole problem here. `pycuda.autoinit`
+        # registers an atexit handler that destroys the CUDA context, and if
+        # the engine and its device buffers are still alive when that runs,
+        # PyCUDA aborts the process:
+        #
+        #     have been deinitialized, so there is no way we can finish
+        #     cleanly. The program will be aborted now.
+        #
+        # atexit runs handlers last-registered-first, and this registration
+        # happens after the autoinit import above, so this one runs first and
+        # the context is still valid when it does. Without it every process
+        # that ever served a prediction exits non-zero, which in Kubernetes
+        # makes a normal SIGTERM shutdown look like a crash.
+        atexit.register(self.close)
+
         trt_logger = trt.Logger(trt.Logger.WARNING)
         with path.open("rb") as fh, trt.Runtime(trt_logger) as runtime:
             self.engine = runtime.deserialize_cuda_engine(fh.read())
@@ -335,19 +353,38 @@ class TensorRTBackend:
                 allocations.append(d_out)
                 outputs.append(host)
 
-        self.context.execute_async_v3(stream_handle=stream.handle)
+        try:
+            self.context.execute_async_v3(stream_handle=stream.handle)
 
-        out_idx = 0
-        for name in self._tensor_names:
-            if self.engine.get_tensor_mode(name) != trt.TensorIOMode.INPUT:
-                cuda.memcpy_dtoh_async(
-                    outputs[out_idx], allocations[self._tensor_names.index(name)], stream
-                )
-                out_idx += 1
-        stream.synchronize()
-        return outputs
+            out_idx = 0
+            for name in self._tensor_names:
+                if self.engine.get_tensor_mode(name) != trt.TensorIOMode.INPUT:
+                    cuda.memcpy_dtoh_async(
+                        outputs[out_idx], allocations[self._tensor_names.index(name)], stream
+                    )
+                    out_idx += 1
+            stream.synchronize()
+            return outputs
+        finally:
+            # Free explicitly rather than leaving it to refcounting. Device
+            # memory released by the garbage collector is released at an
+            # unpredictable time, which under load means the allocator
+            # fragments, and at shutdown means buffers outliving the context.
+            for allocation in allocations:
+                allocation.free()
 
     def close(self) -> None:
+        """Release the execution context and the engine, in that order.
+
+        Idempotent: atexit calls this, and so does the model service when it
+        unloads, and both may happen.
+        """
+        if self._closed:
+            return
+        self._closed = True
+
+        # The execution context holds a reference to the engine, so freeing
+        # the engine first leaves it pointing at freed memory.
         self.context = None
         self.engine = None
 
