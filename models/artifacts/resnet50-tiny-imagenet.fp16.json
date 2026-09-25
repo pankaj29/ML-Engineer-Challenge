@@ -1,0 +1,16 @@
+{
+  "name": "resnet50-tiny-imagenet",
+  "engine_path": "models/artifacts/resnet50-tiny-imagenet.fp16.engine",
+  "precision": "fp16",
+  "onnx_mb": 45.60054302215576,
+  "engine_mb": 45.9604606628418,
+  "build_seconds": 29.139021781999872,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 0.021877765655517578,
+  "verified": true,
+  "notes": [
+    "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+  ]
+}

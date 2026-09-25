@@ -19,7 +19,7 @@ at [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | Lint | `ruff` and `black` clean, `mypy` clean |
 | Stack | 7 services, all healthy |
 | Classifier | 78.91% top-1 on Tiny-ImageNet, 9 of 9 validation checks pass |
-| Latency | 0.86 ms p50 on A100 via TensorRT fp16; 43-121 ms on CPU |
+| Latency | 0.92 ms p50 on A100 via TensorRT INT8; 43-121 ms on CPU |
 | Load tested | 1,677 requests, 0.2% failures, p95 320 ms, 38.7 req/s |
 
 CI skips the Tiny-ImageNet dataset tests. The dataset is 519 MB across 120,203
@@ -346,10 +346,23 @@ More detail, including the three input resolutions measured and why the native
 
 ### TensorRT on the same GPU
 
-| Runtime | Precision | p50 | Throughput | Size |
-| --- | --- | ---: | ---: | ---: |
-| TensorRT | fp16 | **0.859 ms** | **1158 img/s** | 46.0 MB |
-| TensorRT | fp32 | 1.099 ms | 907 img/s | 91.5 MB |
+All three built and verified against the ONNX graph on an A100-SXM4-40GB,
+TensorRT 11.3.0.99, batch 1.
+
+| Runtime | Precision | p50 | p95 | Throughput | Engine | vs fp32 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| TensorRT | int8 | 0.920 ms | 1.017 ms | 1068 img/s | 24.1 MB | 1.41x |
+| TensorRT | fp16 | 0.990 ms | 1.008 ms | 1066 img/s | 46.0 MB | 1.31x |
+| TensorRT | fp32 | 1.298 ms | 1.336 ms | 822 img/s | 91.5 MB | — |
+
+INT8 buys size here, not speed. It and fp16 are the same within noise at batch
+1, trading places between 0.87 and 1.00 ms across four runs, but the INT8
+engine is half the size. At batch 1 a ResNet-50 on an A100 is bound by memory
+traffic rather than arithmetic, so halving the precision of the arithmetic
+changes little. Larger batches are where INT8 would pay off.
+
+Getting the INT8 engine to build took four separate fixes. They are written up
+in [TECHNICAL.md](docs/TECHNICAL.md#tensorrt).
 
 ---
 
@@ -405,8 +418,9 @@ Reproduce with `python -m models.optimization.benchmark`.
   RandomResizedCrop, RandomErasing, MixUp, CutMix
 - ONNX export verified numerically against PyTorch, max diff 3.46e-06
 - INT8 quantization, static and dynamic, with the accuracy cost measured
-- TensorRT built and benchmarked on an A100: fp16 at 0.859 ms p50 and
-  1158 img/s, 1.28× faster and half the size of fp32
+- TensorRT fp32, fp16 and INT8 all built, verified and benchmarked on an
+  A100: INT8 at 0.920 ms p50 and 1068 img/s, 1.41× faster than fp32 and a
+  quarter of its size
 - Validation pipeline: determinism, batch invariance, output sanity,
   robustness, calibration, latency
 - A/B testing with a paired McNemar test and confidence intervals
@@ -615,10 +629,12 @@ storage so checkpoints outlive the container.
 
 The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 
-1. **TensorRT INT8 is not built**, though fp32 and fp16 are. In TensorRT 11 an
-   INT8 engine needs a QDQ graph; `quantize.py` produces one but it has not
-   been run, so `precision="int8"` refuses rather than silently building fp32
-   and labelling it INT8.
+1. **The INT8 TensorRT engine leaves one convolution in fp32.** ResNet's stem
+   conv takes 3 channels and TensorRT's INT8 kernels need the input channel
+   count divisible by 4, so it has no INT8 tactic at all. 52 of 53
+   convolutions are quantized. This is also normal practice: the first layer
+   sees raw pixels and is the most quantization-sensitive, for a negligible
+   share of the compute.
 2. **Accuracy for the ImageNet-1k and COCO models is cited, not re-measured.**
    That needs the ImageNet and COCO validation sets. Behavioural correctness
    was verified end to end.
@@ -639,7 +655,8 @@ The full list with reasoning is in [ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §2.6.
 
 1. Calibrate confidence with temperature scaling
 2. Move the similarity index to a shared store (pgvector or FAISS)
-3. Build a TensorRT INT8 engine from the existing QDQ graph
+3. Benchmark TensorRT at larger batch sizes, where INT8 should finally beat
+   fp16 on latency rather than only on size
 4. Measure accuracy against the real ImageNet and COCO validation sets
 5. Add OpenTelemetry tracing
 6. Restore least-connections balancing at the gateway

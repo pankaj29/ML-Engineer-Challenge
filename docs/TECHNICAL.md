@@ -89,18 +89,19 @@ than the same building in different light.
 ```mermaid
 flowchart LR
     T["PyTorch<br/>checkpoint"] --> O["ONNX fp32<br/>91.2 MB"]
-    O -->|"static QDQ<br/>200 real images"| Q["ONNX INT8<br/>23.3 MB"]
+    O -->|"static QDQ, MinMax<br/>200 real images"| Q["ONNX INT8 (CPU)<br/>23.3 MB"]
+    O -->|"static QDQ, percentile<br/>symmetric, fp32 bias"| QT["ONNX INT8 (TRT)<br/>23.1 MB"]
     O -->|"convert_onnx_to_fp16<br/>keep_io_types"| H["ONNX fp16<br/>45.6 MB"]
-    O -->|"TensorRT build"| E32["TRT fp32 engine<br/>1.099 ms"]
-    H -->|"TensorRT build<br/>STRONGLY_TYPED"| E16["TRT fp16 engine<br/>0.859 ms"]
-    Q -.->|"not built:<br/>needs QDQ path"| EI["TRT INT8"]
+    O -->|"TensorRT build"| E32["TRT fp32 engine<br/>1.298 ms"]
+    H -->|"TensorRT build<br/>STRONGLY_TYPED"| E16["TRT fp16 engine<br/>0.990 ms"]
+    QT -->|"TensorRT build"| EI["TRT INT8 engine<br/>0.920 ms"]
 
-    style E16 stroke-width:3px
-    style EI stroke-dasharray: 5 5
+    style EI stroke-width:3px
 ```
 
-Solid arrows are paths that were built and measured. The dashed one is not
-done, and is refused rather than faked, see the TensorRT subsection.
+Every path here was built, verified and measured. Two INT8 graphs rather than
+one, because a single file cannot serve both runtimes; the TensorRT subsection
+explains why.
 
 
 ### ONNX export: a clear win, with a trap
@@ -171,18 +172,26 @@ size alone without evaluating on your own data.
 
 ### TensorRT
 
-Run on an NVIDIA A100-SXM4-40GB with TensorRT 11.3, on the fine-tuned
-Tiny-ImageNet classifier at 224x224:
+Run on an NVIDIA A100-SXM4-40GB with TensorRT 11.3.0.99, on the fine-tuned
+Tiny-ImageNet classifier at 224x224, batch 1:
 
-| Precision | ONNX | Engine | Build | p50 | p95 | Throughput |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| fp32 | 91.2 MB | 91.5 MB | 23 s | 1.099 ms | 1.130 ms | 907 img/s |
-| fp16 | 45.6 MB | 46.0 MB | 28 s | **0.859 ms** | 0.905 ms | **1158 img/s** |
+| Precision | ONNX | Engine | Build | p50 | p95 | Throughput | vs fp32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| fp32 | 91.2 MB | 91.5 MB | 24 s | 1.298 ms | 1.336 ms | 822 img/s | - |
+| fp16 | 45.6 MB | 46.0 MB | 29 s | 0.990 ms | 1.008 ms | 1066 img/s | 1.31x |
+| int8 | 23.1 MB | 24.1 MB | 24 s | **0.920 ms** | 1.017 ms | **1068 img/s** | **1.41x** |
 
-fp16 is 1.28x faster than fp32 and half the size. The same model through ONNX
-Runtime on CPU runs at about 15 ms, so TensorRT on an A100 is roughly **17x
-faster**. That gap is what justifies a compiled, hardware-specific runtime
-existing in the codebase at all.
+The same model through ONNX Runtime on CPU runs at about 15 ms, so TensorRT on
+an A100 is roughly **16x faster**. That gap is what justifies a compiled,
+hardware-specific runtime existing in the codebase at all.
+
+**INT8 and fp16 are the same speed at batch 1.** Across four runs they traded
+places between 0.87 and 1.00 ms, which is contention on a shared A100 rather
+than a real difference. A ResNet-50 at batch 1 is bound by memory traffic and
+kernel launch overhead, not arithmetic, so halving the precision of the
+arithmetic changes little. INT8's win here is size: 24.1 MB against 46.0 MB.
+Anyone sizing a throughput service should re-benchmark at their real batch
+size, where the tensor cores become the bottleneck.
 
 **The TensorRT API differs by two generations across the versions this has
 to run on.** Code written against 10.x does not work on 11.3; three calls were
@@ -206,21 +215,81 @@ change. It uses `onnxruntime.transformers.float16` rather than the more
 obvious `onnxconverter-common`, which hard-pins `protobuf==3.20.2` and would
 drag protobuf below the `>=6.31.1` that onnx requires.
 
-One caveat is left visible rather than tuned away. The fp16 engine measures
-`max diff 1.25e-02` against the fp32 ONNX, above the 1e-2 verification
-tolerance, so it is reported as `verified=False`. That tolerance is a weak
-test for fp16: it bounds absolute logit distance, and half precision carries
-about three decimal digits, so 1e-2 on logits of order 10 is rounding rather
-than a defect. The meaningful evidence is behavioural - 78.60% top-1 and 0.0%
-of predictions flipping under noise far larger than this. The fix is to verify
-by top-1 agreement instead of logit distance. Until that exists the flag stays
-red rather than being relaxed to look green.
+#### INT8 needs its own graph, and four fixes
 
-INT8 through TensorRT is not done. In the strongly-typed era it needs a QDQ
-graph, which `quantize.py` already produces; the path is short but untested, so
-`precision="int8"` raises `UnsupportedPrecisionError` and names the file to
-build from. Setting no flag and labelling the output INT8 would have produced
-an engine, a populated benchmark row, and entirely wrong numbers.
+TensorRT will not build from the INT8 graph ONNX Runtime produces by default.
+Four separate constraints had to be satisfied, each found only after the
+previous one was fixed:
+
+| # | Constraint | How it announced itself |
+| --- | --- | --- |
+| 1 | `DequantizeLinear` takes only 8- and 4-bit inputs | parse error at `fc.bias_DequantizeLinear`: *"input has type Int32"* |
+| 2 | Symmetric quantization only, every zero point 0 | parse error at `input_QuantizeLinear`: *"Non-zero zero point is not supported"* |
+| 3 | MinMax calibration collapses once symmetric | **nothing** - a valid engine, quietly 18% faithful |
+| 4 | INT8 convolutions need input channels divisible by 4 | build error: *"Could not find any implementation for node ... /conv1/Conv"* |
+
+On (1): ONNX Runtime quantizes biases to INT32, which is correct, since a bias
+scale is `input_scale * weight_scale` and int8 would overflow. `QuantizeBias:
+False` leaves them in fp32, dropping 54 of 182 DequantizeLinear nodes.
+
+On (3), the one worth remembering. Symmetric quantization makes each range
+`[-max|x|, +max|x|]`, so a post-ReLU activation, which is never negative,
+spends half its 256 levels on values that cannot occur, and with MinMax one
+outlier stretches the rest. Measured on 200 held-out validation images,
+calibrated on a disjoint 200:
+
+| Calibration | Top-1 agreement with fp32 | TensorRT |
+| --- | ---: | --- |
+| MinMax, asymmetric | 70.0% | rejects the graph |
+| MinMax, symmetric | 18.0% | accepts |
+| Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
+| **Percentile, symmetric** | **95.0%** | **accepts** |
+
+Percentile clips at 99.999% instead of at the single most extreme activation
+seen, and ends up *more* faithful than the asymmetric MinMax graph it replaces.
+The other three constraints stop the build; this one ships a working engine
+that is wrong, which is the failure mode that actually reaches production.
+
+On (4): a hardware kernel limit, not a graph property, so no file inspection
+catches it. ResNet's stem convolution takes 3 channels and has no INT8 tactic.
+`convs_without_int8_kernels()` finds such layers by weight shape and excludes
+them - one node here, 52 of 53 convolutions still quantized. Leaving the first
+layer in higher precision is standard practice anyway: it sees raw pixels, is
+the most quantization-sensitive, and is a negligible share of the compute.
+
+Constraints (1) and (2) are properties of the file, so `check_trt_qdq_graph()`
+reports both at once before any GPU work begins. TensorRT's parser stops at the
+first offending node, so discovering them one at a time cost a GPU session
+each.
+
+The result is a second artifact, `<name>_int8_trt.onnx`, alongside
+`<name>_int8_static.onnx`. One file cannot serve both runtimes, and the CPU
+INT8 figures were measured against the latter - silently changing what that
+name contains would have invalidated them.
+
+#### Verifying an engine
+
+`_verify_engine` compares the engine against the fp32 ONNX graph and bounds the
+difference as a **fraction of the reference's peak magnitude**:
+
+| Precision | Limit | Measured | Why not tighter |
+| --- | ---: | ---: | --- |
+| fp32 | 0.1% | 0.05% | TensorRT defaults to TF32 for fp32 matmuls on Ampere: 10 mantissa bits, not 23 |
+| fp16 | 1% | 0.40% | half precision carries about three decimal digits |
+| int8 | 10% | 1.96% | TensorRT and ONNX Runtime round and fuse the same QDQ graph differently |
+
+Relative, not absolute. Logit scale is a property of the model - this one spans
+about -6.7 to +6.7 - so an absolute bound means something different on every
+model and tightens silently as outputs grow. An earlier absolute version failed
+the fp32 and fp16 engines of a perfectly good build while passing INT8.
+
+The comparison runs on a **real photograph** from `samples/`, not random noise.
+Noise broke the check in both directions at once: it produces smaller logits
+(peak 2.63 against 5.61) and larger quantization error (0.710 against 0.125),
+because the INT8 ranges were calibrated on photographs and noise falls outside
+all of them. That put the ratio at 27% against the real image's 2.2%, and since
+the noise was redrawn each run, the same engine verified on one build and
+failed on the next.
 
 ---
 
@@ -278,22 +347,23 @@ and forcing it into a synchronous request would blow the latency budget.
 
 ### GPU: the fine-tuned classifier
 
-Environment: NVIDIA A100-SXM4-40GB, TensorRT 11.3, ONNX Runtime 1.20.2,
+Environment: NVIDIA A100-SXM4-40GB, TensorRT 11.3.0.99, ONNX Runtime 1.20.2,
 Python 3.13. ResNet-50 fine-tuned on Tiny-ImageNet, 224x224 input.
 200 iterations after 50 warmup runs.
 
 ```mermaid
 xychart-beta
     title "Throughput by runtime (images/second, higher is better)"
-    x-axis ["TensorRT fp16", "TensorRT fp32", "ONNX Runtime (CPU)"]
+    x-axis ["TRT int8", "TRT fp16", "TRT fp32", "ONNX Runtime (CPU)"]
     y-axis "img/s" 0 --> 1500
-    bar [1158, 907, 66]
+    bar [1068, 1066, 822, 87]
 ```
 
 | Runtime | Precision | p50 | p95 | Throughput | Size |
 | --- | --- | ---: | ---: | ---: | ---: |
-| TensorRT | fp16 | **0.859 ms** | 0.905 ms | **1158 img/s** | 46.0 MB |
-| TensorRT | fp32 | 1.099 ms | 1.130 ms | 907 img/s | 91.5 MB |
+| TensorRT | INT8 | **0.920 ms** | 1.017 ms | **1068 img/s** | 24.1 MB |
+| TensorRT | fp16 | 0.990 ms | 1.008 ms | 1066 img/s | 46.0 MB |
+| TensorRT | fp32 | 1.298 ms | 1.336 ms | 822 img/s | 91.5 MB |
 | ONNX Runtime | fp32 | 11.50 ms | 11.64 ms | 86.9 img/s | 91.2 MB |
 | ONNX Runtime | INT8 static | 17.09 ms | 17.51 ms | 58.5 img/s | 23.3 MB |
 

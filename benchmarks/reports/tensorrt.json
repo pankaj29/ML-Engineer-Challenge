@@ -1,0 +1,69 @@
+[
+  {
+    "name": "resnet50-tiny-imagenet",
+    "engine_path": "models/artifacts/resnet50-tiny-imagenet.fp32.engine",
+    "precision": "fp32",
+    "onnx_mb": 91.16132831573486,
+    "engine_mb": 91.53640365600586,
+    "build_seconds": 23.912863642999582,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.0026166439056396484,
+    "verified": true,
+    "notes": [],
+    "source_onnx": "resnet50-tiny-imagenet.onnx",
+    "benchmark": {
+      "p50_ms": 1.298,
+      "p95_ms": 1.336,
+      "p99_ms": 1.354,
+      "throughput_ips": 821.72
+    }
+  },
+  {
+    "name": "resnet50-tiny-imagenet",
+    "engine_path": "models/artifacts/resnet50-tiny-imagenet.fp16.engine",
+    "precision": "fp16",
+    "onnx_mb": 45.60054302215576,
+    "engine_mb": 45.9604606628418,
+    "build_seconds": 29.139021781999872,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.021877765655517578,
+    "verified": true,
+    "notes": [
+      "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+    ],
+    "source_onnx": "resnet50-tiny-imagenet.onnx",
+    "benchmark": {
+      "p50_ms": 0.99,
+      "p95_ms": 1.008,
+      "p99_ms": 1.051,
+      "throughput_ips": 1065.69
+    }
+  },
+  {
+    "name": "resnet50-tiny-imagenet_int8_trt",
+    "engine_path": "models/artifacts/resnet50-tiny-imagenet_int8_trt.int8.engine",
+    "precision": "int8",
+    "onnx_mb": 23.139477729797363,
+    "engine_mb": 24.07009506225586,
+    "build_seconds": 23.567674410999643,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.10995638370513916,
+    "verified": true,
+    "notes": [
+      "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+    ],
+    "source_onnx": "resnet50-tiny-imagenet_int8_trt.onnx",
+    "benchmark": {
+      "p50_ms": 0.92,
+      "p95_ms": 1.017,
+      "p99_ms": 1.047,
+      "throughput_ips": 1067.87
+    }
+  }
+]

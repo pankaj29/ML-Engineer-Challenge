@@ -1,0 +1,14 @@
+{
+  "name": "resnet50-tiny-imagenet",
+  "engine_path": "models/artifacts/resnet50-tiny-imagenet.fp32.engine",
+  "precision": "fp32",
+  "onnx_mb": 91.16132831573486,
+  "engine_mb": 91.53640365600586,
+  "build_seconds": 23.912863642999582,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 0.0026166439056396484,
+  "verified": true,
+  "notes": []
+}
