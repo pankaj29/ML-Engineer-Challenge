@@ -440,10 +440,22 @@ confirm that workaround is right. The rate limiter's Lua script exists for
 atomicity, and only a real server can show 20 concurrent requests against a
 15-token bucket letting exactly 15 through.
 
-Unit coverage of `api/` is 95.8%, with the cache, database and rate-limiting
-services at 100%. The brief's mandatory bar is 85% on critical paths and its
-target is 90%. CI gates at 92, low enough that a failed Git LFS fetch skipping
-the artifact tests does not read as a coverage regression.
+Coverage of `api/` is 95.7%, with the cache, database and rate-limiting
+services at 100%. `worker/` is at 100%. Nothing on the request path sits below
+85%; the weakest module is `health.py` at 86.8%.
+
+The brief's mandatory bar is 85% on critical paths and its target is 90%. What
+counts as a critical path matters here: the async batch endpoint lives in
+`worker/`, not `api/`, and reporting only the `api/` figure hid it sitting at
+82.6% for a while. Both halves are now measured and reported.
+
+Repo-wide coverage is 88.8%. The difference is training and MLOps code no
+request touches: `train_classifier.py`, `retraining.py`, `dataset.py`,
+`tracking.py`, and `registry.py`, which is a CLI that neither `api/` nor
+`worker/` imports.
+
+CI gates at 92, low enough that a failed Git LFS fetch skipping the artifact
+tests does not read as a coverage regression.
 
 ### 3.6 Data lives inside the repository
 
