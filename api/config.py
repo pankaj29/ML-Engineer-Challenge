@@ -42,6 +42,11 @@ class Environment(str, Enum):
     PRODUCTION = "production"
 
 
+# Substrings that mark a secret as a checked-in default rather than a real one.
+_PLACEHOLDER_MARKERS: tuple[str, ...] = ("replace-me", "do-not-deploy", "insecure", "changeme")
+_PLACEHOLDER_KEY_PREFIXES: tuple[str, ...] = ("dev-key-", "replace-me")
+
+
 class Settings(BaseSettings):
     """Application settings, loaded from environment variables / `.env`.
 
@@ -178,6 +183,21 @@ class Settings(BaseSettings):
                     "JWT_SECRET must be set to at least 32 characters in "
                     f"{self.environment.value}. Generate one with: "
                     'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+                )
+            # The dev compose default and the k8s placeholder are both over 32
+            # characters, so length alone let them through.
+            if any(m in self.jwt_secret.lower() for m in _PLACEHOLDER_MARKERS):
+                raise ValueError(
+                    f"JWT_SECRET is a placeholder value; set a real secret in "
+                    f"{self.environment.value}."
+                )
+            placeholder_keys = [
+                k for k in self.parsed_api_keys() if k.lower().startswith(_PLACEHOLDER_KEY_PREFIXES)
+            ]
+            if placeholder_keys:
+                raise ValueError(
+                    f"API_KEYS contains {len(placeholder_keys)} development or placeholder "
+                    f"key(s); set real keys in {self.environment.value}."
                 )
             if self.debug:
                 raise ValueError("DEBUG must be false in staging/production")

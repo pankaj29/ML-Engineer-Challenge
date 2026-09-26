@@ -316,6 +316,97 @@ class TestBatchCancellation:
         assert "already finished" in body["reason"]
 
 
+class TestBatchOwnership:
+    """A job id alone must not reach another user's results or cancel their job."""
+
+    @pytest.fixture
+    def owned_by(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from api.middleware.auth import _key_fingerprint
+
+        class FakeDb:
+            available = True
+
+            def __init__(self) -> None:
+                self.records: dict[str, Any] = {}
+                self.updated: list[str] = []
+
+            async def get_batch_job(self, job_id: str) -> Any:
+                return self.records.get(job_id)
+
+            async def update_batch_job(self, job_id: str, **fields: Any) -> bool:
+                self.updated.append(job_id)
+                return True
+
+        db = FakeDb()
+        monkeypatch.setattr("api.services.db_service.get_db_service", lambda: db)
+
+        def _record(job_id: str, api_key: str) -> FakeDb:
+            db.records[job_id] = SimpleNamespace(
+                user_id=f"key_{_key_fingerprint(api_key)}",
+                total_items=1,
+                task="classification",
+                submitted_at=datetime.now(UTC),
+                started_at=None,
+                completed_at=None,
+                status="pending",
+                completed_items=0,
+                failed_items=0,
+            )
+            return db
+
+        return _record
+
+    def test_owner_can_read_their_job(
+        self, api_client, auth_headers, mock_celery, owned_by
+    ) -> None:
+        owned_by("mine", "test-pro-key")
+        mock_celery["results"]["mine"] = FakeAsyncResult("mine", state="SUCCESS", result={})
+        assert api_client.get("/api/v1/batch/mine", headers=auth_headers).status_code == 200
+
+    def test_other_users_job_reads_as_not_found(
+        self, api_client, auth_headers, mock_celery, owned_by
+    ) -> None:
+        owned_by("theirs", "someone-elses-key")
+        mock_celery["results"]["theirs"] = FakeAsyncResult("theirs", state="SUCCESS", result={})
+        response = api_client.get("/api/v1/batch/theirs", headers=auth_headers)
+        assert response.status_code == 404
+
+    def test_other_users_job_cannot_be_cancelled(
+        self, api_client, auth_headers, mock_celery, owned_by
+    ) -> None:
+        db = owned_by("theirs", "someone-elses-key")
+        job = FakeAsyncResult("theirs", state="PROGRESS")
+        mock_celery["results"]["theirs"] = job
+        response = api_client.delete("/api/v1/batch/theirs", headers=auth_headers)
+        assert response.status_code == 404
+        assert job.revoked is False
+        assert db.updated == []
+
+    def test_expired_result_falls_back_to_the_recorded_outcome(
+        self, api_client, auth_headers, mock_celery, owned_by
+    ) -> None:
+        """After Celery's 24 h expiry it reports PENDING; the row says otherwise."""
+        db = owned_by("old", "test-pro-key")
+        db.records["old"].status = "completed"
+        db.records["old"].completed_items = 2
+        db.records["old"].failed_items = 1
+        body = api_client.get("/api/v1/batch/old", headers=auth_headers).json()
+        assert body["status"] == "completed"
+        assert (body["completed_items"], body["failed_items"]) == (2, 1)
+
+    def test_unknown_id_is_not_revoked(
+        self, api_client, auth_headers, mock_celery, owned_by
+    ) -> None:
+        owned_by("unrelated", "test-pro-key")
+        job = FakeAsyncResult("never-submitted", state="PENDING")
+        mock_celery["results"]["never-submitted"] = job
+        response = api_client.delete("/api/v1/batch/never-submitted", headers=auth_headers)
+        assert response.status_code == 404
+        assert job.revoked is False
+
+
 class TestWorkerItemDecoding:
     """The worker's per-item decoding, tested without Celery."""
 

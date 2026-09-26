@@ -13,5 +13,22 @@
     "duration_seconds": 31.609714800011716,
     "calibration_images": 100,
     "notes": []
+  },
+  {
+    "name": "yolov8n",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\yolov8n.onnx",
+    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
+    "original_mb": 12.090323448181152,
+    "quantized_mb": 3.295454978942871,
+    "compression_ratio": 3.6687873223683165,
+    "max_abs_diff": 363.81280517578125,
+    "mean_abs_diff": 0.23128129254785035,
+    "top1_agreement": 1.0,
+    "duration_seconds": 15.322150899999542,
+    "calibration_images": 100,
+    "notes": [
+      "quantized op types: Conv; the rest stay fp32"
+    ]
   }
 ]

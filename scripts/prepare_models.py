@@ -58,7 +58,7 @@ def _force_utf8_stdout() -> None:
 
 
 def _quantize_best(
-    onnx_path: Path, preprocess_name: str, image_size: int = 224
+    onnx_path: Path, preprocess_name: str, *, op_types: list[str] | None = None
 ) -> tuple[str, str] | None:
     """Quantize a model, preferring static over dynamic quantization.
 
@@ -82,15 +82,20 @@ def _quantize_best(
     Returns:
         ``(artifact_key, filename)`` to register, or None if quantization failed.
     """
-    from api.utils.image_processing import PreprocessConfig
+    from api.services.model_service import PREPROCESS_PRESETS
     from models.optimization.quantize import quantize_onnx_dynamic, quantize_onnx_static
 
-    calibration_dir = _find_calibration_images()
+    calibration_dir = _find_calibration_images(detection=preprocess_name == "yolo_640")
 
     if calibration_dir is not None:
         try:
-            cfg = PreprocessConfig(size=(image_size, image_size))
-            result = quantize_onnx_static(onnx_path, calibration_dir, cfg, num_calibration=100)
+            # Calibrate on exactly what the model sees when serving. A plain
+            # PreprocessConfig here fed YOLO ImageNet-normalised center crops
+            # instead of 0-1 letterboxed frames.
+            cfg = PREPROCESS_PRESETS[preprocess_name]
+            result = quantize_onnx_static(
+                onnx_path, calibration_dir, cfg, num_calibration=100, op_types_to_quantize=op_types
+            )
             print(
                 f"int8       : {result.quantized_mb:.1f} MB "
                 f"({result.compression_ratio:.2f}x smaller), static QDQ from "
@@ -118,14 +123,18 @@ def _quantize_best(
         return None
 
 
-def _find_calibration_images() -> Path | None:
+def _find_calibration_images(*, detection: bool = False) -> Path | None:
     """Locate a directory of real images to calibrate static quantization.
 
     Static quantization needs images that resemble production traffic. The
     Tiny-ImageNet validation split is used when present because it is already
-    downloaded for training.
+    downloaded for training. A detector prefers COCO val2017
+    (``download_datasets.py --dataset coco_sample``): upscaled 64px thumbnails
+    contain nothing it detects confidently, so the class-logit range it
+    calibrates is too narrow and every INT8 score saturates near 0.5.
     """
-    candidates = [
+    coco = [REPO_ROOT / "data" / "coco_val2017" / "val2017", REPO_ROOT / "data" / "coco_val2017"]
+    candidates = (coco if detection else []) + [
         REPO_ROOT / "data" / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images",
         REPO_ROOT / "data" / "tiny-imagenet-200" / "val" / "images",
         REPO_ROOT / "data" / "calibration",
@@ -177,7 +186,7 @@ def prepare_classification(
     artifacts = {"onnx": onnx_path.name}
 
     if quantize:
-        quantized = _quantize_best(onnx_path, "imagenet_224", image_size=224)
+        quantized = _quantize_best(onnx_path, "imagenet_224")
         if quantized:
             artifacts[quantized[0]] = quantized[1]
 
@@ -256,8 +265,8 @@ def prepare_detection(*, quantize: bool = True, model_name: str = "yolov8n") -> 
     artifacts = {"onnx": onnx_path.name}
 
     if quantize:
-        # The detector is calibrated at its own 640px input size.
-        quantized = _quantize_best(onnx_path, "yolo_640", image_size=640)
+        # Conv only: see quantize_onnx_static for why the head must stay fp32.
+        quantized = _quantize_best(onnx_path, "yolo_640", op_types=["Conv"])
         if quantized:
             artifacts[quantized[0]] = quantized[1]
 
@@ -345,7 +354,7 @@ def prepare_similarity(*, quantize: bool = True, arch: str = "resnet50") -> dict
     artifacts = {"onnx": onnx_path.name}
 
     if quantize:
-        quantized = _quantize_best(onnx_path, "imagenet_224", image_size=224)
+        quantized = _quantize_best(onnx_path, "imagenet_224")
         if quantized:
             artifacts[quantized[0]] = quantized[1]
 

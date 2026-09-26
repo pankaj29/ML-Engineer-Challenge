@@ -50,22 +50,22 @@ scrape_configs:
   # ---------------------------------------------------------------------------
   - job_name: "ml-api"
     metrics_path: /api/v1/metrics
-    static_configs:
-      - targets: ["ml-api:8000"]
-        labels:
-          service: "ml-api"
-          component: "inference"
-
-    # When the API is scaled to several replicas, Docker's DNS returns one
-    # address per container. `dns_sd_configs` discovers them all, so scaling
-    # up does not require editing this file:
-    #
-    # dns_sd_configs:
-    #   - names: ["tasks.ml-api"]
-    #     type: A
-    #     port: 8000
+    # Docker's DNS returns one address per ml-api container. A static
+    # "ml-api:8000" target resolves to one of them per scrape, so with the
+    # production overlay's three replicas every scrape read a different
+    # replica's counters and rate() saw resets. DNS discovery scrapes each
+    # replica as its own target, and picks up --scale without an edit here.
+    dns_sd_configs:
+      - names: ["ml-api"]
+        type: A
+        port: 8000
+        refresh_interval: 15s
 
     relabel_configs:
+      - target_label: service
+        replacement: ml-api
+      - target_label: component
+        replacement: inference
       # Record which container answered, so a problem can be traced to one
       # replica rather than being averaged across all of them.
       - source_labels: [__address__]

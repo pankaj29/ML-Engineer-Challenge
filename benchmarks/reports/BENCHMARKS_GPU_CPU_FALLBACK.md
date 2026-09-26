@@ -33,6 +33,7 @@ batch size, which is the fair way to compare across batch sizes.
 
 | Model | Runtime | p50 speed-up | Size reduction |
 | --- | --- | ---: | ---: |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | 0.52x | 3.91x |
 
 ## How to read this
 

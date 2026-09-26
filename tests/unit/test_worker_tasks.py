@@ -37,6 +37,12 @@ def worker_task(fake_model_service, null_cache, monkeypatch):
     tracker = FakeState()
     monkeypatch.setattr(process_batch, "update_state", tracker)
     process_batch.tracker = tracker  # type: ignore[attr-defined]
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(
+        "worker.tasks._record_job", lambda job_id, **fields: recorded.append(fields)
+    )
+    process_batch.recorded = recorded  # type: ignore[attr-defined]
     return process_batch
 
 
@@ -172,6 +178,19 @@ class TestBatchProcessing:
         assert summary["submitted_at"]
         assert summary["completed_at"]
 
+    def test_job_state_is_written_to_the_database(self, worker_task, sample_image: bytes) -> None:
+        worker_task.run(
+            job_id="j1",
+            task_type="classification",
+            items=[{"image_base64": b64(sample_image)}, {"image_base64": "not-base64!"}],
+            params={},
+        )
+        first, last = worker_task.recorded
+        assert first["status"] == "running"
+        assert last["status"] == "completed"
+        assert (last["completed_items"], last["failed_items"]) == (1, 1)
+        assert last["completed_at"] is not None
+
     def test_empty_batch_does_not_divide_by_zero(self, worker_task) -> None:
         summary = worker_task.run(job_id="j", task_type="classification", items=[], params={})
         assert summary["total_items"] == 0
@@ -199,10 +218,19 @@ class TestFetchingAnImageByUrl:
         from worker import tasks
 
         class FakeResponse:
-            content = b"\xff\xd8image bytes"
+            body = [b"\xff\xd8image ", b"bytes"]
 
             def raise_for_status(self) -> None:
                 return None
+
+            def iter_bytes(self, _size):
+                return iter(self.body)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
 
         class FakeClient:
             def __init__(self, **kwargs) -> None:
@@ -215,7 +243,7 @@ class TestFetchingAnImageByUrl:
             def __exit__(self, *exc):
                 return False
 
-            def get(self, url):
+            def stream(self, method, url):
                 captured["url"] = url
                 return FakeResponse()
 
@@ -232,6 +260,49 @@ class TestFetchingAnImageByUrl:
         # hop passes validation and the second goes wherever it likes.
         assert captured["client"]["follow_redirects"] is False
         assert captured["client"]["timeout"] == 10.0
+
+    def test_an_oversized_download_is_cut_off(self, monkeypatch) -> None:
+        from api.config import settings
+        from api.exceptions import ImageTooLargeError
+        from worker import tasks
+
+        monkeypatch.setattr(settings, "max_image_bytes", 10)
+        pulled: list[int] = []
+
+        class Endless:
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_bytes(self, _size):
+                while True:
+                    pulled.append(1)
+                    yield b"x" * 4
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        class FakeClient:
+            def __init__(self, **kwargs) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def stream(self, method, url):
+                return Endless()
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "httpx", type("M", (), {"Client": FakeClient})
+        )
+        with pytest.raises(ImageTooLargeError):
+            tasks._decode_item({"image_url": "https://example.com/huge.jpg"})
+        assert len(pulled) == 3, "kept reading past the limit"
 
     def test_a_url_the_validator_rejects_never_gets_fetched(self, monkeypatch) -> None:
         from worker import tasks
@@ -426,3 +497,40 @@ class TestUnsupportedTask:
 
         with pytest.raises(ValueError, match="unsupported task type"):
             asyncio.run(tasks._run_one(None, FutureTask(), b"bytes", {}))
+
+
+class TestRecordJob:
+    def test_writes_the_row(self, monkeypatch) -> None:
+        from sqlalchemy import create_engine, select
+        from sqlalchemy.pool import StaticPool
+
+        from db.models import Base, BatchJob
+        from worker import tasks
+
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        Base.metadata.create_all(engine)
+        with engine.begin() as conn:
+            conn.execute(
+                BatchJob.__table__.insert().values(
+                    id="j1", correlation_id="c", task="classification", status="pending"
+                )
+            )
+        monkeypatch.setattr(tasks, "_job_engine", lambda: engine)
+
+        tasks._record_job("j1", status="completed", completed_items=3)
+
+        with engine.connect() as conn:
+            row = conn.execute(select(BatchJob.status, BatchJob.completed_items)).one()
+        assert tuple(row) == ("completed", 3)
+
+    def test_database_failure_is_swallowed(self, monkeypatch, caplog) -> None:
+        from worker import tasks
+
+        def broken():
+            raise ConnectionError("database is down")
+
+        monkeypatch.setattr(tasks, "_job_engine", broken)
+        tasks._record_job("j1", status="running")  # must not raise
+        assert any("batch_job_record_failed" in r.getMessage() for r in caplog.records)

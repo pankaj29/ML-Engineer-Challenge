@@ -17,6 +17,7 @@ caller bypass their limit entirely by wrapping everything in batches.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Path, Query, status
 
@@ -31,6 +32,10 @@ from api.models.responses import (
 )
 from api.models.schemas import BatchRequest, JobStatus, TaskType
 from api.utils.validators import validate_batch_size
+
+if TYPE_CHECKING:
+    from api.middleware.auth import Principal
+    from db.models import BatchJob
 
 logger = get_logger(__name__)
 
@@ -240,7 +245,7 @@ async def get_batch_status(
             internal_message=f"celery result backend error: {type(exc).__name__}: {exc}",
         ) from exc
 
-    if record is None and state == "PENDING":
+    if (record is None and state == "PENDING") or not _owns(record, principal):
         raise JobNotFoundError(
             "No batch job exists with that id. It may have expired: results "
             "are retained for 24 hours.",
@@ -259,6 +264,12 @@ async def get_batch_status(
     job_status = status_map.get(state, JobStatus.PENDING)
 
     total = record.total_items if record else 0
+    # Celery forgets a result after 24 hours and then reports PENDING again.
+    # The worker writes the outcome to batch_jobs, so a finished job does not
+    # turn back into a queued one.
+    recorded_outcome = state == "PENDING" and record is not None and record.status != "pending"
+    if recorded_outcome:
+        job_status = JobStatus(record.status)
     task_type = TaskType(record.task) if record else TaskType.CLASSIFICATION
     completed = failed = 0
     results: list[BatchItemResult] | None = None
@@ -281,6 +292,10 @@ async def get_batch_status(
             completed_at = datetime.fromisoformat(payload["completed_at"])
         if include_results:
             results = [BatchItemResult(**item) for item in payload.get("results", [])]
+
+    elif recorded_outcome:
+        completed = record.completed_items
+        failed = record.failed_items
 
     elif state == "FAILURE":
         # The exception text is operator-facing detail; keep the user-facing
@@ -307,6 +322,16 @@ async def get_batch_status(
     )
 
 
+def _owns(record: BatchJob | None, principal: Principal) -> bool:
+    """False only when the job is on record as belonging to someone else.
+
+    Another user's job answers 404, not 403, so its existence is not revealed.
+    With the database down there is no record to check against, and status
+    reads keep working rather than failing every caller.
+    """
+    return record is None or record.user_id is None or record.user_id == principal.user_id
+
+
 @router.delete(
     "/{job_id}",
     summary="Cancel a queued or running batch job",
@@ -325,9 +350,20 @@ async def cancel_batch(
     """
     from celery.result import AsyncResult
 
+    from api.services.db_service import get_db_service
     from worker.celery_app import celery_app
 
+    db = get_db_service()
+    record = await db.get_batch_job(job_id)
     result = AsyncResult(job_id, app=celery_app)
+    # Without this, any caller could revoke any id, including other users' jobs.
+    if not _owns(record, principal) or (
+        record is None and db.available and result.state == "PENDING"
+    ):
+        raise JobNotFoundError(
+            "No batch job exists with that id.",
+            details={"job_id": job_id},
+        )
     if result.state in ("SUCCESS", "FAILURE"):
         return {
             "job_id": job_id,
@@ -338,9 +374,7 @@ async def cancel_batch(
 
     result.revoke(terminate=True, signal="SIGTERM")
 
-    from api.services.db_service import get_db_service
-
-    await get_db_service().update_batch_job(
+    await db.update_batch_job(
         job_id, status=JobStatus.CANCELLED.value, completed_at=datetime.now(UTC)
     )
 

@@ -140,7 +140,18 @@ class TestPublicPaths:
     def test_public(self, path: str) -> None:
         assert is_public_path(path) is True
 
-    @pytest.mark.parametrize("path", ["/api/v1/classify", "/api/v1/models", "/api/v1/batch"])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/classify",
+            "/api/v1/models",
+            "/api/v1/batch",
+            # /models/{name} takes any name, so a suffix match exposed these.
+            "/api/v1/models/health",
+            "/api/v1/models/metrics",
+            "/api/v1/similarity/auth/token",
+        ],
+    )
     def test_protected(self, path: str) -> None:
         assert is_public_path(path) is False
 

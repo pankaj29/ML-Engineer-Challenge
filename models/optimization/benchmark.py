@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 import statistics
 import sys
 import time
@@ -349,16 +350,21 @@ def render_markdown(results: list[BenchmarkResult], env: dict[str, Any]) -> str:
             f"{r.per_image_ms:.2f} | {r.throughput_ips:.1f} | {r.size_mb:.1f} |"
         )
 
-    # Speed-up table against the float32 ONNX baseline at batch 1.
+    # Speed-up table against the float32 ONNX baseline at batch 1. Quantised
+    # artifacts carry a variant after "_int8" (resnet50_int8_static,
+    # ..._int8_trt), so the whole suffix goes, not just "_int8".
+    def base_name(name: str) -> str:
+        return re.sub(r"_int8(_\w+)?$", "", name)
+
     baselines = {
-        r.name.replace("_int8", ""): r
+        r.name: r
         for r in results
         if r.batch_size == 1 and r.runtime == "onnx" and "int8" not in r.name
     }
     comparisons = [
-        (r, baselines[r.name.replace("_int8", "")])
+        (r, baselines[base_name(r.name)])
         for r in results
-        if r.batch_size == 1 and r.name.replace("_int8", "") in baselines
+        if r.batch_size == 1 and base_name(r.name) in baselines
     ]
     if comparisons:
         lines += [

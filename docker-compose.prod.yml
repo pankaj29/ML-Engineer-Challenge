@@ -88,6 +88,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in production}
       API_KEYS: ${API_KEYS:?API_KEYS must be set in production}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}
+      # Redis runs with --requirepass here, so every client URL carries the
+      # password. Use a URL-safe value (e.g. secrets.token_urlsafe) for it.
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
 
       AUTH_ENABLED: "true"
       RATE_LIMIT_ENABLED: "true"
@@ -144,6 +149,14 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: json
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}
+      # The worker never signs tokens, but it loads the same Settings, which
+      # refuses to start in production without a real JWT_SECRET.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in production}
+      # Redis runs with --requirepass here, so every client URL carries the
+      # password. Use a URL-safe value (e.g. secrets.token_urlsafe) for it.
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
     deploy:
       # Workers scale with queue depth, independently of the API.
       replicas: ${WORKER_REPLICAS:-2}
@@ -188,12 +201,18 @@ services:
       - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in production}
       # Rename the commands that can wipe the instance, so a compromised
       # client cannot issue them.
+      # rename-command takes two arguments. The second is an empty string,
+      # which disables the command; a quoted '""' would instead rename it to
+      # a literal "" and the next rename would collide with it.
       - --rename-command
-      - "FLUSHALL "
+      - FLUSHALL
+      - ""
       - --rename-command
-      - "FLUSHDB "
+      - FLUSHDB
+      - ""
       - --rename-command
-      - "CONFIG "
+      - CONFIG
+      - ""
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -246,8 +265,9 @@ services:
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
       - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-20GB}
-      # Lifecycle API disabled: it allows an unauthenticated reload/shutdown.
-      - --web.enable-lifecycle=false
+      # Lifecycle API stays disabled (it allows an unauthenticated reload or
+      # shutdown) by leaving the flag out: it is off by default, and the
+      # binary rejects "--web.enable-lifecycle=false" and exits.
     deploy:
       resources:
         limits:

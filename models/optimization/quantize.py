@@ -364,6 +364,7 @@ def quantize_onnx_static(
     num_calibration: int = 200,
     per_channel: bool = True,
     trt_compatible: bool = False,
+    op_types_to_quantize: list[str] | None = None,
 ) -> QuantizationResult:
     """Statically quantize an ONNX model using real calibration images.
 
@@ -388,9 +389,17 @@ def quantize_onnx_static(
     against ``<name>_int8_static.onnx``, and quietly changing what that name
     contains would invalidate them.
 
+    Pass ``op_types_to_quantize=["Conv"]`` for YOLO-style detectors. Their
+    head concatenates box coordinates (0-640) and class scores (0-1) into one
+    tensor, and quantizing that Concat gives both a single int8 scale of about
+    2.5 per step: every class score rounds to zero and the model detects
+    nothing. Quantizing only the convolutions leaves the decode head in fp32.
+
     Args:
         trt_compatible: Emit a graph TensorRT will parse, at the cost of
             leaving biases unquantized.
+        op_types_to_quantize: Restrict quantization to these operator types.
+            None quantizes every supported operator.
 
     Raises:
         FileNotFoundError: The calibration directory does not exist.
@@ -466,6 +475,7 @@ def quantize_onnx_static(
             CalibrationMethod.Percentile if trt_compatible else CalibrationMethod.MinMax
         ),
         nodes_to_exclude=excluded_nodes,
+        op_types_to_quantize=op_types_to_quantize,
         # Empty rather than None when off: ORT treats the two the same, and an
         # explicit dict keeps the call one shape instead of two.
         extra_options=_TRT_EXTRA_OPTIONS if trt_compatible else {},
@@ -474,6 +484,8 @@ def quantize_onnx_static(
     preprocessed.unlink(missing_ok=True)
 
     notes: list[str] = []
+    if op_types_to_quantize:
+        notes.append(f"quantized op types: {', '.join(op_types_to_quantize)}; the rest stay fp32")
     if trt_compatible:
         notes.append(
             "built for TensorRT: biases in fp32, quantization symmetric, calibrated by "
@@ -596,8 +608,22 @@ def main() -> int:
             "fp32. TensorRT rejects the INT32 bias nodes in the default static graph."
         ),
     )
+    parser.add_argument(
+        "--op-types",
+        default=None,
+        help='Comma-separated operator types to quantize, e.g. "Conv" for YOLO. Default: all.',
+    )
     parser.add_argument("--num-calibration", type=int, default=200)
     parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument(
+        "--preset",
+        default=None,
+        help=(
+            "Registry preprocessing preset (imagenet_224, tiny_imagenet, yolo_640, "
+            "clip_224). Calibrate with the model's serving preprocessing; without it "
+            "a detector is calibrated on ImageNet-normalised crops. Overrides --image-size."
+        ),
+    )
     parser.add_argument(
         "--report",
         type=Path,
@@ -609,7 +635,18 @@ def main() -> int:
         print(f"error: no such model file: {args.onnx}", file=sys.stderr)
         return 2
 
-    cfg = PreprocessConfig(size=(args.image_size, args.image_size))
+    if args.preset:
+        from api.services.model_service import PREPROCESS_PRESETS
+
+        if args.preset not in PREPROCESS_PRESETS:
+            print(
+                f"error: unknown preset {args.preset!r}; choose from {sorted(PREPROCESS_PRESETS)}",
+                file=sys.stderr,
+            )
+            return 2
+        cfg = PREPROCESS_PRESETS[args.preset]
+    else:
+        cfg = PreprocessConfig(size=(args.image_size, args.image_size))
     results: list[QuantizationResult] = []
 
     samples: list[np.ndarray] | None = None
@@ -631,9 +668,14 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
+        op_types = [t.strip() for t in args.op_types.split(",")] if args.op_types else None
         results.append(
             quantize_onnx_static(
-                args.onnx, args.calibration_dir, cfg, num_calibration=args.num_calibration
+                args.onnx,
+                args.calibration_dir,
+                cfg,
+                num_calibration=args.num_calibration,
+                op_types_to_quantize=op_types,
             )
         )
         if args.trt_compatible:
@@ -652,8 +694,19 @@ def main() -> int:
         for note in result.notes:
             print(f"  note: {note}")
 
+    # Merge by (model, mode) rather than overwrite, so quantizing one model
+    # does not erase the record of every other.
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps([asdict(r) for r in results], indent=2), encoding="utf-8")
+    existing: list[dict[str, Any]] = []
+    if args.report.is_file():
+        try:
+            existing = json.loads(args.report.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = []
+    fresh = [asdict(r) for r in results]
+    replaced = {(r["name"], r["mode"]) for r in fresh}
+    merged = [r for r in existing if (r.get("name"), r.get("mode")) not in replaced] + fresh
+    args.report.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     print(f"report: {args.report}")
     return 0
 

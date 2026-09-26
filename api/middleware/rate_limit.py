@@ -29,6 +29,7 @@ a total outage. It is logged loudly so the gap is visible.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -153,11 +154,19 @@ class RateLimiter:
         self._available = False
         self._local: dict[str, _LocalBucket] = {}
         self._warned_degraded = False
+        # Local buckets are per process, so with N replicas the effective
+        # limit is N times the configured one. Keep trying to get back to
+        # Redis rather than staying degraded until a restart.
+        self._retry_interval = 10.0
+        self._next_retry = 0.0
+        self._retry_enabled = False
+        self._reconnect_task: asyncio.Task[bool] | None = None
 
     async def connect(self) -> bool:
         """Connect to Redis and register the Lua script."""
         if not self.settings.rate_limit_enabled:
             return False
+        self._retry_enabled = True
         try:
             import redis.asyncio as redis
 
@@ -182,6 +191,12 @@ class RateLimiter:
             return False
 
     async def close(self) -> None:
+        self._retry_enabled = False
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+        await self._drop_client()
+
+    async def _drop_client(self) -> None:
         if self._client is not None:
             try:
                 await self._client.aclose()
@@ -189,6 +204,28 @@ class RateLimiter:
                 pass
             self._client = None
         self._available = False
+
+    def _maybe_reconnect(self) -> None:
+        """Retry Redis in the background, at most once per retry interval.
+
+        The retry never runs inside the request: a connect timeout would add
+        its full length to whichever request happened to trigger it.
+        """
+        if not self._retry_enabled or self._available:
+            return
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            return
+        if time.monotonic() < self._next_retry:
+            return
+        self._next_retry = time.monotonic() + self._retry_interval
+        self._reconnect_task = asyncio.create_task(self._reconnect())
+
+    async def _reconnect(self) -> bool:
+        await self._drop_client()
+        if await self.connect():
+            self._warned_degraded = False
+            return True
+        return False
 
     def _bucket_params(self, tier: UserTier) -> tuple[float, float]:
         """Return ``(capacity, refill_rate_per_second)`` for a tier."""
@@ -214,6 +251,7 @@ class RateLimiter:
         limit = self.settings.rate_limit_for_tier(principal.tier.value)
         key = f"ratelimit:{principal.tier.value}:{principal.user_id}"
 
+        self._maybe_reconnect()
         if self._available and self._script is not None:
             try:
                 allowed, tokens, retry_after = await self._script(

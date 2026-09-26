@@ -21,6 +21,7 @@ import asyncio
 import base64
 import time
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any
 
 from celery import Task
@@ -64,6 +65,41 @@ class InferenceTask(Task):
         return self._services
 
 
+@lru_cache(maxsize=1)
+def _job_engine() -> Any:
+    """Sync engine for the batch_jobs table, one per worker process.
+
+    The worker runs a fresh event loop per batch, and an asyncpg pool is bound
+    to the loop that created it, so this uses the sync psycopg driver instead.
+    """
+    from sqlalchemy import create_engine
+
+    from api.config import settings
+
+    url = settings.database_url.replace("+asyncpg", "+psycopg").replace("+aiosqlite", "")
+    return create_engine(url, pool_pre_ping=True)
+
+
+def _record_job(job_id: str, **fields: Any) -> None:
+    """Write job state to batch_jobs. Best effort: never fails the batch.
+
+    Celery's result expires after 24 hours; this row is what the status
+    endpoint falls back to afterwards.
+    """
+    try:
+        from sqlalchemy import update
+
+        from db.models import BatchJob
+
+        with _job_engine().begin() as conn:
+            conn.execute(update(BatchJob).where(BatchJob.id == job_id).values(**fields))
+    except Exception as exc:
+        logger.warning(
+            "batch_job_record_failed",
+            extra={"job_id": job_id, "error": f"{type(exc).__name__}: {exc}"},
+        )
+
+
 def _decode_item(item: dict[str, Any]) -> bytes:
     """Turn one submitted batch item into image bytes.
 
@@ -75,13 +111,30 @@ def _decode_item(item: dict[str, Any]) -> bytes:
     if item.get("image_url"):
         import httpx
 
+        from api.config import settings
+        from api.exceptions import ImageTooLargeError
         from api.utils.validators import validate_image_url
 
         url = validate_image_url(item["image_url"])
-        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
-            response = client.get(url)
+        limit = settings.max_image_bytes
+        # Streamed with a cap, like the API's fetch: reading response.content
+        # would pull an arbitrarily large body into worker memory first.
+        with (
+            httpx.Client(timeout=10.0, follow_redirects=False) as client,
+            client.stream("GET", url) as response,
+        ):
             response.raise_for_status()
-            return response.content
+            chunks: list[bytes] = []
+            total = 0
+            for chunk in response.iter_bytes(64 * 1024):
+                total += len(chunk)
+                if total > limit:
+                    raise ImageTooLargeError(
+                        f"The remote image exceeds the {limit / 1_048_576:.0f} MB limit.",
+                        details={"limit_bytes": limit},
+                    )
+                chunks.append(chunk)
+            return b"".join(chunks)
     raise ValueError("item contains neither image_base64 nor image_url")
 
 
@@ -161,6 +214,7 @@ def process_batch(
         "batch_job_started",
         extra={"job_id": job_id, "task": task_type, "items": len(items)},
     )
+    _record_job(job_id, status="running", started_at=started_at)
 
     inference = self.services["inference"]
     ttype = TaskType(task_type)
@@ -284,6 +338,14 @@ def process_batch(
         "duration_seconds": round(duration, 2),
         "correlation_id": correlation_id,
     }
+
+    _record_job(
+        job_id,
+        status=summary["status"],
+        completed_items=completed,
+        failed_items=failed,
+        completed_at=completed_at,
+    )
 
     from api.middleware.monitoring import batch_job_duration_seconds, batch_jobs_total
 

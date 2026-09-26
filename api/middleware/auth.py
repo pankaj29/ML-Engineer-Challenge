@@ -235,7 +235,11 @@ def verify_jwt(token: str, config: Settings | None = None) -> Principal:
 
 def is_public_path(path: str) -> bool:
     """True when a path may be reached without credentials."""
-    return path in PUBLIC_PATHS or path.endswith(PUBLIC_SUFFIXES)
+    if path in PUBLIC_PATHS:
+        return True
+    # Exact match only. A plain endswith() also made /models/health and
+    # /models/metrics public, because /models/{name} accepts any name.
+    return any(path in (suffix, f"{settings.api_prefix}{suffix}") for suffix in PUBLIC_SUFFIXES)
 
 
 def authenticate_request(request: Request, config: Settings | None = None) -> Principal:

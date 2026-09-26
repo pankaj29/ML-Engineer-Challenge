@@ -166,6 +166,35 @@ class TestFailOpen:
         degraded = [r for r in caplog.records if "degraded_to_local" in r.getMessage()]
         assert len(degraded) == 1
 
+    async def test_redis_is_retried_in_the_background_and_recovers(self) -> None:
+        """Local buckets are per process, so staying degraded multiplies the limit."""
+        limiter = _wired(ScriptedRedis(exc=ConnectionError("gone")))
+        limiter._retry_enabled = True
+        healthy = ScriptedRedis()
+
+        async def fake_connect() -> bool:
+            limiter._client = healthy
+            limiter._script = healthy.register_script("")
+            limiter._available = True
+            return True
+
+        limiter.connect = fake_connect
+        await limiter.check(_principal())  # fails, drops to local buckets
+        await limiter.check(_principal())  # schedules the retry, does not wait on it
+        assert limiter._reconnect_task is not None
+        await limiter._reconnect_task
+
+        await limiter.check(_principal())
+        assert limiter._available is True
+        assert healthy.calls, "the recovered Redis path was not used"
+
+    async def test_no_retry_after_close(self) -> None:
+        limiter = _wired(ScriptedRedis(exc=ConnectionError("gone")))
+        limiter._retry_enabled = True
+        await limiter.close()
+        await limiter.check(_principal())
+        assert limiter._reconnect_task is None
+
     async def test_separate_users_get_separate_local_buckets(self) -> None:
         limiter = _wired(ScriptedRedis(exc=ConnectionError("gone")))
         for _ in range(20):

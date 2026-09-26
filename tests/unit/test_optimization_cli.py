@@ -321,6 +321,18 @@ class TestMarkdownComparisonTable:
         assert "2.00x" in markdown, "speedup column missing"
         assert "4.00x" in markdown, "size-shrink column missing"
 
+    def test_int8_artifact_names_match_their_fp32_baseline(self) -> None:
+        """Real artifacts are named resnet50_int8_static, not resnet50_int8."""
+        fp32 = self._result("onnx", 4.0, 100.0)
+        fp32.name = "resnet50"
+        static = self._result("onnx_int8", 2.0, 25.0)
+        static.name = "resnet50_int8_static"
+        trt = self._result("onnx_int8", 8.0, 50.0)
+        trt.name = "resnet50_int8_trt"
+        markdown = benchmark_mod.render_markdown([fp32, static, trt], {})
+        assert "| resnet50_int8_static | onnx_int8 | 2.00x | 4.00x |" in markdown
+        assert "| resnet50_int8_trt | onnx_int8 | 0.50x | 2.00x |" in markdown
+
     def test_notes_are_surfaced_in_the_report(self) -> None:
         markdown = benchmark_mod.render_markdown(
             [self._result("onnx", 4.0, 100.0, notes=["accuracy NOT verified"])], {}

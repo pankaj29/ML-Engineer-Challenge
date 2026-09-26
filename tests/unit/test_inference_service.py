@@ -153,6 +153,27 @@ class TestClassify:
         with pytest.raises(InferenceError):
             await service.classify(sample_image)
 
+    async def test_inference_failure_is_counted_for_alerting(
+        self, fake_model_service, null_cache, sample_image: bytes
+    ) -> None:
+        """The InferenceFailures alert reads inference_total{status!="success"}."""
+        from api.middleware.monitoring import inference_total
+
+        model = fake_model_service.models["classification"]
+        model.runtime = FakeRuntime(fail=True)
+        labels = {
+            "task": model.entry.task.value,
+            "model": model.entry.name,
+            "version": model.entry.version,
+            "runtime": model.runtime.format.value,
+            "status": "error",
+        }
+        before = inference_total.labels(**labels)._value.get()
+        service = InferenceService(fake_model_service, null_cache)
+        with pytest.raises(InferenceError):
+            await service.classify(sample_image)
+        assert inference_total.labels(**labels)._value.get() == before + 1
+
 
 class TestDetect:
     async def test_returns_detections(

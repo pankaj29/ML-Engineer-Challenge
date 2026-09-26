@@ -20,6 +20,7 @@ value even though they share a thread.
 from __future__ import annotations
 
 import logging
+import re
 import sys
 import uuid
 from contextvars import ContextVar
@@ -73,9 +74,18 @@ def get_correlation_id() -> str:
     return correlation_id_var.get()
 
 
+# Inbound ids come from a client header. The database columns are 64 wide,
+# and anything that is not a plain token would be written into every log line.
+_VALID_CORRELATION_ID = re.compile(r"[A-Za-z0-9._:-]{1,64}")
+
+
 def bind_correlation_id(cid: str | None = None) -> str:
-    """Set the correlation id for the current context and return it."""
-    cid = cid or new_correlation_id()
+    """Set the correlation id for the current context and return it.
+
+    A missing or malformed id is replaced with a fresh one.
+    """
+    if not cid or not _VALID_CORRELATION_ID.fullmatch(cid):
+        cid = new_correlation_id()
     correlation_id_var.set(cid)
     return cid
 

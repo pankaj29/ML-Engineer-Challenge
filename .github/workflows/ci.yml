@@ -607,6 +607,7 @@ jobs:
 
           if [ "${{ needs.test.result }}" != "success" ] \
              || [ "${{ needs.lint.result }}" != "success" ] \
+             || [ "${{ needs.security.result }}" != "success" ] \
              || [ "${{ needs.docker.result }}" != "success" ] \
              || [ "${{ needs.e2e.result }}" != "success" ]; then
             echo "::error::CI failed"

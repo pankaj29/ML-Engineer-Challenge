@@ -46,6 +46,7 @@ from api.exceptions import (
     OverloadedError,
 )
 from api.logging_config import get_correlation_id, get_logger
+from api.middleware.monitoring import record_inference
 from api.models.responses import (
     BoundingBox,
     ClassificationResponse,
@@ -167,6 +168,24 @@ def _set_inflight(count: int) -> None:
 # ---------------------------------------------------------------------------
 # The service
 # ---------------------------------------------------------------------------
+
+
+def _record_failed_inference(model: LoadedModel, status: str) -> None:
+    """Count a failed forward pass.
+
+    Routers record successes only, since they never see a failed result, so
+    without this the InferenceFailures alert had no non-success series to fire on.
+    """
+    record_inference(
+        task=model.entry.task.value,
+        model=model.entry.name,
+        version=model.entry.version,
+        runtime=model.runtime.format.value,
+        duration_seconds=0.0,
+        status=status,
+    )
+
+
 class InferenceService:
     """Runs predictions with caching, timeouts, limits and fallbacks."""
 
@@ -274,6 +293,7 @@ class InferenceService:
                 timeout=self.settings.inference_timeout_seconds,
             )
         except TimeoutError as exc:
+            _record_failed_inference(model, "timeout")
             logger.error(
                 "inference_timeout",
                 extra={
@@ -288,6 +308,7 @@ class InferenceService:
                 }
             ) from exc
         except Exception as exc:
+            _record_failed_inference(model, "error")
             logger.exception("inference_failed", extra={"model": model.entry.key})
             raise InferenceError(
                 details={"model": model.entry.key},

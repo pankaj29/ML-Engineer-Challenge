@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 
+import pytest
+
 from api.logging_config import (
     ConsoleFormatter,
     CorrelationIdFilter,
@@ -56,6 +58,15 @@ class TestCorrelationId:
         bind_correlation_id("first")
         bind_correlation_id("second")
         assert get_correlation_id() == "second"
+
+    @pytest.mark.parametrize("bad", ["x" * 65, "has space", "line\nbreak", 'quote"d'])
+    def test_malformed_inbound_id_is_replaced(self, bad: str) -> None:
+        cid = bind_correlation_id(bad)
+        assert cid != bad
+        assert len(cid) == 32
+
+    def test_64_char_id_is_kept(self) -> None:
+        assert bind_correlation_id("a" * 64) == "a" * 64
 
 
 class TestCorrelationIdFilter:

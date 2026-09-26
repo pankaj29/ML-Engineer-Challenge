@@ -28,6 +28,8 @@ permissions:
   # Needed to attach a provenance attestation to the published image.
   id-token: write
   attestations: write
+  # upload-sarif publishes the Trivy image scan to code scanning.
+  security-events: write
 
 env:
   REGISTRY: ghcr.io
