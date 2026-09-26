@@ -464,6 +464,38 @@ class TestBenchmarkInterleaved:
         assert order == [first, second, first, second]
 
 
+class TestBenchmarkTorchCases:
+    def test_torch_rows_join_the_same_run(self, exported: Path) -> None:
+        from models.optimization.benchmark import benchmark_interleaved
+
+        model = torch.nn.Sequential(torch.nn.Conv2d(3, 4, 3), torch.nn.ReLU())
+        results = benchmark_interleaved(
+            [(exported, (3, 16, 16))],
+            torch_cases=[("tiny", model, (3, 16, 16))],
+            iterations=4,
+            warmup=1,
+            rounds=2,
+        )
+        torch_rows = [r for r in results if r.runtime == "torch"]
+        assert [r.name for r in torch_rows] == ["tiny_torch"]
+        assert torch_rows[0].iterations == 4
+        assert torch_rows[0].size_mb > 0
+
+    def test_torch_rows_are_compared_with_their_onnx_baseline(self) -> None:
+        onnx_row = TestMarkdownRows.result("m", "onnx", 10.0)
+        torch_row = TestMarkdownRows.result("m_torch", "torch", 40.0)
+        markdown = render_markdown([onnx_row, torch_row], {})
+        assert "| m_torch | torch | 0.25x |" in markdown
+
+
+class TestMarkdownRows:
+    @staticmethod
+    def result(name: str, runtime: str, p50: float):
+        return summarise(
+            [p50] * 3, name=name, runtime=runtime, device="cpu", batch_size=1, size_mb=1.0
+        )
+
+
 class TestBenchmarkResultShape:
     def test_is_json_serialisable(self) -> None:
         from dataclasses import asdict

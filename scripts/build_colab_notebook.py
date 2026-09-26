@@ -767,17 +767,19 @@ print(f"labels    : {len(ckpt['class_names'])} classes")
     code("""
 from pathlib import Path
 
-from api.utils.image_processing import PreprocessConfig
+from api.services.model_service import PREPROCESS_PRESETS
 from models.optimization.quantize import quantize_onnx_static
 
-# Static QDQ, calibrated on real images. Dynamic quantization measured 13x
-# SLOWER than fp32 on CPU - see docs/TECHNICAL.md.
+# Static QDQ, calibrated on real images with the model's own serving
+# preprocessing. A plain PreprocessConfig here would calibrate on ImageNet-style
+# centre crops, which is not what this model is served.
 CALIB = DATA_DIR / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images"
+PRESET = PREPROCESS_PRESETS["tiny_imagenet"]
 
 q = quantize_onnx_static(
     Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
     CALIB,
-    PreprocessConfig(size=(IMAGE_SIZE, IMAGE_SIZE)),
+    PRESET,
     num_calibration=200,
 )
 print(q.summary())
@@ -791,7 +793,7 @@ print(q.summary())
 qt = quantize_onnx_static(
     Path("models/artifacts/resnet50-tiny-imagenet.onnx"),
     CALIB,
-    PreprocessConfig(size=(IMAGE_SIZE, IMAGE_SIZE)),
+    PRESET,
     num_calibration=200,
     trt_compatible=True,
 )
@@ -851,10 +853,13 @@ images, calibrated on a disjoint 200:
 
 | calibration | top-1 agreement with fp32 | TensorRT |
 |---|---|---|
-| MinMax, asymmetric | 70.0% | rejects the graph |
-| MinMax, symmetric | 18.0% | accepts |
-| Entropy, symmetric | 18.0% | accepts, 4.6x slower to calibrate |
-| **Percentile, symmetric** | **95.0%** | **accepts** |
+| MinMax, asymmetric | 79.0% | rejects the graph |
+| MinMax, symmetric | 43.0% | accepts |
+| Entropy, symmetric | 43.0% | accepts |
+| **Percentile, symmetric** | **94.5%** | **accepts** |
+
+(`benchmarks/reports/int8_calibration.json`, from
+`scripts/compare_int8_calibration.py`.)
 
 So `trt_compatible=True` calibrates by percentile, clipping at 99.999% rather
 than at the single most extreme activation seen. It ends up more faithful than
@@ -1012,7 +1017,12 @@ else:
 if trt_results:
     report = Path("benchmarks/reports/tensorrt.json")
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps(trt_results, indent=2), encoding="utf-8")
+    # Merge by (model, precision): section 8b adds the other three models to
+    # the same file, and neither section may erase the other's results.
+    existing = json.loads(report.read_text(encoding="utf-8")) if report.exists() else []
+    fresh = {(r["name"], r["precision"]) for r in trt_results}
+    merged = [r for r in existing if (r.get("name"), r.get("precision")) not in fresh]
+    report.write_text(json.dumps(merged + trt_results, indent=2), encoding="utf-8")
     print(f"\\nwrote {report}")
 
     baseline = next((r for r in trt_results if r["precision"] == "fp32"), None)
@@ -1027,6 +1037,113 @@ if trt_results:
         print(f"{r['precision']:<10} {r['engine_mb']:>10.1f} "
               f"{r['benchmark']['p50_ms']:>8.3f} "
               f"{r['benchmark']['throughput_ips']:>8.0f} {speedup:>8}")
+"""),
+    md("""
+## 8b. TensorRT for the other three models
+
+Section 8 builds engines for the fine-tuned classifier. This section does the
+same for the ImageNet ResNet-50, the embedding model and YOLOv8n, and it runs
+on its own: after section 2 (the code and its LFS model files) it needs no
+training. Run sections 1, 2 and 8b, then 12.
+
+For each model it builds a TensorRT-compatible INT8 graph (fp32 biases,
+symmetric, percentile calibration, the 3-channel stem left in fp32), then
+fp32, fp16 and INT8 engines, each verified against the ONNX graph on a real
+photograph and benchmarked at batch 1. YOLOv8n is calibrated on COCO images at
+640x640 and only its convolutions are quantized: quantizing its output
+Concat rounds every class score to zero (docs/TECHNICAL.md).
+
+Results merge into `benchmarks/reports/tensorrt.json`. Back on your machine,
+copy only `reports/tensorrt.json`, the engine metadata (`*.fp32.json`,
+`*.fp16.json`, `*.int8.json`) and the three `*_int8_trt.onnx` graphs from the
+bundle. The other reports in it are this checkout's committed copies.
+"""),
+    code("""
+import subprocess, sys
+from pathlib import Path
+
+# Calibration images: Tiny-ImageNet validation for the ResNets, COCO val2017
+# for the detector. Both come from the brief's own download script.
+TINY_VAL = DATA_DIR / "tiny-imagenet-200" / "tiny-imagenet-200" / "val" / "images"
+COCO_VAL = DATA_DIR / "coco_val2017" / "val2017"
+for dataset, folder in (("tiny_imagenet", TINY_VAL), ("coco_sample", COCO_VAL)):
+    if not folder.exists():
+        subprocess.run(
+            [sys.executable, "scripts/download_datasets.py", "--dataset", dataset,
+             "--data-dir", str(DATA_DIR)],
+            check=True,
+        )
+    print(dataset, "->", folder, "(" + str(sum(1 for _ in folder.iterdir())) + " files)")
+"""),
+    code("""
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+from api.services.model_service import PREPROCESS_PRESETS
+from models.optimization.export_tensorrt import (
+    benchmark_engine,
+    build_engine,
+    check_trt_qdq_graph,
+    tensorrt_available,
+)
+from models.optimization.quantize import quantize_onnx_static
+
+ARTIFACTS = Path("models/artifacts")
+MODELS = [
+    # name, preprocessing preset, calibration images, operator types to quantize
+    ("resnet50", "imagenet_224", TINY_VAL, None),
+    ("resnet50-embed", "imagenet_224", TINY_VAL, None),
+    ("yolov8n", "yolo_640", COCO_VAL, ["Conv"]),
+]
+
+report_path = Path("benchmarks/reports/tensorrt.json")
+report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else []
+
+available, reason = tensorrt_available()
+if not available:
+    print("SKIPPED: " + reason)
+else:
+    for name, preset, calibration_dir, op_types in MODELS:
+        cfg = PREPROCESS_PRESETS[preset]
+        fp32 = ARTIFACTS / (name + ".onnx")
+        print()
+        print("=== " + name + " ===")
+        quantized = quantize_onnx_static(
+            fp32, calibration_dir, cfg, num_calibration=100,
+            trt_compatible=True, op_types_to_quantize=op_types,
+        )
+        print(quantized.summary())
+        int8 = Path(quantized.output_path)
+        problems = check_trt_qdq_graph(int8)
+        print("  pre-flight: " + ("clean" if not problems else "; ".join(problems)))
+
+        for precision, source in (("fp32", fp32), ("fp16", fp32), ("int8", int8)):
+            try:
+                result = build_engine(
+                    source, precision=precision, max_batch_size=32, workspace_gb=8.0,
+                    input_size=cfg.size, preprocess=cfg,
+                )
+                print(result.summary())
+                bench = benchmark_engine(
+                    Path(result.engine_path), input_shape=(1, 3, *cfg.size),
+                    iterations=200, warmup=50,
+                )
+                record = asdict(result)
+                record["source_onnx"] = source.name
+                record["benchmark"] = bench
+                key = (record["name"], record["precision"])
+                report = [r for r in report if (r.get("name"), r.get("precision")) != key]
+                report.append(record)
+                print("  " + precision + ": p50 " + format(bench["p50_ms"], ".3f") + " ms, "
+                      + format(bench["throughput_ips"], ".0f") + " img/s, verified="
+                      + str(result.verified))
+            except Exception as exc:
+                print("  FAILED " + precision + ": " + type(exc).__name__ + ": " + str(exc))
+
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print()
+    print("wrote " + str(report_path) + " (" + str(len(report)) + " engines)")
 """),
     md("""
 ## 9. Benchmark every format on this GPU
@@ -1204,6 +1321,9 @@ wanted = [
     "resnet50-tiny-imagenet.onnx",
     "resnet50-tiny-imagenet_int8_static.onnx",
     "resnet50-tiny-imagenet_int8_trt.onnx",
+    "resnet50_int8_trt.onnx",
+    "resnet50-embed_int8_trt.onnx",
+    "yolov8n_int8_trt.onnx",
     "tiny_imagenet_labels.json",
 ]
 for name in wanted:

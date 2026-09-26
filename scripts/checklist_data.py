@@ -710,12 +710,12 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Convert models to TensorRT format": (
         "DONE",
         "models/optimization/export_tensorrt.py; benchmarks/reports/tensorrt.json",
-        "Built and verified on an A100 (TensorRT 11.3.0.99) for the fine-tuned classifier: INT8 0.920 ms p50, 1068 img/s, 24.1 MB; fp16 0.990 ms; fp32 1.298 ms. The other three models have CPU INT8 only; building their engines needs another GPU session.",
+        "Built and verified on an A100 (TensorRT 11.3.0.99) for the fine-tuned classifier: INT8 0.920 ms p50, 1068 img/s, 24.1 MB; fp16 0.990 ms; fp32 1.298 ms. The other three models have CPU INT8 only; section 8b of the Colab notebook builds their engines on a GPU runtime and has not been run yet.",
     ),
     "Benchmark inference times across all formats": (
         "DONE",
         "models/optimization/benchmark.py; benchmarks/reports/BENCHMARKS.md",
-        "fp32 and INT8 ONNX for all 4 models at batch 1 and 4, 100 runs per case interleaved across models, plus TensorRT fp32/fp16/INT8. INT8 (uint8, percentile calibration) on this CPU: 1.7x to 2.5x faster than fp32 for the three ResNets, 1.33x slower for yolov8n, 3.67x to 3.92x smaller.",
+        "Eager PyTorch, ONNX fp32 and ONNX INT8 for all 4 models at batch 1 and 4, 100 runs per case interleaved in one run, plus TensorRT fp32/fp16/INT8. ONNX fp32 is 1.9x to 2.8x faster than PyTorch; INT8 (uint8, percentile) is 2.0x to 2.2x faster again for the ResNets and 1.2x slower for yolov8n, and 3.67x to 3.92x smaller.",
     ),
     "Comprehensive model validation pipeline": (
         "DONE",
@@ -1028,7 +1028,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Performance: sub-second inference": (
         "DONE",
         "benchmarks/reports/BENCHMARKS.md",
-        "p99 at batch 1: resnet50 211.7 ms, resnet50-tiny-imagenet 277.1 ms, yolov8n 307.5 ms, resnet50-embed 357.3 ms. Every model inside 1 s in both precisions; the slowest single-image p99 is resnet50-embed fp32 at 357.3 ms.",
+        "p99 at batch 1 in ONNX fp32: resnet50 143.4 ms, resnet50-tiny-imagenet 137.2 ms, yolov8n 186.8 ms, resnet50-embed 84.1 ms. Every model inside 1 s in every runtime; the slowest single-image p99 is eager PyTorch for resnet50-embed at 332.1 ms.",
     ),
     "Security: no hardcoded secrets": (
         "DONE",

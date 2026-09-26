@@ -9,13 +9,13 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| Tests | 1,434: 1230 unit, 161 integration, 28 end-to-end, 15 performance |
+| Tests | 1,436: 1232 unit, 161 integration, 28 end-to-end, 15 performance |
 | Coverage | 95.8% on `api/`, 94.6% on `worker/` |
 | Lint | `ruff`, `black` and `mypy` clean, all three enforced in CI |
 | Stack | 7 services in development; in production 10 containers plus a one-shot migration, all healthy |
 | Fine-tuned classifier | 78.91% top-1 on Tiny-ImageNet, measured through the served ONNX model |
 | Detector | 0.392 mAP50-95 on 500 COCO images (INT8: 0.388) |
-| Latency | 67 to 113 ms p50 per image on a laptop CPU in fp32, 28 to 40 ms for the INT8 ResNets; 0.92 ms on an A100 with TensorRT INT8 |
+| Latency | 28 to 47 ms p50 per image on a laptop CPU in ONNX fp32 (PyTorch: 80 to 91 ms), 14 ms for the INT8 ResNets; 0.92 ms on an A100 with TensorRT INT8 |
 | Load test | 1,619 requests from 20 users over 45 s: 1 failure (a 503 from load shedding), p95 440 ms, 36.8 req/s |
 
 Every number in this README comes from a file in
@@ -172,10 +172,10 @@ The reasoning behind all of this is in [`docs/TECHNICAL.md`](docs/TECHNICAL.md).
 
 | Task | Model | Accuracy (measured) | CPU p50 | Size |
 | --- | --- | --- | ---: | ---: |
-| Classification (default) | ResNet-50, ImageNet-1k | 80.86% top-1 (torchvision, not re-measured) | 75.1 ms | 97.4 MB |
-| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 78.91% top-1, 92.12% top-5 | 66.8 ms | 91.2 MB |
-| Detection | YOLOv8n, COCO | 0.392 mAP50-95 on 500 val2017 images | 113.1 ms | 12.1 MB |
-| Similarity | ResNet-50 without its head, 2,048-d | not measured (no labelled retrieval set) | 69.1 ms | 89.6 MB |
+| Classification (default) | ResNet-50, ImageNet-1k | 80.86% top-1 (torchvision, not re-measured) | 30.1 ms | 97.4 MB |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 78.91% top-1, 92.12% top-5 | 30.0 ms | 91.2 MB |
+| Detection | YOLOv8n, COCO | 0.392 mAP50-95 on 500 val2017 images | 46.9 ms | 12.1 MB |
+| Similarity | ResNet-50 without its head, 2,048-d | not measured (no labelled retrieval set) | 28.4 ms | 89.6 MB |
 
 The brief's overview names three tasks and its numbered list names two; the
 third model is similarity search ([ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §1.1).
@@ -200,23 +200,23 @@ the training loop did in PyTorch.
 
 ## Optimisation results
 
-All CPU numbers: Intel Core Ultra 7 155H, ONNX Runtime 1.20.1, 100 timed runs
+All CPU numbers: Intel Core Ultra 7 155H, ONNX Runtime 1.20.1, PyTorch 2.9.0, 100 timed runs
 per case interleaved across models so they share the same machine conditions.
 Full table: [`BENCHMARKS.md`](benchmarks/reports/BENCHMARKS.md).
 
-| Model | fp32 p50 / p99 | INT8 p50 / p99 | INT8 size | INT8 quality vs fp32 |
-| --- | ---: | ---: | ---: | --- |
-| resnet50 | 75.1 / 211.7 ms | 37.0 / 141.6 ms | 3.92x smaller | 86.2% top-1 agreement |
-| resnet50-tiny-imagenet | 66.8 / 277.1 ms | 39.5 / 149.0 ms | 3.91x smaller | 78.38% against 78.91% top-1 |
-| yolov8n | 113.1 / 307.5 ms | 150.9 / 306.9 ms | 3.67x smaller | 0.388 against 0.392 mAP50-95 |
-| resnet50-embed | 69.1 / 357.3 ms | 28.1 / 132.3 ms | 3.91x smaller | 0.985 mean cosine |
+| Model | PyTorch p50 | ONNX fp32 p50 / p99 | ONNX INT8 p50 / p99 | INT8 size | INT8 quality vs fp32 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| resnet50 | 79.9 ms | 30.1 / 143.4 ms | 13.9 / 146.1 ms | 3.92x smaller | 86.2% top-1 agreement |
+| resnet50-tiny-imagenet | 81.1 ms | 30.0 / 137.2 ms | 14.7 / 177.1 ms | 3.91x smaller | 78.38% against 78.91% top-1 |
+| yolov8n | 90.5 ms | 46.9 / 186.8 ms | 56.2 / 217.3 ms | 3.67x smaller | 0.388 against 0.392 mAP50-95 |
+| resnet50-embed | 80.4 ms | 28.4 / 84.1 ms | 14.1 / 165.4 ms | 3.91x smaller | 0.985 mean cosine |
 
 Every model meets the sub-second requirement at p99 for a single image, in
 both precisions.
 
 INT8 is applied to all four models and is the default for none. For the three
-ResNets it is 1.7 to 2.5 times as fast as fp32 on this CPU and a quarter of
-the size; for the detector it is smaller but 1.33 times slower. Accuracy is the price: on all
+ResNets it is about twice as fast as fp32 on this CPU (2.02x to 2.16x) and a
+quarter of the size; for the detector it is smaller but 1.2 times slower. Accuracy is the price: on all
 10,000 validation images the fine-tuned classifier scores 78.38% in INT8
 against 78.91% in fp32, and a paired McNemar test says that 0.53-point gap is
 real (p = 0.002). So fp32 stays the default and INT8 is one parameter away
@@ -266,7 +266,7 @@ they measure the service's own overhead (`benchmarks/reports/performance_tests.t
 
 ## Testing and CI
 
-- 1,434 tests: 1230 unit, 161 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,436 tests: 1232 unit, 161 integration, 28 end-to-end, 15 performance, plus Locust load
 - Unit tests need nothing running: fakeredis, in-memory SQLite and a fake
   model runtime.
 - Integration tests use real ONNX models, and real Redis, PostgreSQL and
@@ -309,9 +309,10 @@ python scripts/check_readme_stats.py         # the Tests row above, checked in C
 
 1. **ImageNet accuracy is cited, not measured.** The validation set needs an
    account. COCO accuracy is measured.
-2. **TensorRT covers the fine-tuned classifier only.** The export tool is
-   generic, but engines were built for one model on one rented A100. CPU INT8
-   is measured for all four models.
+2. **TensorRT engines are built for the fine-tuned classifier only.** Engines
+   need an NVIDIA GPU. Section 8b of `notebooks/colab_gpu_pipeline.ipynb` builds,
+   verifies and benchmarks fp32, fp16 and INT8 engines for the other three
+   models in one run on a Colab GPU; it has not been run yet.
 3. **Confidence is not calibrated.** The fine-tuned model is underconfident
    (ECE 0.128). Use the ranking, not the raw score.
 4. **The dev similarity index is per process** and empty after a restart.

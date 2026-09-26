@@ -598,7 +598,7 @@ currently-resident models.
       "name": "resnet50", "version": "1.0.0", "task": "classification",
       "runtime": "onnx", "device": "cpu", "loaded": true, "is_default": true,
       "num_classes": 1000, "input_shape": [1, 3, 224, 224],
-      "metrics": { "p50_latency_ms": 75.1, "p95_latency_ms": 149.8, "size_mb": 97.4, "top1": null },
+      "metrics": { "p50_latency_ms": 30.1, "p95_latency_ms": 107.6, "size_mb": 97.4, "top1": null },
       "description": "resnet50 pretrained on ImageNet-1k, exported to ONNX...",
       "limitations": [
         "Trained on ImageNet-1k: only recognises those 1000 categories...",
@@ -761,8 +761,8 @@ outlive the incident.
 { "image_base64": "...", "runtime": "onnx_int8" }
 ```
 
-`onnx` (float32) is the default. INT8 is about 4x smaller, 1.7 to 2.5 times
-faster for the ResNet models on the benchmark CPU and 1.33 times slower for
+`onnx` (float32) is the default. INT8 is about 4x smaller, about twice as
+fast for the ResNet models on the benchmark CPU and 1.2 times slower for
 the detector, and slightly less accurate: 78.38% against 78.91% top-1 for the
 fine-tuned classifier. See
 [`../benchmarks/reports/BENCHMARKS.md`](../benchmarks/reports/BENCHMARKS.md)

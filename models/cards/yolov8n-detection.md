@@ -59,23 +59,26 @@ Ultralytics publishes 37.3 mAP50-95 on the full 5,000-image set. 39.2 on this
 
 ### Latency
 
-Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1, 100 runs per case
+Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1 and PyTorch 2.9.0, 100 runs per case
 interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 113.1 ms | 226.2 ms | 307.5 ms | 7.3 img/s | 12.1 MB |
-| ONNX fp32 | 4 | 396.9 ms | 670.3 ms | 829.3 ms | 9.5 img/s | 12.1 MB |
-| ONNX INT8 | 1 | 150.9 ms | 256.2 ms | 306.9 ms | 6.2 img/s | 3.3 MB |
-| ONNX INT8 | 4 | 523.5 ms | 975.2 ms | 1181.8 ms | 7.2 img/s | 3.3 MB |
+| PyTorch fp32 | 1 | 90.5 ms | 253.5 ms | 285.7 ms | 8.6 img/s | 12.0 MB |
+| PyTorch fp32 | 4 | 242.8 ms | 768.1 ms | 800.6 ms | 12.0 img/s | 12.0 MB |
+| ONNX fp32 | 1 | 46.9 ms | 141.7 ms | 186.8 ms | 15.0 img/s | 12.1 MB |
+| ONNX fp32 | 4 | 183.6 ms | 396.1 ms | 434.6 ms | 18.4 img/s | 12.1 MB |
+| ONNX INT8 | 1 | 56.2 ms | 161.3 ms | 217.3 ms | 12.9 img/s | 3.3 MB |
+| ONNX INT8 | 4 | 227.2 ms | 455.2 ms | 484.6 ms | 15.0 img/s | 3.3 MB |
 
-Single images are well inside the one-second budget. INT8 at batch 4 is not,
-at p99, which is one reason batches go through the async endpoint.
+Single images are well inside the one-second budget, and ONNX Runtime is
+1.9 times faster than eager PyTorch. Batching trades per-image cost for tail
+latency, which is why batches go through the async endpoint.
 
 ### INT8
 
 INT8 is 3.67x smaller and 0.4 mAP points below fp32 (0.388 against 0.392),
-but 1.33x slower on this CPU. The likely reason, not separately profiled, is
+but 1.2x slower on this CPU. The likely reason, not separately profiled, is
 that only the convolutions are quantized, so the fp32 decode head and the
 extra quantize and dequantize steps outweigh the gain. fp32 is the default; INT8 is available per request for memory-bound
 deployments.

@@ -230,6 +230,7 @@ def benchmark_onnx(
 def benchmark_interleaved(
     cases: list[tuple[Path, tuple[int, ...]]],
     *,
+    torch_cases: list[tuple[str, Any, tuple[int, ...]]] | None = None,
     batch_sizes: tuple[int, ...] = (1,),
     iterations: int = 100,
     warmup: int = 10,
@@ -246,6 +247,10 @@ def benchmark_interleaved(
     61 ms p50 in the same run that way. Here every (model, batch) case gets
     ``iterations / rounds`` timed calls per round, round after round, so each
     one samples the same spread of machine conditions.
+
+    ``torch_cases`` are ``(name, eager model, input shape)`` and join the same
+    rotation, so PyTorch and ONNX Runtime are compared under the same
+    conditions rather than in separate runs.
     """
     import onnxruntime as ort
 
@@ -269,10 +274,37 @@ def benchmark_interleaved(
             data = np.random.randn(batch, *input_shape).astype(np.float32)
             runs.append(
                 {
-                    "path": path,
+                    "name": path.stem,
+                    "runtime": "onnx_int8" if "int8" in path.stem else "onnx",
+                    "size_mb": path.stat().st_size / 1_048_576,
                     "batch": batch,
                     "device": actual,
                     "fn": lambda s=session, o=output_names, n=input_name, d=data: s.run(o, {n: d}),
+                    "timings": [],
+                    "error": None,
+                }
+            )
+
+    for name, model, input_shape in torch_cases or []:
+        import torch
+
+        model = model.eval()
+        size_mb = sum(p.numel() * p.element_size() for p in model.parameters()) / 1_048_576
+        for batch in batch_sizes:
+            data = torch.randn(batch, *input_shape)
+
+            def forward(m: Any = model, d: Any = data) -> None:
+                with torch.inference_mode():
+                    m(d)
+
+            runs.append(
+                {
+                    "name": f"{name}_torch",
+                    "runtime": "torch",
+                    "size_mb": size_mb,
+                    "batch": batch,
+                    "device": "cpu",
+                    "fn": forward,
                     "timings": [],
                     "error": None,
                 }
@@ -292,18 +324,17 @@ def benchmark_interleaved(
 
     results: list[BenchmarkResult] = []
     for run in runs:
-        path = run["path"]
         notes = [run["error"]] if run["error"] else []
-        if device == "cuda" and run["device"] == "cpu":
+        if device == "cuda" and run["device"] == "cpu" and run["runtime"] != "torch":
             notes.append("CUDA requested but ONNX Runtime ran on CPU: these are CPU numbers")
         results.append(
             summarise(
                 run["timings"],
-                name=path.stem,
-                runtime="onnx_int8" if "int8" in path.stem else "onnx",
+                name=run["name"],
+                runtime=run["runtime"],
                 device=run["device"],
                 batch_size=run["batch"],
-                size_mb=path.stat().st_size / 1_048_576,
+                size_mb=run["size_mb"],
                 notes=notes,
             )
         )
@@ -438,7 +469,7 @@ def render_markdown(results: list[BenchmarkResult], env: dict[str, Any]) -> str:
     # artifacts carry a variant after "_int8" (resnet50_int8_static,
     # ..._int8_trt), so the whole suffix goes, not just "_int8".
     def base_name(name: str) -> str:
-        return re.sub(r"_int8(_\w+)?$", "", name)
+        return re.sub(r"(_int8(_\w+)?|_torch)$", "", name)
 
     baselines = {
         r.name: r
@@ -504,6 +535,54 @@ def _registry_input_shapes() -> dict[str, tuple[int, ...]]:
         return {}
 
 
+def build_torch_models() -> list[tuple[str, Any, tuple[int, ...]]]:
+    """The four served models as eager PyTorch, built the way they were exported.
+
+    Returns ``(name, model, input shape)``. YOLOv8 needs ultralytics
+    (requirements-train.txt) and is skipped with a message when it is absent.
+    """
+    import torch
+    import torchvision.models as tvm
+    from torch import nn
+
+    from models.training.train_classifier import adapt_stem_for_small_images, build_model
+
+    class _Embedding(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.base = tvm.resnet50(weights="DEFAULT")
+            self.base.fc = nn.Identity()
+
+        def forward(self, x: Any) -> Any:
+            features = self.base(x)
+            return features / features.norm(dim=1, keepdim=True).clamp(min=1e-12)
+
+    checkpoint = torch.load(
+        REPO_ROOT / "models" / "artifacts" / "resnet50_tiny_imagenet_best.pt",
+        map_location="cpu",
+        weights_only=True,
+    )
+    tiny = build_model(checkpoint["arch"], checkpoint["num_classes"], pretrained=False)
+    if checkpoint["stem_adapted"]:
+        adapt_stem_for_small_images(tiny)
+    tiny.load_state_dict(checkpoint["model_state_dict"])
+    size = int(checkpoint["config"]["image_size"])
+
+    models: list[tuple[str, Any, tuple[int, ...]]] = [
+        ("resnet50", tvm.resnet50(weights="DEFAULT"), (3, 224, 224)),
+        ("resnet50-tiny-imagenet", tiny, (3, size, size)),
+        ("resnet50-embed", _Embedding(), (3, 224, 224)),
+    ]
+    try:
+        from ultralytics import YOLO
+
+        # Fused, as Ultralytics does before inference and before export.
+        models.append(("yolov8n", YOLO("yolov8n.pt").model.fuse(), (3, 640, 640)))
+    except ImportError:
+        print("ultralytics is not installed; skipping the PyTorch yolov8n row", file=sys.stderr)
+    return models
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark model inference across formats.")
     parser.add_argument(
@@ -525,6 +604,11 @@ def main() -> int:
         help="Interleave models over this many rounds; see benchmark_interleaved.",
     )
     parser.add_argument("--image-size", type=int, default=224)
+    parser.add_argument(
+        "--torch",
+        action="store_true",
+        help="Also time each model as eager PyTorch, in the same interleaved rounds.",
+    )
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument(
         "--output-dir",
@@ -571,8 +655,10 @@ def main() -> int:
         f"benchmarking {len(cases)} models x {len(batch_sizes)} batch sizes, "
         f"{args.iterations} iterations in {args.rounds} interleaved rounds ..."
     )
+    torch_cases = build_torch_models() if args.torch else None
     results = benchmark_interleaved(
         cases,
+        torch_cases=torch_cases,
         batch_sizes=batch_sizes,
         iterations=args.iterations,
         warmup=args.warmup,

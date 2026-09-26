@@ -346,6 +346,8 @@ def build_engine(
     workspace_gb: float = 4.0,
     calibration_batches: list[np.ndarray] | None = None,
     verify: bool = True,
+    input_size: tuple[int, int] | None = None,
+    preprocess: Any = None,
 ) -> TensorRTExportResult:
     """Compile an ONNX model into a TensorRT engine.
 
@@ -363,6 +365,11 @@ def build_engine(
         calibration_batches: Needed for ``precision="int8"`` only when
             ``onnx_path`` is a plain fp32 graph. A QDQ graph already carries
             the scales that calibration would produce, so none is required.
+        input_size: ``(height, width)`` for a graph exported with dynamic
+            spatial axes. YOLOv8 is; without this its engine would be built
+            for 224x224 while it serves 640x640.
+        preprocess: The model's serving ``PreprocessConfig``, so verification
+            feeds the engine the kind of input it was calibrated on.
 
     Raises:
         RuntimeError: TensorRT is unavailable, or the build failed.
@@ -530,7 +537,13 @@ def build_engine(
     # expect. Without one, a dynamic ONNX model cannot be built at all.
     input_tensor = network.get_input(0)
     shape = list(input_tensor.shape)
-    spatial = [d if d > 0 else 224 for d in shape[1:]]
+    channels = shape[1] if shape[1] > 0 else 3
+    graph_hw = [d if d > 0 else 0 for d in shape[2:4]]
+    if all(graph_hw):
+        spatial = [channels, *graph_hw]
+    else:
+        height, width = input_size or (224, 224)
+        spatial = [channels, height, width]
 
     profile = builder.create_optimization_profile()
     profile.set_shape(
@@ -620,7 +633,7 @@ def build_engine(
     if verify:
         try:
             result.max_abs_diff, result.verified = _verify_engine(
-                onnx_path, engine_path, spatial, precision
+                onnx_path, engine_path, spatial, precision, preprocess
             )
         except Exception as exc:
             result.notes.append(f"verification failed: {type(exc).__name__}: {exc}")
@@ -659,7 +672,7 @@ def build_engine(
 _VERIFY_TOLERANCE = {"fp32": 1e-3, "fp16": 1e-2, "int8": 1e-1}
 
 
-def _verification_input(spatial: list[int]) -> tuple[np.ndarray, str]:
+def _verification_input(spatial: list[int], preprocess: Any = None) -> tuple[np.ndarray, str]:
     """An input to compare the engine against the ONNX graph on.
 
     A real photograph when the repo has one, random noise otherwise.
@@ -680,7 +693,7 @@ def _verification_input(spatial: list[int]) -> tuple[np.ndarray, str]:
             from api.utils.image_processing import PreprocessConfig
             from models.optimization.quantize import iter_calibration_images
 
-            config = PreprocessConfig(size=(spatial[1], spatial[2]))
+            config = preprocess or PreprocessConfig(size=(spatial[1], spatial[2]))
             for array in iter_calibration_images(samples_dir, config, 1):
                 batch = array if array.ndim == 4 else array[None]
                 return batch.astype(np.float32), f"real image ({images[0].name})"
@@ -699,6 +712,7 @@ def _verify_engine(
     engine_path: Path,
     spatial: list[int],
     precision: str = "fp16",
+    preprocess: Any = None,
 ) -> tuple[float, bool]:
     """Run the ONNX model and the engine on the same input and compare.
 
@@ -710,7 +724,7 @@ def _verify_engine(
 
     from api.services.model_service import TensorRTBackend
 
-    sample, source = _verification_input(spatial)
+    sample, source = _verification_input(spatial, preprocess)
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     reference = session.run(None, {session.get_inputs()[0].name: sample})[0]
@@ -778,6 +792,12 @@ def main() -> int:
     parser.add_argument("--workspace-gb", type=float, default=4.0)
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument(
+        "--preset",
+        default=None,
+        help="Registry preprocessing preset (e.g. yolo_640). Sets the input size and "
+        "the preprocessing used for verification and calibration.",
+    )
+    parser.add_argument(
         "--calibration-dir",
         type=Path,
         default=None,
@@ -805,6 +825,16 @@ def main() -> int:
         # this script, and failing CI over it would be wrong.
         return 0
 
+    from api.utils.image_processing import PreprocessConfig
+
+    if args.preset:
+        from api.services.model_service import PREPROCESS_PRESETS
+
+        cfg = PREPROCESS_PRESETS[args.preset]
+    else:
+        cfg = PreprocessConfig(size=(args.image_size, args.image_size))
+    height, width = cfg.size
+
     calibration_batches = None
     if args.precision == "int8" and not has_qdq_nodes(args.onnx):
         if not args.calibration_dir:
@@ -815,10 +845,8 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 2
-        from api.utils.image_processing import PreprocessConfig
         from models.optimization.quantize import iter_calibration_images
 
-        cfg = PreprocessConfig(size=(args.image_size, args.image_size))
         calibration_batches = list(iter_calibration_images(args.calibration_dir, cfg, 200))
         print(f"loaded {len(calibration_batches)} calibration images")
 
@@ -829,6 +857,8 @@ def main() -> int:
         max_batch_size=args.max_batch_size,
         workspace_gb=args.workspace_gb,
         calibration_batches=calibration_batches,
+        input_size=(height, width),
+        preprocess=cfg,
     )
     print(result.summary())
     for note in result.notes:
@@ -838,12 +868,19 @@ def main() -> int:
 
     if args.benchmark:
         payload["benchmark"] = benchmark_engine(
-            Path(result.engine_path), input_shape=(1, 3, args.image_size, args.image_size)
+            Path(result.engine_path), input_shape=(1, 3, height, width)
         )
         print(f"  benchmark: {payload['benchmark']}")
 
+    # One entry per (model, precision), merged into what is already there, so
+    # building one engine does not erase the record of every other.
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    existing = json.loads(args.report.read_text(encoding="utf-8")) if args.report.is_file() else []
+    if isinstance(existing, dict):
+        existing = [existing]
+    key = (payload["name"], payload["precision"])
+    merged = [e for e in existing if (e.get("name"), e.get("precision")) != key] + [payload]
+    args.report.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     print(f"report: {args.report}")
 
     print(

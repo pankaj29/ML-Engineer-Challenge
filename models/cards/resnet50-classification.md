@@ -56,22 +56,24 @@ The ONNX export matches PyTorch to a maximum absolute difference of 2.86e-06
 
 ### Latency
 
-Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1, 100 runs per case
+Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1 and PyTorch 2.9.0, 100 runs per case
 interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 75.1 ms | 149.8 ms | 211.7 ms | 13.8 img/s | 97.4 MB |
-| ONNX fp32 | 4 | 244.3 ms | 387.2 ms | 445.4 ms | 15.1 img/s | 97.4 MB |
-| ONNX INT8 | 1 | 37.0 ms | 97.1 ms | 141.6 ms | 22.3 img/s | 24.9 MB |
-| ONNX INT8 | 4 | 102.9 ms | 143.0 ms | 195.5 ms | 37.1 img/s | 24.9 MB |
+| PyTorch fp32 | 1 | 79.9 ms | 230.5 ms | 268.2 ms | 9.3 img/s | 97.5 MB |
+| PyTorch fp32 | 4 | 201.3 ms | 573.1 ms | 625.4 ms | 15.0 img/s | 97.5 MB |
+| ONNX fp32 | 1 | 30.1 ms | 107.6 ms | 143.4 ms | 21.9 img/s | 97.4 MB |
+| ONNX fp32 | 4 | 105.1 ms | 260.1 ms | 307.0 ms | 29.8 img/s | 97.4 MB |
+| ONNX INT8 | 1 | 13.9 ms | 65.6 ms | 146.1 ms | 41.0 img/s | 24.9 MB |
+| ONNX INT8 | 4 | 43.6 ms | 132.9 ms | 161.1 ms | 65.8 img/s | 24.9 MB |
 
-p99 for a single image is 211.7 ms, well inside the one-second budget.
+p99 for a single image is 143.4 ms in ONNX fp32, well inside the one-second budget.
 
 ### INT8
 
-INT8 (uint8, percentile calibration) is 3.92x smaller and 2.0x faster than
-fp32 at batch 1 on this CPU: 37.0 ms against 75.1 ms p50. Without labels its
+INT8 (uint8, percentile calibration) is 3.92x smaller and 2.2x faster than
+fp32 at batch 1 on this CPU: 13.9 ms against 30.1 ms p50. Without labels its
 accuracy cannot be measured here, but agreement can: on 500 held-out images
 INT8 picks the same top class as fp32 86.2% of the time
 (`benchmarks/reports/int8_fidelity.json`). Because a seventh of answers change

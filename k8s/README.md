@@ -166,7 +166,7 @@ kubectl -n mlcv logs job/drift-now
 
 `k8s/overlays/gpu` runs the API through TensorRT on a GPU node. On an A100
 the fine-tuned classifier's INT8 engine runs at 0.92 ms and 1068 img/s, against
-13.7 img/s through ONNX Runtime (fp32) on the development laptop's CPU
+19.8 img/s through ONNX Runtime (fp32) on the development laptop's CPU
 (`benchmarks/reports/tensorrt.json`, `BENCHMARKS.md`). The engine has to be
 built on the serving node: it is tied to one GPU architecture and TensorRT
 version.

@@ -22,10 +22,10 @@ mattered more than squeezing out accuracy.
 
 | Task | Model | Params | CPU p50 | Size |
 | --- | --- | ---: | ---: | ---: |
-| Classification | ResNet-50, ImageNet-1k | 25.6 M | 75.1 ms | 97.4 MB |
-| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 23.9 M | 66.8 ms | 91.2 MB |
-| Detection | YOLOv8n | 3.2 M | 113.1 ms | 12.1 MB |
-| Similarity | ResNet-50 without its head | 23.5 M | 69.1 ms | 89.6 MB |
+| Classification | ResNet-50, ImageNet-1k | 25.6 M | 30.1 ms | 97.4 MB |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 23.9 M | 30.0 ms | 91.2 MB |
+| Detection | YOLOv8n | 3.2 M | 46.9 ms | 12.1 MB |
+| Similarity | ResNet-50 without its head | 23.5 M | 28.4 ms | 89.6 MB |
 
 **ResNet-50** gives good accuracy per millisecond on CPU and exports cleanly:
 every operation has a well-supported ONNX equivalent and it quantizes without
@@ -136,12 +136,12 @@ U8U8 with percentile calibration ships for all four models. Against fp32:
 
 | Model | Size | p50 change, batch 1 | Quality |
 | --- | ---: | ---: | --- |
-| resnet50 | 3.92x smaller | 2.03x faster | 86.2% top-1 agreement over 500 images |
-| resnet50-tiny-imagenet | 3.91x smaller | 1.69x faster | 78.38% against 78.91% top-1 on all 10,000 validation images |
-| yolov8n | 3.67x smaller | 1.33x slower | 0.388 against 0.392 mAP50-95 on 500 COCO images |
-| resnet50-embed | 3.91x smaller | 2.46x faster | 0.985 mean cosine to fp32 |
+| resnet50 | 3.92x smaller | 2.16x faster | 86.2% top-1 agreement over 500 images |
+| resnet50-tiny-imagenet | 3.91x smaller | 2.04x faster | 78.38% against 78.91% top-1 on all 10,000 validation images |
+| yolov8n | 3.67x smaller | 1.20x slower | 0.388 against 0.392 mAP50-95 on 500 COCO images |
+| resnet50-embed | 3.91x smaller | 2.02x faster | 0.985 mean cosine to fp32 |
 
-For the three ResNets, INT8 now runs 1.7 to 2.5 times faster than fp32 on
+For the three ResNets, INT8 now runs about twice as fast as fp32 (2.02x to 2.16x) on
 this CPU at a quarter of the size. That changes the trade-off from size-only
 to throughput against a measured half-point of accuracy on the fine-tuned
 model. fp32 stays the default because it is the more accurate answer; a
@@ -162,7 +162,7 @@ INT8 is 1.41x faster than fp32 and a quarter of its size, and level with
 fp16. At batch 1 a ResNet-50 on an A100 is bound by memory traffic and kernel
 launches, not arithmetic, so lower precision arithmetic helps little; larger
 batches are where INT8 should pull ahead. Against the same model on the laptop
-CPU (13.7 img/s in fp32), the A100 serves 60 to 78 times the throughput.
+CPU (19.8 img/s in ONNX fp32), the A100 serves 41 to 54 times the throughput.
 
 The TensorRT API changed across the versions this had to run on:
 `EXPLICIT_BATCH` and `platform_has_fast_fp16` went in 10, `BuilderFlag.FP16`
@@ -211,7 +211,7 @@ committed: each is tied to one GPU architecture and TensorRT version.
 ### Method
 
 CPU numbers come from an Intel Core Ultra 7 155H laptop (22 logical cores,
-ONNX Runtime 1.20.1, Python 3.13) with the Docker stack stopped. This is a
+ONNX Runtime 1.20.1, PyTorch 2.9.0, Python 3.13) with the Docker stack stopped. This is a
 hybrid CPU, and a first run that timed each model in one block measured two
 ResNet-50s that differ only in their final layer at 36 and 61 ms p50: whichever
 ran during a slow thermal or scheduling phase looked slow.
@@ -221,26 +221,34 @@ batch size, so each case samples the same machine conditions. Tails are still
 wide on a laptop, but they are now wide fairly.
 
 ```bash
-python -m models.optimization.benchmark --iterations 100 --warmup 20 --rounds 5 --batch-sizes 1,4
+python -m models.optimization.benchmark --iterations 100 --warmup 20 --rounds 5 --batch-sizes 1,4 --torch
 ```
 
 ### Latency
 
 | Model | Runtime | Batch 1 p50 | p95 | p99 | Batch 4 p50 | Per image at batch 4 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| resnet50 | fp32 | 75.1 | 149.8 | 211.7 | 244.3 | 66.1 |
-| resnet50 | INT8 | 37.0 | 97.1 | 141.6 | 102.9 | 27.0 |
-| resnet50-tiny-imagenet | fp32 | 66.8 | 132.8 | 277.1 | 271.4 | 72.8 |
-| resnet50-tiny-imagenet | INT8 | 39.5 | 99.6 | 149.0 | 104.0 | 29.5 |
-| yolov8n | fp32 | 113.1 | 226.2 | 307.5 | 396.9 | 105.7 |
-| yolov8n | INT8 | 150.9 | 256.2 | 306.9 | 523.5 | 138.8 |
-| resnet50-embed | fp32 | 69.1 | 124.9 | 357.3 | 246.2 | 65.4 |
-| resnet50-embed | INT8 | 28.1 | 99.3 | 132.3 | 96.6 | 23.8 |
+| resnet50 | PyTorch | 79.9 | 230.5 | 268.2 | 201.3 | 66.5 |
+| resnet50 | ONNX fp32 | 30.1 | 107.6 | 143.4 | 105.1 | 33.6 |
+| resnet50 | ONNX INT8 | 13.9 | 65.6 | 146.1 | 43.6 | 15.2 |
+| resnet50-tiny-imagenet | PyTorch | 81.1 | 274.6 | 330.9 | 198.3 | 69.7 |
+| resnet50-tiny-imagenet | ONNX fp32 | 30.0 | 109.8 | 137.2 | 123.7 | 40.9 |
+| resnet50-tiny-imagenet | ONNX INT8 | 14.7 | 73.5 | 177.1 | 48.0 | 14.3 |
+| yolov8n | PyTorch | 90.5 | 253.5 | 285.7 | 242.8 | 83.3 |
+| yolov8n | ONNX fp32 | 46.9 | 141.7 | 186.8 | 183.6 | 54.5 |
+| yolov8n | ONNX INT8 | 56.2 | 161.3 | 217.3 | 227.2 | 66.5 |
+| resnet50-embed | PyTorch | 80.4 | 280.6 | 332.1 | 201.0 | 71.3 |
+| resnet50-embed | ONNX fp32 | 28.4 | 79.5 | 84.1 | 118.2 | 39.8 |
+| resnet50-embed | ONNX INT8 | 14.1 | 81.4 | 165.4 | 60.2 | 17.1 |
 
 All in milliseconds. Every model meets the sub-second requirement at p99 for
-one image, in both precisions. Batching lowers the per-image cost of the fp32
-models by up to 22% and raises tail latency: INT8 YOLO at batch 4 reaches
-1.18 s at p99. That is why the batch endpoint is asynchronous.
+one image, in every runtime; the slowest single-image p99 is eager PyTorch
+for the embedding model, 332 ms. ONNX Runtime fp32 is 1.9 to 2.8 times faster
+than eager PyTorch at batch 1, which is the case for exporting. Batching at 4
+lowers the per-image cost of three of the fp32 ONNX models by 18% to 26% (the
+embedding model gains nothing) and multiplies tail latency: batch-4 p99
+reaches 485 ms for INT8 YOLO and 801 ms for PyTorch YOLO. That is why the
+batch endpoint is asynchronous.
 `BENCHMARKS.md` also lists `resnet50-tiny-imagenet_int8_trt`, the TensorRT
 graph, run on CPU for completeness; it is slow there by design.
 
@@ -400,7 +408,7 @@ production overlay runs three such containers.
 | 100 to 500 req/s | 8 to 10 | 4 |
 | over 500 req/s | GPU inference | |
 
-The largest lever is the GPU: 60 to 78 times the laptop's throughput for the
+The largest lever is the GPU: 41 to 54 times the laptop's throughput for the
 fine-tuned classifier, as measured above. The second is the cache: at a high
 hit rate throughput is bounded by Redis, which is far cheaper to scale.
 

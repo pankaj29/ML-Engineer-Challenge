@@ -86,15 +86,17 @@ maximum absolute difference of 3.81e-06 (`benchmarks/reports/onnx_export.json`).
 
 ### Latency
 
-Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1, 100 runs per case
+Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1 and PyTorch 2.9.0, 100 runs per case
 interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`):
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 66.8 ms | 132.8 ms | 277.1 ms | 13.7 img/s | 91.2 MB |
-| ONNX fp32 | 4 | 271.4 ms | 449.4 ms | 553.3 ms | 13.7 img/s | 91.2 MB |
-| ONNX INT8 | 1 | 39.5 ms | 99.6 ms | 149.0 ms | 20.3 img/s | 23.3 MB |
-| ONNX INT8 | 4 | 104.0 ms | 215.6 ms | 273.9 ms | 33.9 img/s | 23.3 MB |
+| PyTorch fp32 | 1 | 81.1 ms | 274.6 ms | 330.9 ms | 8.6 img/s | 91.2 MB |
+| PyTorch fp32 | 4 | 198.3 ms | 631.8 ms | 724.9 ms | 14.3 img/s | 91.2 MB |
+| ONNX fp32 | 1 | 30.0 ms | 109.8 ms | 137.2 ms | 19.8 img/s | 91.2 MB |
+| ONNX fp32 | 4 | 123.7 ms | 287.0 ms | 335.3 ms | 24.4 img/s | 91.2 MB |
+| ONNX INT8 | 1 | 14.7 ms | 73.5 ms | 177.1 ms | 37.3 img/s | 23.3 MB |
+| ONNX INT8 | 4 | 48.0 ms | 99.2 ms | 111.6 ms | 69.7 img/s | 23.3 MB |
 
 TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1
 (`benchmarks/reports/tensorrt.json`):
@@ -119,7 +121,7 @@ the serving path (`benchmarks/reports/ab_test.json`):
 | --- | ---: | ---: |
 | Top-1 | 78.91% | 78.38% |
 
-INT8 got 112 images right that fp32 missed, and missed 165 that fp32 got right. McNemar's paired test says the 0.53-point gap is real (p = 0.002), so fp32 stays the default. INT8 is 3.91x smaller and 1.69x faster on this CPU (39.5 against 66.8 ms p50), which is the trade to weigh.
+INT8 got 112 images right that fp32 missed, and missed 165 that fp32 got right. McNemar's paired test says the 0.53-point gap is real (p = 0.002), so fp32 stays the default. INT8 is 3.91x smaller and 2.0x faster on this CPU (14.7 against 30.0 ms p50), which is the trade to weigh.
 
 The INT8 build is uint8 with percentile calibration. The first build used
 MinMax calibration, which let a few extreme activations set every range; it

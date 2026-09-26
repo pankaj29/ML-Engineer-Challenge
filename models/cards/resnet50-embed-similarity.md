@@ -39,15 +39,17 @@ preprocessing, or every score is wrong while still looking plausible.
 
 ### Latency
 
-Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1, 100 runs per case
+Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1 and PyTorch 2.9.0, 100 runs per case
 interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 69.1 ms | 124.9 ms | 357.3 ms | 12.6 img/s | 89.6 MB |
-| ONNX fp32 | 4 | 246.2 ms | 370.9 ms | 421.3 ms | 15.3 img/s | 89.6 MB |
-| ONNX INT8 | 1 | 28.1 ms | 99.3 ms | 132.3 ms | 25.1 img/s | 22.9 MB |
-| ONNX INT8 | 4 | 96.6 ms | 126.6 ms | 173.1 ms | 42.0 img/s | 22.9 MB |
+| PyTorch fp32 | 1 | 80.4 ms | 280.6 ms | 332.1 ms | 8.7 img/s | 89.7 MB |
+| PyTorch fp32 | 4 | 201.0 ms | 660.1 ms | 763.1 ms | 14.0 img/s | 89.7 MB |
+| ONNX fp32 | 1 | 28.4 ms | 79.5 ms | 84.1 ms | 25.8 img/s | 89.6 MB |
+| ONNX fp32 | 4 | 118.2 ms | 287.4 ms | 322.0 ms | 25.1 img/s | 89.6 MB |
+| ONNX INT8 | 1 | 14.1 ms | 81.4 ms | 165.4 ms | 36.2 img/s | 22.9 MB |
+| ONNX INT8 | 4 | 60.2 ms | 103.5 ms | 160.6 ms | 58.4 img/s | 22.9 MB |
 
 ### Search
 

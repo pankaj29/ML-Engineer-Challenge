@@ -20,8 +20,8 @@
         224
       ],
       "metrics": {
-        "p50_latency_ms": 75.1,
-        "p95_latency_ms": 149.8,
+        "p50_latency_ms": 30.1,
+        "p95_latency_ms": 107.6,
         "size_mb": 97.4
       },
       "limitations": [
@@ -53,8 +53,8 @@
         224
       ],
       "metrics": {
-        "p50_latency_ms": 69.1,
-        "p95_latency_ms": 124.9,
+        "p50_latency_ms": 28.4,
+        "p95_latency_ms": 79.5,
         "size_mb": 89.6
       },
       "limitations": [
@@ -86,8 +86,8 @@
         640
       ],
       "metrics": {
-        "p50_latency_ms": 113.1,
-        "p95_latency_ms": 226.2,
+        "p50_latency_ms": 46.9,
+        "p95_latency_ms": 141.7,
         "size_mb": 12.1,
         "map50_95": 0.392,
         "map50": 0.536
@@ -123,8 +123,8 @@
       "metrics": {
         "top1": 78.91,
         "top5": 92.12,
-        "p50_latency_ms": 66.8,
-        "p95_latency_ms": 132.8,
+        "p50_latency_ms": 30.0,
+        "p95_latency_ms": 109.8,
         "size_mb": 91.2
       },
       "limitations": [
