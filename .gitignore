@@ -66,3 +66,6 @@ gpu_results.zip
 
 # Output of scripts/smoke_test_api.py --report
 smoke_results.json
+
+# quant_pre_process scratch output, deleted after a successful run
+*_prep.onnx

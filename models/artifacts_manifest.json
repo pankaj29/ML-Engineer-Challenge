@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-25T09:41:40Z",
+  "generated_at": "2026-09-26T02:43:01Z",
   "artifacts": {
     "coco_labels.json": {
       "sha256": "870d9b62483583605673c37812a780964045f6009eee31e4fa5879ae3a71d0d0",
@@ -42,8 +42,8 @@
       "size_bytes": 12677623
     },
     "yolov8n_int8_static.onnx": {
-      "sha256": "0c36f5d0ac47f864eb8329337ff09ca5d239540d04f4541887bb77e3a9314e6e",
-      "size_bytes": 3572802
+      "sha256": "63058fda1eca52316fd1ba6704f7ca6be36e5e9b7c88967c27a3e21c45a21772",
+      "size_bytes": 3455535
     }
   }
 }

@@ -67,7 +67,28 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # One-shot schema migration. In production the app does not create tables
+  # (create_tables=not is_production), and before this service nothing else
+  # did: every inference log and batch record write failed and was swallowed.
+  # k8s/base/api.yaml does the same job with an init container.
+  migrate:
+    image: mlcv/api:latest
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mluser}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in production}@postgres:5432/${POSTGRES_DB:-mldb}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
   ml-api:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     # No `ports` key: in the merged configuration the development port
     # mapping is replaced by nothing, so the API is reachable only through
     # the gateway on the internal network.
@@ -142,6 +163,9 @@ services:
         max-file: "5"
 
   worker:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     # See the note on ml-api: a fixed name is incompatible with replicas.
     container_name: !reset null
     environment:

@@ -189,6 +189,15 @@ jobs:
             --junitxml=junit.xml \
             -v
 
+      - name: Quantized models match fp32
+        # Its own step so it can be strict: REQUIRE_MODELS turns "artifacts
+        # missing, skipped" into a failure. An INT8 detector that found
+        # nothing once passed every check because nothing compared it with
+        # fp32 through the serving path.
+        env:
+          REQUIRE_MODELS: "1"
+        run: pytest tests/integration/test_quantized_fidelity.py -v
+
       - name: Enforce the coverage floor
         # 92, against an actual 94.1% on api/. The gap is on purpose: if the
         # Git LFS fetch fails, the artifact-dependent tests skip and coverage

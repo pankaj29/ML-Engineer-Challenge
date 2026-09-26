@@ -620,9 +620,16 @@ def real_models_available() -> bool:
 
 @pytest.fixture
 def require_real_models(real_models_available: bool) -> None:
-    """Skip a test unless real artifacts are present and usable."""
+    """Skip a test unless real artifacts are present and usable.
+
+    With REQUIRE_MODELS set (the CI step that checks quantized fidelity), a
+    missing artifact fails instead: a skipped test there reports green while
+    checking nothing, which is how a broken INT8 detector went unnoticed.
+    """
     if real_models_available:
         return
+    if os.getenv("REQUIRE_MODELS"):
+        pytest.fail("REQUIRE_MODELS is set but real model artifacts are missing or LFS pointers")
     # Name the likely cause. The two reasons differ, and the wrong advice
     # sends someone re-exporting models when all they needed was a pull.
     artifacts = REPO_ROOT / "models" / "artifacts"

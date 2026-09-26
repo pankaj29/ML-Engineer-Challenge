@@ -442,3 +442,24 @@ class TestBenchmarkResultShape:
             [1.0], name="resnet50", runtime="onnx", device="cpu", batch_size=1
         )
         assert "resnet50" in result.summary()
+
+
+class TestDetectorAgreement:
+    """Agreement for YOLO-shaped outputs, which used to score 100% by default."""
+
+    @staticmethod
+    def _yolo(cls_scores: list[float]) -> np.ndarray:
+        out = np.zeros((1, 4 + len(cls_scores), 3), dtype=np.float32)
+        out[0, 4:, 1] = cls_scores
+        return out
+
+    def test_dominant_class_is_the_most_confident(self) -> None:
+        from models.optimization.quantize import _dominant_class
+
+        assert _dominant_class(self._yolo([0.1, 0.9, 0.3])) == 1
+
+    def test_all_zero_scores_mean_nothing_detected(self) -> None:
+        """The broken INT8 detector's output: argmax alone would say class 0."""
+        from models.optimization.quantize import _dominant_class
+
+        assert _dominant_class(self._yolo([0.0, 0.0, 0.0])) == -1

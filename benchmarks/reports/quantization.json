@@ -30,5 +30,20 @@
     "duration_seconds": 15.917603699985193,
     "calibration_images": 100,
     "notes": []
+  },
+  {
+    "name": "resnet50-embed",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50-embed.onnx",
+    "output_path": "models\\artifacts\\resnet50-embed_int8_static.onnx",
+    "original_mb": 89.60001850128174,
+    "quantized_mb": 22.90831470489502,
+    "compression_ratio": 3.91124443921386,
+    "max_abs_diff": 0.1937718614935875,
+    "mean_abs_diff": 0.0019195383721815026,
+    "top1_agreement": 0.84375,
+    "duration_seconds": 15.907675800001016,
+    "calibration_images": 100,
+    "notes": []
   }
 ]
