@@ -142,7 +142,8 @@ not API traffic.
 ### Sizing
 
 Measured end to end through the dev stack on a 22-core laptop: 36.8
-requests per second with 20 concurrent users (`benchmarks/reports/`).
+requests per second with 20 concurrent users, most of them detections on
+large images (`benchmarks/reports/loadtest_stats.csv`).
 
 | Target | API replicas | Workers | Notes |
 | --- | ---: | ---: | --- |

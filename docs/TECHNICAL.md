@@ -246,8 +246,10 @@ graph, run on CPU for completeness; it is slow there by design.
 
 ### Through the stack
 
-Locust, 20 users for 45 seconds, mixed workload, through nginx to an API
-container limited to 2 CPUs: 1,619 requests, 1 failure (a 503 from load
+Locust, 20 users for 45 seconds through nginx to an API container limited to
+2 CPUs. 1,369 of the requests were detections on a 1920x1080 image; the rest
+were classification, similarity, uploads, batch jobs and health checks.
+1,619 requests, 1 failure (a 503 from load
 shedding), p50 89 ms, p95 440 ms, p99 1.3 s, 36.8 req/s
 (`benchmarks/reports/loadtest_stats.csv`).
 
@@ -387,7 +389,9 @@ database because it adds no new service, failure mode or backup.
 
 ### Capacity
 
-Measured: 36.8 req/s end to end through the dev stack with one 2-CPU API container and a realistic cache hit rate. The production overlay runs three.
+Measured: 36.8 req/s end to end through the dev stack with one 2-CPU API
+container, under a load made mostly of large-image detections. The
+production overlay runs three such containers.
 
 | Target | API replicas | Workers |
 | --- | ---: | ---: |

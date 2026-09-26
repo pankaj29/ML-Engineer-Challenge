@@ -75,9 +75,9 @@ at p99, which is one reason batches go through the async endpoint.
 ### INT8
 
 INT8 is 3.67x smaller and 0.4 mAP points below fp32 (0.388 against 0.392),
-but 1.33x slower on this CPU: only the convolutions are quantized, and the
-fp32 decode head plus the extra quantize and dequantize steps outweigh the
-gain. fp32 is the default; INT8 is available per request for memory-bound
+but 1.33x slower on this CPU. The likely reason, not separately profiled, is
+that only the convolutions are quantized, so the fp32 decode head and the
+extra quantize and dequantize steps outweigh the gain. fp32 is the default; INT8 is available per request for memory-bound
 deployments.
 
 The first INT8 model detected nothing. YOLOv8's head concatenates box

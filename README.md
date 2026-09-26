@@ -246,8 +246,9 @@ against the ONNX graph. Getting INT8 to build took four fixes, described in
 ### Through the whole stack
 
 Locust, 20 concurrent users for 45 seconds against the dev stack through
-nginx, with a mixed workload of classification, detection, similarity and
-batch requests (`benchmarks/reports/loadtest_stats.csv`): 1,619 requests, one
+nginx (`benchmarks/reports/loadtest_stats.csv`). The load is heavy: 1,369 of
+the requests were detections on a 1920x1080 image, the rest classification,
+similarity, uploads, batch jobs and health checks. 1,619 requests, one
 failure (a 503 from the concurrency limit shedding load, which is the designed
 behaviour), p50 89 ms, p95 440 ms, p99 1.3 s, 36.8 requests a second. The API
 container is limited to 2 CPUs.
