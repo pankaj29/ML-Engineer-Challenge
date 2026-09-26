@@ -1,221 +1,95 @@
-# Model Card, ResNet-50 Embeddings (Image Similarity)
+# Model Card: ResNet-50 embeddings (image similarity)
 
 | | |
 | --- | --- |
-| **Registry name** | `resnet50-embed` |
-| **Version** | `1.0.0` |
-| **Task** | Image similarity / embedding |
-| **Status** | Active, default for the similarity task |
-| **Serving endpoints** | `POST /api/v1/similarity/{embed,index,search}` |
-| **Output** | 2048-dimensional, L2-normalised |
-| **Licence** | Weights from torchvision (BSD-3-Clause) |
-
----
+| Registry name | `resnet50-embed`, version `1.0.0`, default for similarity |
+| Endpoints | `POST /api/v1/similarity/{embed,index,search}` and `/upload` variants |
+| Output | 2,048 numbers, L2-normalised |
+| Weights | torchvision `IMAGENET1K_V2` (BSD-3-Clause) |
 
 ## 1. What it does
 
-It turns an image into a list of 2,048 numbers, an **embedding**, positioned
-so that visually similar images end up close together.
+Turns an image into 2,048 numbers placed so that similar images land close
+together. That supports near-duplicate detection, "more like this" search and
+clustering without training anything.
 
-That single idea supports several things without retraining: finding
-near-duplicates, "more like this" search, clustering a collection, and
-detecting when new uploads resemble nothing seen before.
+Every vector has length 1, so the dot product of two vectors is their cosine
+similarity: 1.0 for the same direction, 0 for unrelated. Searching the whole
+index is one matrix multiplication.
 
-Because every vector is normalised to length 1, the **dot product of two
-vectors is their cosine similarity** directly: `1.0` identical direction,
-`0.0` unrelated, `-1.0` opposite. That turns searching the whole index into a
-single matrix multiplication.
+## 2. Why this model
 
----
+It is the ImageNet ResNet-50 with its final classification layer removed. What
+is left is the description the network builds just before it picks a class.
+L2 normalisation is part of the exported graph, so anyone running the ONNX
+file gets unit vectors without an extra step.
 
-## 2. Architecture and why it was chosen
+It shares weights with the classifier and is fast. A contrastively trained
+model (CLIP, DINOv2) would give better retrieval and CLIP would allow
+text-to-image search, but CLIP ViT-B/32 is about 350 MB on top of a backbone
+already loaded, and the brief asks for a working similarity feature within a
+latency budget. If retrieval quality matters most, swap it: the index sizes
+itself from the first vector, so a different width needs no configuration.
 
-Take the ResNet-50 classifier, and **remove its final classification layer**.
+Preprocessing is the classifier's: resize to 256, centre crop 224, ImageNet
+normalisation. Query and indexed vectors must come from the same model and
+preprocessing, or every score is wrong while still looking plausible.
 
-What remains is the 2,048-number description the network had built up just
-before it decided on a class. That description is what we want: it encodes
-shapes, textures and parts, without having collapsed everything down to one of
-1,000 labels.
-
-L2 normalisation is baked into the exported graph, not applied in
-Python afterwards. The artefact is therefore self-contained, anyone who runs
-it gets unit vectors without having to remember an extra step, and the API and
-the index cannot disagree about whether normalisation happened.
-
-Why this and not a purpose-built embedding model:
-
-* **It reuses a model already being downloaded.** The classifier and the
-  embedder share one backbone, so the system serves three tasks from two
-  downloads. On a CPU-first deployment that is real memory saved.
-* **It is good at "same kind of thing".** ImageNet features are
-  strong semantic features.
-* **It is fast**: 49.6 ms p50.
-
-The trade-off: a model trained with a contrastive objective
-,  CLIP, DINOv2, produces materially better embeddings for retrieval, because
-they are trained to make similar images close, without that emerging
-as a side effect of classification. CLIP also allows text-to-image search,
-which this cannot do at all. They were not chosen here because CLIP ViT-B/32
-is ~350 MB against reusing a backbone already in memory, and the brief's
-priority is a working similarity capability within the latency budget. **If
-retrieval quality is the priority, swap this model.** The index sizes itself
-from the first vector it sees, so a different dimensionality needs no config
-change.
-
----
-
-## 3. Training data
-
-The same ImageNet-1k weights as the classifier (`IMAGENET1K_V2`). No
-additional training, the classification head is removed, nothing is re-fit.
-
-This has a direct consequence for behaviour: the features encode **what object
-this is**, because that is what they were optimised to predict. They encode
-style, colour palette and composition only incidentally. Two photographs of
-different dogs will score as more similar than two photographs of the same
-building at different times of day.
-
-### Preprocessing
-
-Identical to the classification model, resize to 256, centre crop 224,
-ImageNet normalisation. Using different preprocessing would place the query
-vector in a different region of the space from the indexed vectors, and every
-similarity score would be wrong while still looking plausible.
-
----
-
-## 4. Measured performance
-
-Intel Core Ultra 7 155H, 22 logical cores, CPU only.
+## 3. Measured performance
 
 ### Latency
 
-| Format | Batch | p50 | p95 | p99 | Throughput | Size |
+Intel Core Ultra 7 155H, CPU only, ONNX Runtime 1.20.1, 100 runs per case
+interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
+
+| Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | **49.6 ms** | 62.3 ms | 63.1 ms | 22.9 img/s | 89.6 MB |
-| ONNX fp32 | 4 | 178.2 ms | 244.7 ms | 354.2 ms | 21.4 img/s | 89.6 MB |
-| ONNX INT8 (static) | 1 | 77.6 ms | 104.8 ms | 129.5 ms | 12.9 img/s | **22.9 MB** |
-| ONNX INT8 (static) | 4 | 217.7 ms | 285.5 ms | 311.1 ms | 17.7 img/s | 22.9 MB |
+| ONNX fp32 | 1 | 65.7 ms | 128.8 ms | 211.2 ms | 15.2 img/s | 89.6 MB |
+| ONNX fp32 | 4 | 198.5 ms | 309.8 ms | 372.3 ms | 19.3 img/s | 89.6 MB |
+| ONNX INT8 | 1 | 78.5 ms | 164.9 ms | 255.0 ms | 11.2 img/s | 22.9 MB |
+| ONNX INT8 | 4 | 360.7 ms | 507.3 ms | 592.3 ms | 11.4 img/s | 22.9 MB |
 
-An earlier run showed a wide p50-to-p95 gap here, 43 ms against 278 ms, which
-looked like model behaviour and was not. Re-measuring with the Docker stack
-stopped gives 49.6 ms against 62.3 ms, a normal spread. The first numbers were
-measuring the other containers.
+### Search
 
-p99 at batch 1 is 63 ms, inside the 1-second budget.
+Exact search over the in-process index, 50 queries per size
+(`benchmarks/reports/similarity_search.json`):
 
-### Search latency
+⟦SEARCH_TABLE⟧
 
-Search is exact brute force: the query vector against every indexed vector.
+Time and memory both grow linearly with the number of vectors.
 
-| Index size | Search time | Memory |
-| --- | ---: | ---: |
-| 1,000 | < 1 ms | 8 MB |
-| 100,000 | ~5 ms | 780 MB |
-| 1,000,000 | ~50 ms | 7.6 GB |
+### Correctness
 
-Both scale **linearly** with index size, see the limitations.
+- The ONNX file matches PyTorch to a maximum absolute difference of
+  ⟦EMBED_PARITY⟧ on the three sample photos (`benchmarks/reports/onnx_export.json`).
+- INT8 vectors have a mean cosine similarity of ⟦EMBED_INT8_COS⟧ to the fp32
+  vectors on ⟦EMBED_INT8_N⟧ images (`benchmarks/reports/int8_fidelity.json`).
+- Validation passes: deterministic, batch-invariant, no NaN or Inf, p95
+  96.3 ms (`benchmarks/reports/validation.json`).
 
-### Retrieval quality
+Retrieval quality (recall@k) is not measured; that needs a dataset with
+ground-truth similarity judgements. The mechanism is verified, the ranking on
+your data is not.
 
-| Check | Result |
-| --- | --- |
-| Self-similarity | **1.0000**, an image against itself, verified end to end |
-| Embedding determinism | Identical vectors across repeated calls |
-| Unit length | Verified: norm 1.0 ± 1e-5 straight from the graph |
-| Distinct images | Score below self-match, as expected |
+## 4. Limitations
 
-Recall@k against a labelled retrieval benchmark has not been measured.
-That needs a dataset with ground-truth similarity judgements. So: the
-mechanism is verified correct, but the quality of the ranking on your data is
-unmeasured. Measure it before relying on a similarity threshold.
-
----
-
-## 5. Validation results
-
-| Check | Result |
-| --- | --- |
-| Artefact integrity | Pass |
-| Determinism | Pass |
-| Batch invariance | Pass |
-| Output sanity | Pass |
-| ONNX export fidelity | Pass, max abs diff vs PyTorch 1.9e-07 |
-| Latency | Pass, p95 109.5 ms |
-
----
-
-## 6. Limitations and failure modes
-
-### It measures "same kind of object", not "looks alike"
-
-The most common source of surprise. Because the features come from a
-classifier, the model groups by *category*. Two different red sports cars
-score highly; the same car photographed in daylight and at night may score
-lower than you expect. It is not a style, colour or composition matcher.
-
-### Weak at instance-level retrieval
-
-Finding *this specific object*, a particular painting, a particular
-person's luggage, is what contrastive models are for. This model will return
-the right *category* and often the wrong instance.
-
-### Scores are only comparable within one index
-
-A similarity score is meaningful only against vectors produced by the **same
-model version** with the **same preprocessing**. Changing the model invalidates
-every stored vector. There is no migration path other than re-embedding the
-whole collection, and mixing versions in one index produces scores that look
-fine and mean nothing.
-
-Treat the index as tied to a model version. Re-embed on upgrade.
-
-### There is no universal "similar enough" threshold
-
-Near-duplicates typically score above 0.95 and "same kind of thing" somewhere
-around 0.7-0.9, but the right cut-off depends entirely on your images. Pick it
-by labelling a sample of pairs from your own data, not by adopting a number
-from a document.
-
-### Exact search does not scale past ~1M vectors
-
-The index compares the query against every stored vector, so both time and
-memory grow linearly. It is fast and exact up to roughly a million vectors.
-Beyond that, switch to an approximate index (FAISS HNSW, pgvector, a vector
-database), which trades a little recall for a very large speed-up. The
-interface in `api/services/similarity_index.py` is narrow so that
-swap is contained.
-
-### The index is not replicated
-
-It lives in one process's memory, persisted to a `.npz` file. With several API
-replicas, **each has its own index**, so an image indexed on replica A is not
-findable on replica B. This is fine for a single instance and wrong for a
-scaled deployment, see `docs/TECHNICAL.md` for the shared-store options.
-
----
-
-## 7. Ethical and operational considerations
-
-* **Embeddings are not anonymous.** A vector is derived from the image and can
-  be used to match it against others. Treat stored embeddings with the same
-  care as the images themselves.
-* **Not for facial recognition.** These are general object features. They are
-  not accurate enough for identification, and attempting it would be both
-  ineffective and inappropriate.
-* **No image is stored**, only vectors and any caller-supplied metadata.
-
----
-
-## 8. Maintenance
-
-| | |
-| --- | --- |
-| **Registered** | 2026-09-22 |
-| **Upgrade path** | Swap to a contrastive model (CLIP, DINOv2), then **re-embed the entire index** |
-| **Rollback** | Only safe alongside the matching index snapshot |
-
-### Reproduce
+- **It groups by kind of object, not by appearance.** Two different red cars
+  score high; the same building by day and by night may not. It is not a
+  style or colour matcher.
+- **Weak at finding one specific object.** It returns the right category and
+  often the wrong instance. That is what contrastive models are for.
+- **Scores only mean something within one index.** Vectors from another model
+  version or other preprocessing are incomparable. Re-embed everything on
+  upgrade.
+- **No universal threshold.** Pick a cut-off by labelling pairs from your own
+  data.
+- **Exact search is linear.** It stays fast to roughly a million vectors. Past
+  that use an approximate index; pgvector offers HNSW.
+- **The dev default is per process.** With `SIMILARITY_BACKEND=memory` each
+  API replica has its own index and nothing survives a restart. Production and
+  Kubernetes use pgvector, which is shared and persistent.
+- **Embeddings are not anonymous.** They can be matched back to the image;
+  store them with the same care. Not for facial recognition.
 
 ```bash
 python scripts/prepare_models.py --only similarity

@@ -1,7 +1,7 @@
 [
   {
     "model": "resnet50:1.0.0",
-    "validated_at": "2026-09-25T16:32:02.660964+00:00",
+    "validated_at": "2026-09-26T03:20:22.648806+00:00",
     "passed": true,
     "checks": [
       {
@@ -47,11 +47,11 @@
             1,
             1000
           ],
-          "min": -1.4266341924667358,
-          "max": 5.237119197845459,
-          "raw_sum": 0.133779,
+          "min": -1.3433603048324585,
+          "max": 5.430577754974365,
+          "raw_sum": 0.117699,
           "looks_like_probabilities": false,
-          "max_probability": 0.082283
+          "max_probability": 0.097209
         }
       },
       {
@@ -63,7 +63,7 @@
           "samples": 20,
           "flips": 0,
           "flip_rate": 0.0,
-          "mean_confidence_drop": -0.0001
+          "mean_confidence_drop": 0.0002
         }
       },
       {
@@ -80,26 +80,26 @@
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 64.1 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 71.1 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 50.1,
-          "p95_ms": 64.06,
-          "min_ms": 21.42,
-          "max_ms": 64.09,
+          "p50_ms": 56.25,
+          "p95_ms": 71.08,
+          "min_ms": 20.69,
+          "max_ms": 72.21,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 50.1,
-      "p95_latency_ms": 64.06
+      "p50_latency_ms": 56.25,
+      "p95_latency_ms": 71.08
     },
     "critical_failures": [],
     "warnings": []
   },
   {
     "model": "resnet50-tiny-imagenet:1.0.0",
-    "validated_at": "2026-09-25T16:34:10.138691+00:00",
+    "validated_at": "2026-09-26T03:32:43.073778+00:00",
     "passed": true,
     "checks": [
       {
@@ -145,11 +145,11 @@
             1,
             200
           ],
-          "min": -2.748721122741699,
-          "max": 2.5135223865509033,
-          "raw_sum": -281.94729,
+          "min": -2.821056365966797,
+          "max": 2.1032962799072266,
+          "raw_sum": -288.99756,
           "looks_like_probabilities": false,
-          "max_probability": 0.159116
+          "max_probability": 0.110641
         }
       },
       {
@@ -161,17 +161,17 @@
           "samples": 20,
           "flips": 0,
           "flip_rate": 0.0,
-          "mean_confidence_drop": 0.0002
+          "mean_confidence_drop": -0.0001
         }
       },
       {
         "name": "inference_errors",
         "passed": true,
         "severity": "critical",
-        "message": "All 2000 samples inferred successfully.",
+        "message": "All 10000 samples inferred successfully.",
         "detail": {
           "errors": 0,
-          "samples": 2000,
+          "samples": 10000,
           "first": ""
         }
       },
@@ -179,11 +179,11 @@
         "name": "accuracy",
         "passed": true,
         "severity": "warning",
-        "message": "Top-1 78.60%, top-5 91.95% on 2000 samples.",
+        "message": "Top-1 78.91%, top-5 92.12% on 10000 samples.",
         "detail": {
-          "samples": 2000,
-          "top1": 0.786,
-          "top5": 0.9195,
+          "samples": 10000,
+          "top1": 0.7891,
+          "top5": 0.9212,
           "chance": 0.005
         }
       },
@@ -191,88 +191,88 @@
         "name": "calibration",
         "passed": true,
         "severity": "warning",
-        "message": "Expected Calibration Error is 0.1244, within the 0.15 threshold.",
+        "message": "Expected Calibration Error is 0.1284, within the 0.15 threshold.",
         "detail": {
-          "ece": 0.124415,
+          "ece": 0.128367,
           "bins": [
             {
               "range": "(0.0, 0.1]",
-              "count": 49,
-              "mean_confidence": 0.0745,
-              "accuracy": 0.1429,
-              "gap": 0.0683,
+              "count": 213,
+              "mean_confidence": 0.0735,
+              "accuracy": 0.1502,
+              "gap": 0.0767,
               "direction": "underconfident"
             },
             {
               "range": "(0.1, 0.2]",
-              "count": 116,
-              "mean_confidence": 0.1506,
-              "accuracy": 0.3017,
-              "gap": 0.1512,
+              "count": 606,
+              "mean_confidence": 0.1517,
+              "accuracy": 0.2706,
+              "gap": 0.1189,
               "direction": "underconfident"
             },
             {
               "range": "(0.2, 0.3]",
-              "count": 118,
-              "mean_confidence": 0.2527,
-              "accuracy": 0.3729,
-              "gap": 0.1202,
+              "count": 586,
+              "mean_confidence": 0.2488,
+              "accuracy": 0.3771,
+              "gap": 0.1283,
               "direction": "underconfident"
             },
             {
               "range": "(0.3, 0.4]",
-              "count": 120,
-              "mean_confidence": 0.3488,
-              "accuracy": 0.5167,
-              "gap": 0.1679,
+              "count": 589,
+              "mean_confidence": 0.3481,
+              "accuracy": 0.4941,
+              "gap": 0.1459,
               "direction": "underconfident"
             },
             {
               "range": "(0.4, 0.5]",
-              "count": 105,
-              "mean_confidence": 0.4487,
-              "accuracy": 0.5143,
-              "gap": 0.0656,
+              "count": 555,
+              "mean_confidence": 0.4516,
+              "accuracy": 0.5477,
+              "gap": 0.0962,
               "direction": "underconfident"
             },
             {
               "range": "(0.5, 0.6]",
-              "count": 103,
-              "mean_confidence": 0.5515,
-              "accuracy": 0.7087,
-              "gap": 0.1572,
+              "count": 543,
+              "mean_confidence": 0.5507,
+              "accuracy": 0.6832,
+              "gap": 0.1325,
               "direction": "underconfident"
             },
             {
               "range": "(0.6, 0.7]",
-              "count": 136,
-              "mean_confidence": 0.6532,
-              "accuracy": 0.7868,
-              "gap": 0.1336,
+              "count": 702,
+              "mean_confidence": 0.6531,
+              "accuracy": 0.8006,
+              "gap": 0.1474,
               "direction": "underconfident"
             },
             {
               "range": "(0.7, 0.8]",
-              "count": 346,
-              "mean_confidence": 0.7594,
-              "accuracy": 0.8902,
-              "gap": 0.1307,
+              "count": 1721,
+              "mean_confidence": 0.761,
+              "accuracy": 0.9198,
+              "gap": 0.1588,
               "direction": "underconfident"
             },
             {
               "range": "(0.8, 0.9]",
-              "count": 814,
-              "mean_confidence": 0.8467,
-              "accuracy": 0.9705,
-              "gap": 0.1239,
+              "count": 4067,
+              "mean_confidence": 0.8476,
+              "accuracy": 0.9739,
+              "gap": 0.1264,
               "direction": "underconfident"
             },
             {
               "range": "(0.9, 1.0]",
-              "count": 93,
-              "mean_confidence": 0.9214,
-              "accuracy": 0.9892,
-              "gap": 0.0678,
+              "count": 418,
+              "mean_confidence": 0.9186,
+              "accuracy": 0.9617,
+              "gap": 0.0431,
               "direction": "underconfident"
             }
           ]
@@ -282,32 +282,32 @@
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 84.4 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 112.7 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 56.95,
-          "p95_ms": 84.41,
-          "min_ms": 21.1,
-          "max_ms": 87.62,
+          "p50_ms": 83.56,
+          "p95_ms": 112.73,
+          "min_ms": 23.49,
+          "max_ms": 148.93,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "accuracy": 0.786,
-      "top1_accuracy": 0.786,
-      "top5_accuracy": 0.9195,
-      "mean_confidence": 0.661585,
+      "accuracy": 0.7891,
+      "top1_accuracy": 0.7891,
+      "top5_accuracy": 0.9212,
+      "mean_confidence": 0.660733,
       "inference_errors": 0,
-      "expected_calibration_error": 0.124415,
-      "p50_latency_ms": 56.95,
-      "p95_latency_ms": 84.41
+      "expected_calibration_error": 0.128367,
+      "p50_latency_ms": 83.56,
+      "p95_latency_ms": 112.73
     },
     "critical_failures": [],
     "warnings": []
   },
   {
     "model": "yolov8n:1.0.0",
-    "validated_at": "2026-09-25T16:34:15.454498+00:00",
+    "validated_at": "2026-09-26T03:32:48.903035+00:00",
     "passed": true,
     "checks": [
       {
@@ -318,7 +318,7 @@
         "detail": {
           "sizes_mb": {
             "onnx": 12.09,
-            "onnx_int8": 3.41
+            "onnx_int8": 3.3
           }
         }
       },
@@ -355,33 +355,33 @@
             8400
           ],
           "min": 0.0,
-          "max": 638.8717041015625
+          "max": 640.2049560546875
         }
       },
       {
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 116.1 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 167.6 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 99.48,
-          "p95_ms": 116.07,
-          "min_ms": 70.25,
-          "max_ms": 130.54,
+          "p50_ms": 110.37,
+          "p95_ms": 167.59,
+          "min_ms": 88.12,
+          "max_ms": 179.48,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 99.48,
-      "p95_latency_ms": 116.07
+      "p50_latency_ms": 110.37,
+      "p95_latency_ms": 167.59
     },
     "critical_failures": [],
     "warnings": []
   },
   {
     "model": "resnet50-embed:1.0.0",
-    "validated_at": "2026-09-25T16:34:19.272691+00:00",
+    "validated_at": "2026-09-26T03:32:52.563350+00:00",
     "passed": true,
     "checks": [
       {
@@ -428,26 +428,26 @@
             2048
           ],
           "min": 0.0,
-          "max": 0.6053630113601685
+          "max": 0.5743812918663025
         }
       },
       {
         "name": "latency",
         "passed": true,
         "severity": "critical",
-        "message": "p95 latency is 109.5 ms, within the 1000 ms budget.",
+        "message": "p95 latency is 96.3 ms, within the 1000 ms budget.",
         "detail": {
-          "p50_ms": 72.44,
-          "p95_ms": 109.52,
-          "min_ms": 25.39,
-          "max_ms": 122.12,
+          "p50_ms": 76.42,
+          "p95_ms": 96.28,
+          "min_ms": 22.61,
+          "max_ms": 144.76,
           "iterations": 30
         }
       }
     ],
     "metrics": {
-      "p50_latency_ms": 72.44,
-      "p95_latency_ms": 109.52
+      "p50_latency_ms": 76.42,
+      "p95_latency_ms": 96.28
     },
     "critical_failures": [],
     "warnings": []

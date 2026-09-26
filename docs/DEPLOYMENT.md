@@ -1,13 +1,9 @@
-# Deployment and Scaling Guide
+# Deployment and Scaling
 
-How to run this system for real, and what to do when it misbehaves.
-
----
-
-## Contents
+How to run the system, scale it, and fix it when it misbehaves.
 
 1. [Local development](#1-local-development)
-2. [Production deployment](#2-production-deployment)
+2. [Production with Compose](#2-production-with-compose)
 3. [Scaling](#3-scaling)
 4. [Kubernetes](#4-kubernetes)
 5. [Monitoring](#5-monitoring)
@@ -19,85 +15,66 @@ How to run this system for real, and what to do when it misbehaves.
 
 ## 1. Local development
 
-### Prerequisites
-
-* Docker with Compose v2
-* Python 3.11+ (only to prepare the models; the services run in containers)
-* ~4 GB free disk for model artefacts
-
-### First run
+You need Docker with Compose v2, Python 3.11 or 3.12 for the model tooling,
+and Git LFS for the model files.
 
 ```bash
-# 1. Configuration
+git lfs pull                 # the committed models, about 460 MB
 cp .env.example .env
-
-# 2. Download and export the models (one-off, ~5 minutes)
-pip install -r requirements-train.txt onnxscript
-python scripts/prepare_models.py
-
-# 3. Start everything
 docker compose up -d
-
-# 4. Confirm
 curl http://localhost/api/v1/health
 ```
 
-All seven services should report healthy within about 90 seconds (the API's
-`start_period` allows for loading three ONNX models):
-
-```bash
-docker compose ps
-```
-
-```
-NAME              STATUS
-mlcv-api          Up (healthy)
-mlcv-gateway      Up (healthy)
-mlcv-grafana      Up (healthy)
-mlcv-postgres     Up (healthy)
-mlcv-prometheus   Up (healthy)
-mlcv-redis        Up (healthy)
-mlcv-worker       Up (healthy)
-```
-
-### Where things are
+All seven services report healthy within about 90 seconds; the API's
+`start_period` allows for loading three models. `docker compose ps` shows them.
 
 | Service | URL | Credentials |
 | --- | --- | --- |
-| API (via gateway) | http://localhost | `X-API-Key: dev-key-pro` |
-| API (direct, dev only) | http://localhost:8000 | same |
-| Swagger UI | http://localhost:8000/docs |, |
-| Prometheus | http://localhost:9090 |, |
+| API through the gateway | http://localhost | `X-API-Key: dev-key-pro` |
+| API direct (dev only) | http://localhost:8000 | same |
+| Swagger UI | http://localhost:8000/docs | |
+| Prometheus | http://localhost:9090 | |
 | Grafana | http://localhost:3000 | `admin` / `admin` |
-
-### Everyday commands
 
 ```bash
 docker compose logs -f ml-api        # follow one service
-docker compose restart ml-api        # restart after a config change
 docker compose up -d --build ml-api  # rebuild after a code change
 docker compose down                  # stop, keep data
-docker compose down -v               # stop and DELETE all volumes
+docker compose down -v               # stop and delete all volumes
 ```
+
+To re-export the models from scratch instead of using the committed ones:
+`pip install -r requirements-train.txt onnxscript`, then
+`python scripts/prepare_models.py`. The fine-tuned classifier cannot be
+re-created this way; it needs a GPU training run.
 
 ---
 
-## 2. Production deployment
+## 2. Production with Compose
 
-### Before you start
+The production file is an overlay on the base file, never used alone:
 
-Production is **not** `docker compose up`. The overlay changes five things
-that matter:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
 
-1. **No direct ports.** Only the gateway is reachable. Postgres and Redis are
-   not exposed to the host at all.
-2. **Replicas.** 3 API and 2 worker containers by default.
-3. **Secrets are required.** No defaults, the stack refuses to start without
-   them.
-4. **Read-only root filesystems**, with explicit tmpfs for scratch space.
-5. **Rolling updates** with automatic rollback.
+What it changes:
 
-### Generate secrets
+- Only the gateway publishes a port (80). Postgres, Redis, the API,
+  Prometheus and Grafana are unreachable from outside the host.
+- Three API replicas and two workers, rolling updates with rollback.
+- Secrets are required. `${VAR:?}` makes Compose refuse to start without
+  them, and the app itself refuses the development defaults and the
+  Kubernetes placeholders even when they are long enough.
+- Redis requires a password, and FLUSHALL, FLUSHDB and CONFIG are disabled.
+  Every client URL carries the password.
+- A one-shot `migrate` service runs `alembic upgrade head` before the API and
+  worker start. In production the app does not create tables itself.
+- The similarity index is pgvector, so all replicas share one index.
+- Read-only root filesystems with tmpfs scratch space, and
+  `no-new-privileges` on every service.
+
+### Secrets
 
 ```bash
 python -c "import secrets; print('JWT_SECRET=' + secrets.token_urlsafe(48))"
@@ -107,452 +84,237 @@ python -c "import secrets; print('GRAFANA_PASSWORD=' + secrets.token_urlsafe(24)
 python -c "import secrets; print('API_KEYS=' + secrets.token_urlsafe(32) + ':pro')"
 ```
 
-Put them in the deployment environment, a secrets manager, not a file in the
+Use `token_urlsafe` for the Redis password: it goes inside a URL. Keep the
+values in your deployment environment or a secrets manager, not in the
 repository.
 
-> The stack **verifies** this. Starting the production overlay without
-> `JWT_SECRET` fails immediately with
-> `required variable JWT_SECRET is missing a value`. That is deliberate: a
-> missing secret must be a loud startup failure, never a silent default.
+### Checklist
 
-### Deploy
-
-```bash
-export ENVIRONMENT=production
-export JWT_SECRET=...  API_KEYS=...  POSTGRES_PASSWORD=...
-export REDIS_PASSWORD=...  GRAFANA_PASSWORD=...
-
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-```
-
-### Production checklist
-
-* [ ] All secrets set from a secrets manager, none in git
-* [ ] `ENVIRONMENT=production` (the app refuses to start with `DEBUG=true` or
-      `AUTH_ENABLED=false` in this mode)
-* [ ] TLS terminated at the gateway or a load balancer in front
-* [ ] `CORS_ORIGINS` set to your actual origins, not `*`
-* [ ] Model artefacts on a persistent, backed-up volume
-* [ ] Postgres backups scheduled (see §8)
-* [ ] Prometheus retention and disk sized
-* [ ] Alert routing configured in Alertmanager
-* [ ] Log shipping configured (logs are JSON on stdout)
-* [ ] Resource limits matched to the host
-* [ ] Regression baselines recorded on production-like hardware
+- [ ] Secrets set from a secrets manager
+- [ ] TLS terminated in front of the host (see below)
+- [ ] `CORS_ORIGINS` set to your real origins, not `*`
+- [ ] Postgres backups scheduled (section 8)
+- [ ] Alertmanager routing configured; the rules exist, the destination does not
+- [ ] Regression baselines recorded on the production hardware
 
 ### TLS
 
-Nginx is ready for it; mount certificates at `docker/nginx/certs` and add a
-443 server block, or terminate TLS at a cloud load balancer and leave the
-gateway on HTTP inside the private network. The second is usually simpler.
+The gateway listens on port 80 only. Terminate TLS at a load balancer in front
+of the host, which is the simpler setup. To terminate in nginx instead, add a
+`listen 443 ssl` server block to `docker/nginx/nginx.conf`, mount the
+certificates, and publish 443 in the overlay.
+
+### Dev and prod on one machine
+
+Both files use the project name `mlcv`, so they share volumes. Running the
+test suite against the dev stack leaves a `FLUSHDB` in Redis's append-only
+log, and the production Redis, which disables FLUSHDB, then refuses to replay
+it. Use a separate project name for production on a shared host:
+`docker compose -p mlcv-prod -f docker-compose.yml -f docker-compose.prod.yml up -d`.
 
 ---
 
 ## 3. Scaling
 
-Everything in this section scales one host. Past that, or as soon as you
-want the replica count to follow load, go to
-[section 4](#4-kubernetes).
+Everything here scales one host. For load-driven replica counts or more than
+one machine, see section 4.
 
-### Scale the API
-
-```bash
-docker compose up -d --scale ml-api=5
-```
-
-Nginx discovers the replicas through Docker's DNS. No configuration change.
-
-**When:** `inference_in_progress` regularly at the concurrency limit, or p95
-latency rising while inference latency stays flat (meaning time is spent
-queueing).
-
-> Scale out. Raising `MAX_CONCURRENT_INFERENCES` does not help: inference is
-> CPU-bound: a higher limit on the same cores makes every request slower
-> without increasing throughput.
-
-### Scale workers
+Scaling only works with the production overlay. The base file gives the API
+and worker fixed container names and publishes port 8000, and Compose cannot
+run two containers with one name.
 
 ```bash
-docker compose up -d --scale worker=4
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale ml-api=5
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale worker=4
 ```
 
-**When:** batch jobs sit in `pending` for longer than users tolerate. Workers
-scale on queue depth, independently of API traffic.
+nginx and Prometheus both find replicas through Docker's DNS, so neither needs
+a config change.
 
-### Sizing guide
+**Scale the API** when `inference_in_progress` sits at the concurrency limit,
+or p95 request latency rises while inference latency stays flat. Raising
+`MAX_CONCURRENT_INFERENCES` does not help: inference is CPU-bound, and more of
+it on the same cores makes every request slower.
 
-Measured: ~38.7 req/s end-to-end through the full stack on a 22-core CPU host.
+**Scale workers** when batch jobs stay `pending`. Workers follow queue depth,
+not API traffic.
+
+### Sizing
+
+Measured end to end through the dev stack on a 22-core laptop: ⟦LOADTEST_RPS⟧
+requests per second with 20 concurrent users (`benchmarks/reports/`).
 
 | Target | API replicas | Workers | Notes |
 | --- | ---: | ---: | --- |
-| < 30 req/s | 1 | 1 | Development or light production |
-| 30-100 req/s | 3 | 2 | The production default |
-| 100-500 req/s | 8-10 | 4 | Raise Redis memory; consider read replicas |
-| > 500 req/s | - | - | Move to GPU inference; the CPU-first assumptions no longer hold |
+| under 30 req/s | 1 | 1 | Development or light production |
+| 30 to 100 req/s | 3 | 2 | The production default |
+| 100 to 500 req/s | 8 to 10 | 4 | More Redis memory |
+| over 500 req/s | | | GPU inference; the CPU assumptions stop holding |
 
-### Vertical tuning
-
-| Variable | Guidance |
-| --- | --- |
-| `MAX_CONCURRENT_INFERENCES` | ~1-2 per available CPU core |
-| `API_CPU_LIMIT` | At least 2.0; ONNX Runtime benefits from more |
-| `API_MEMORY_LIMIT` | ~1 GB base + ~200 MB per loaded model |
-| `REDIS_MAXMEMORY` | Larger = better hit rate. `allkeys-lru` eviction is already set. |
-
-> **Thread counts are pinned to 1** in both images (`OMP_NUM_THREADS=1` etc.)
-> and concurrency is handled by running more containers. Left unset, every
-> numerical library spawns a thread per *host* core, inside a container
-> limited to 2 CPUs that means dozens of threads fighting over 2 cores, which
-> is slower than a single thread.
+Both images pin `OMP_NUM_THREADS=1`. Without it every numerical library starts
+a thread per host core, and inside a container limited to two CPUs that is
+dozens of threads fighting over two cores.
 
 ---
 
 ## 4. Kubernetes
 
-Compose scales by someone typing `--scale`. That works until load changes
-faster than a person reacts, or until one host runs out. The manifests in
-[`k8s/`](../k8s/README.md) hand the replica count to an HPA and add the things
-Compose has no concept of: disruption budgets, pod security, network policy.
+The manifests in [`k8s/`](../k8s/README.md) hand the replica count to an HPA
+and add what Compose has no concept of: disruption budgets, pod security and
+network policy. Move to it when traffic varies through the day, when the API
+must survive losing a node, or when one host runs out of CPU.
 
-### When to move
-
-Not by default. Compose is simpler, and a single host serves the measured 38.7
-req/s comfortably. Move when one of these is true:
-
-- Traffic varies enough through the day that a fixed replica count is either
-  wasteful at night or short at peak.
-- You need the API to survive a node going away.
-- You want rollouts that do not drop capacity, or canary releases.
-- One host is out of CPU.
-
-### Prerequisites
-
-| Needed | Why |
-| --- | --- |
-| A cluster, v1.29+ | The manifests were verified on v1.33.1 |
-| `metrics-server` | No HPA targets without it; `kubectl get hpa` shows `<unknown>` |
-| An ingress controller (nginx) | Replaces the gateway container; the canary overlay uses its annotations |
-| A registry the cluster can pull from | Images are not built in-cluster |
-| Somewhere to serve model artifacts | S3, HTTPS or a `file://` path, set as `ARTIFACT_SOURCE` |
-
-A GPU deployment needs more: a GPU node, the NVIDIA device plugin, and
-dcgm-exporter behind prometheus-adapter for the autoscaler.
-
-### Deploy
-
-Full walkthrough, including the secrets you must replace, is in
-[`k8s/README.md`](../k8s/README.md). The short version:
+You need a v1.29+ cluster (verified on v1.33.1 with kind), `metrics-server`,
+an nginx ingress controller, a registry the cluster can pull from, and
+somewhere to serve model artifacts from (`ARTIFACT_SOURCE`).
 
 ```bash
-# Render first. This catches most mistakes without touching the cluster.
-kubectl kustomize k8s/base
-
+kubectl kustomize k8s/base            # render first; catches most mistakes
 kubectl apply -k k8s/base
 kubectl -n mlcv rollout status deployment/ml-api
-```
-
-Locally, `k8s/overlays/kind` lowers the resource requests and the replica
-floor so the whole stack fits on a laptop.
-
-### Confirm it works
-
-```bash
-kubectl -n mlcv get pods
-kubectl -n mlcv get hpa                 # TARGETS must not be <unknown>
-kubectl -n mlcv logs deployment/ml-api -c fetch-artifacts | tail -5
-```
-
-Then run the same endpoint pass used against Compose, pointed at the ingress:
-
-```bash
 python scripts/smoke_test_api.py --base-url https://your-host --api-key YOUR_KEY
 ```
 
-It exits non-zero on any failure, so it works as a post-deploy gate.
-
-### What changes from Compose
-
 | | Compose | Kubernetes |
 | --- | --- | --- |
-| Replica count | `--scale`, by hand | HPA, 2-10 on CPU at 70% |
-| Edge | `api-gateway` nginx container | Ingress controller; no gateway container |
-| Model artefacts | Baked in or bind-mounted | Fetched by an init container, checksum-verified |
-| Schema | Created by the app in non-production | `alembic upgrade head` in an init container |
-| Similarity index | In-process by default | `SIMILARITY_BACKEND=pgvector`, not optional |
-| Drift checks | Run on demand | Weekly CronJob, inside the namespace with the data |
+| Replica count | `--scale`, by hand | HPA, 2 to 10 on CPU at 70% |
+| Edge | nginx container | Ingress controller |
+| Model artifacts | Bind mount | Init container, checksum-verified |
+| Schema | `migrate` service (prod) | `alembic upgrade head` init container |
+| Similarity index | pgvector (prod) | pgvector |
+| Drift checks | On demand | Weekly CronJob |
 
-Two of those bite if you miss them. **The similarity index** must be pgvector:
-with a per-process index, every replica holds different vectors and searches
-miss, with no error anywhere. **Postgres is a single StatefulSet** in
-these manifests, which is fine for a demo and not for production. Use a
-managed database or an operator such as CloudNativePG.
-
-### Rollouts and rollback
-
-`maxUnavailable: 0` means a new pod is Ready before an old one goes away, so a
-rollout does not shed capacity. Roll back the usual way:
-
-```bash
-kubectl -n mlcv rollout undo deployment/ml-api
-```
-
-Rolling back a *model* is a different move: set
-`ARTIFACT_SOURCE` back to the previous versioned prefix and restart. That is
-why the prefix is versioned and never overwritten in place.
-
-For a new model version, [`k8s/overlays/canary`](../k8s/overlays/canary) runs
-a second deployment on 5% of traffic, writing to the same inference log so the
-A/B machinery can compare them on real requests. Section 5 of
-[`k8s/README.md`](../k8s/README.md) covers the promote and rollback steps.
-
-### Troubleshooting
-
-| Symptom | Cause and fix |
-| --- | --- |
-| Pods `Pending`, events mention the PVC | Storage class cannot bind the claim. The `kind` overlay shrinks it; on a real cluster check the default storage class. |
-| `fetch-artifacts` init container fails on a checksum | The artifacts and `models/artifacts_manifest.json` disagree. Regenerate the manifest; do not retry, it downloads the same bytes. |
-| `kubectl get hpa` shows `<unknown>` | `metrics-server` is missing or not ready. The HPA holds at `minReplicas` until it is. |
-| Every ReplicaSet rejected at admission | Something in the pod spec violates the restricted Pod Security Standard. `hostPath` is the usual one. |
-| `/health` reports every model unhealthy | The artefact fetch succeeded but the registry is missing or points at absent files. Check `models/registry.json` is in the image. |
-| Similarity searches miss images you indexed | `SIMILARITY_BACKEND` is not `pgvector`, so each replica has its own index. |
+Postgres is a single StatefulSet in these manifests. That is fine for a demo;
+use a managed database or an operator such as CloudNativePG in production.
+The full walkthrough, canary releases included, is in
+[`k8s/README.md`](../k8s/README.md).
 
 ---
 
 ## 5. Monitoring
 
-### The four numbers that matter
-
-Open Grafana → *ML CV API, Overview*. The top row answers "is it healthy?":
+Grafana's *ML CV API Overview* dashboard is provisioned automatically. The top
+row answers "is it healthy":
 
 | Panel | Healthy | Investigate |
 | --- | --- | --- |
-| Error rate | < 1% | > 5% sustained |
-| p95 inference latency | < 500 ms | > 1 s |
-| Cache hit rate | > 50% | < 10% |
+| Error rate | under 1% | over 5% sustained |
+| p95 inference latency | under 500 ms | over 1 s |
+| Cache hit rate | over 50% | under 10% |
 | Models loaded | 3 | 0 is critical |
 
-### Alerts
+Prometheus scrapes every API replica and every worker as separate targets.
+Batch job counts and durations come from the workers, which serve them on port
+9808.
 
-Eleven rules in `monitoring/prometheus/alerts.yml`, split by severity:
+Eleven alert rules live in `monitoring/prometheus/alerts.yml`:
 
-* **critical**, `MLAPIDown`, `NoModelsLoaded`, `HighServerErrorRate`
-* **warning**, `SlowInference`, `InferenceFailures`, `InferenceQueueSaturated`,
+- critical: `MLAPIDown`, `NoModelsLoaded`, `HighServerErrorRate`
+- warning: `SlowInference`, `InferenceFailures`, `InferenceQueueSaturated`,
   `CacheHitRateCollapsed`, `ModelLoadFailures`, `SlowRequests`,
   `ElevatedClientErrors`
-* **info**, `HighRateLimitRejections`
+- info: `HighRateLimitRejections`
 
-Every rule alerts on a **symptom**, users are affected, not a cause such as
-CPU being busy, and every one carries a description saying what to do. Rules
-that only produce "huh, weird" are noise, and noise trains people to ignore
-the alerts that matter.
+Each alerts on a symptom users feel, not on a cause like busy CPU, and each
+says what to do.
 
-### Logs
-
-JSON on stdout, one object per line. Ship them with whatever you already use.
+Logs are JSON on stdout. The correlation id ties the gateway access log, the
+API, the worker and the Postgres row together:
 
 ```bash
-# Everything for one request, across API and worker
-docker compose logs | grep "0f6c1d8a"
-
-# Errors only
+docker compose logs | grep "0f6c1d8a"                      # one request, everywhere
 docker compose logs ml-api | grep '"level": "ERROR"'
-
-# Slow requests
-docker compose logs ml-api | grep '"slow": true'
 ```
-
-The correlation id is the thread that ties together the gateway access log,
-every API log line, the worker, and the row in Postgres.
 
 ---
 
 ## 6. Shipping a new model
 
-Model artefacts are mounted as a volume, **not** baked into the image, so new
-weights do not require rebuilding and redeploying the service.
-
 ```bash
 # 1. Export and register the new version
 python -m models.optimization.export_onnx --model resnet50 \
        --checkpoint path/to/finetuned.pt --num-classes 200
+python -m models.registry register --name resnet50-v2 --version 2.0.0 \
+       --task classification --onnx resnet50-v2.onnx --labels labels.json
 
-python -m models.registry register \
-       --name resnet50-v2 --version 2.0.0 --task classification \
-       --onnx resnet50-v2.onnx --labels labels.json
-
-# 2. Validate it BEFORE it serves traffic
+# 2. Validate before it serves anything
 python -m models.validation.validate --model resnet50-v2:2.0.0
 
 # 3. Check it is not a regression
 python -m models.validation.regression check --model resnet50-v2:2.0.0
 
-# 4. Compare against the incumbent
-python -m models.validation.ab_test \
-       --champion resnet50:1.0.0 --challenger resnet50-v2:2.0.0 --samples 500
+# 4. Compare with the model it would replace
+python -m models.validation.ab_test --champion resnet50:1.0.0 \
+       --challenger resnet50-v2:2.0.0 --samples 500
 
 # 5. Load it without a restart
-curl -X POST http://localhost/api/v1/models/reload \
-     -H "Authorization: Bearer <admin-token>"
+curl -X POST http://localhost/api/v1/models/reload -H "X-API-Key: <key>"
 ```
 
-Step 4 is the one people skip. It runs a **paired McNemar test**, which asks
-whether the difference is real or luck, and reports a confidence interval on
-the accuracy delta alongside the latency change. It will tell you not to
-promote a model that is 0.2% more accurate and 300 ms slower.
+Step 4 runs a paired McNemar test, so it can tell a real improvement from
+luck, and it reports the latency change next to the accuracy change. Append
+`@onnx_int8` to either side to compare runtimes of one model; that is how the
+INT8 decision in [TECHNICAL.md](TECHNICAL.md) was made.
 
-### Replacing weights under an existing version
+Register a new version rather than overwriting weights. Versions are how
+callers pin a model and how a rollback names its target. If weights are
+overwritten anyway, the cache copes: its keys include a hash of the artifact,
+so stale entries are never read again.
 
-Register a new version. Versions are how callers pin a model, how the A/B
-comparison identifies each side, and how a rollback names what to go back to;
-overwriting an existing one throws all of that away.
-
-If you do overwrite weights in place, the result cache handles it: the cache
-key carries a content hash of the artefact, so different bytes produce a
-different key and the stale entries are simply never read again. You do not
-need to flush Redis. Restoring the original file restores its hash, so entries
-computed from it become live again.
-
-That safety net exists because the alternative fails silently. Without it, a
-weight swap under an unchanged version leaves the cache serving predictions
-from a file that is no longer on disk, no error, no latency change, just
-answers from the wrong model until the TTL expires.
-
-On a bind-mounted development stack, check that the container sees the new
-file before trusting a test. Docker Desktop on Windows does not reliably
-propagate a bind-mounted file that was *replaced* on the host, as opposed to
-edited in place:
+Rollback is per request (`"model_version": "1.0.0"`) or global:
 
 ```bash
-docker compose exec ml-api md5sum models/artifacts/<model>.onnx
-md5sum models/artifacts/<model>.onnx        # should match
-```
-
-If they differ, `docker compose up -d --build`.
-
-### Canary rollout
-
-`models/validation/ab_test.py` provides deterministic hash-based traffic
-splitting: send 10% of users to the challenger, keep the rest on the champion,
-and compare real outcomes. Assignment is by hashed user id, so a user stays on
-one variant, random per-request assignment would both ruin the statistics and
-produce visibly inconsistent behaviour.
-
-### Rollback
-
-```bash
-# Per request, immediately
-{"model_version": "1.0.0"}
-
-# Or globally: re-flag the default and reload
 python -m models.registry retire --name resnet50-v2 --version 2.0.0
-curl -X POST http://localhost/api/v1/models/reload -H "Authorization: Bearer <admin>"
+curl -X POST http://localhost/api/v1/models/reload -H "X-API-Key: <key>"
 ```
 
-`/models/reload` also **invalidates cached results** for removed models, so
-predictions from retired weights cannot keep being served from Redis.
+A reload also invalidates cached results for removed models.
 
 ---
 
 ## 7. Troubleshooting
 
-### The API container is unhealthy
+| Symptom | Cause and fix |
+| --- | --- |
+| API unhealthy for the first 90 s | Still loading models. Wait. |
+| `registry_missing` or `model_load_failed` | Artifacts missing or LFS pointers. `git lfs pull`, then `python -m models.registry validate`. |
+| `JWT_SECRET must be set` or `is a placeholder value` | Production without real secrets. Working as designed. |
+| Every request 401 | `API_KEYS` is empty. Auth fails closed; there is no default key. |
+| Every request 429 | Check `X-RateLimit-*` headers. The per-IP gateway limit (30 r/s on inference paths) is separate from the per-tier API limit. |
+| Batch jobs stay `pending` | Worker down or queue too deep. `docker compose exec redis redis-cli -n 1 LLEN inference` shows the depth (in production add `-a $REDIS_PASSWORD`). |
+| Similarity search misses an indexed image | More than one replica with `SIMILARITY_BACKEND=memory`. Use pgvector. |
 
-```bash
-docker logs mlcv-api --tail 50
-```
+When latency rises, check in this order: the "HTTP vs inference latency"
+panel (a wider gap with flat inference means queueing, not the model), the
+cache hit rate, `inference_in_progress` against its limit, then the upload
+size distribution.
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| `registry_missing` | Models not prepared | `python scripts/prepare_models.py` |
-| `model_load_failed` | Artefact missing from the volume | `python -m models.registry validate` |
-| Unhealthy during startup | Still loading models | Wait, `start_period` is 90 s |
-| `JWT_SECRET must be set` | Production without secrets | Working as designed; set them |
-
-### Every request returns 401
-
-`AUTH_ENABLED=true` with no `API_KEYS` configured. The service **fails
-closed** by design, there is no default credential. Set `API_KEYS`.
-
-### Every request returns 429
-
-Check your tier's allowance:
-
-```bash
-curl -sD- -o/dev/null -H "X-API-Key: your-key" http://localhost/api/v1/models | grep -i ratelimit
-```
-
-Two limits exist: the per-tier one in the API, and a coarser per-IP one at the
-gateway (30 r/s on inference paths). The response body tells you which.
-
-### Latency has risen
-
-Work through it in this order:
-
-1. **Grafana → "HTTP vs inference latency".** If the gap widened but inference
-   is flat, the model is fine and the time is going on queueing, validation or
-   the database.
-2. **Cache hit rate.** A collapse means every request is recomputing.
-3. **`inference_in_progress`.** At the ceiling → scale out.
-4. **Upload size distribution.** A jump in image sizes explains a latency rise
-   with no code change at all.
-
-### Batch jobs stay `pending`
-
-```bash
-docker compose ps worker
-docker compose logs worker --tail 50
-docker compose exec redis redis-cli LLEN inference   # queue depth
-```
-
-Worker down, or the queue is deeper than the workers can drain. Scale workers.
-
-### Redis is down
-
-The system keeps working: cache misses, and per-process rate limiting. You
-will see `cache_unavailable` and `rate_limiter_degraded_to_local_buckets` in
-the logs, and `/health` reports `degraded` while still returning 200. Fix
-Redis at normal urgency, not emergency urgency.
-
-### Postgres is down
-
-Inference logging pauses. **Predictions are unaffected.** Drift detection and
-audit history have a gap for the outage window.
+If Redis goes down, the API keeps serving: cache misses, and per-process rate
+limits until the limiter reconnects, which it retries every 10 seconds in the
+background. If Postgres goes down, predictions are unaffected and the
+inference log has a gap.
 
 ---
 
 ## 8. Backup and recovery
 
-### What needs backing up
-
 | Data | Where | Priority |
 | --- | --- | --- |
-| Model artifacts | `models/artifacts/` volume | **High**, regenerable, but slowly |
-| Model registry | `models/registry.json` | **High**, in git; keep it there |
-| Inference logs | `postgres_data` volume | Medium, audit and drift history |
-| Similarity index | `models/artifacts/similarity_index.npz` | Medium, re-embeddable |
-| Redis | `redis_data` volume | Low, cache is disposable; the queue is not |
-| Grafana | `grafana_data` volume | Low, dashboards are provisioned from git |
-
-### Postgres backup
+| Model artifacts | Git LFS, `models/artifacts/` | High; the fine-tuned model needs a GPU run to recreate |
+| Model registry | `models/registry.json`, in git | High |
+| Inference logs, batch jobs, similarity vectors | `postgres_data` volume | Medium |
+| Redis | `redis_data` volume | Low; the cache is disposable, queued jobs are not |
+| Grafana | `grafana_data` volume | Low; dashboards are provisioned from git |
 
 ```bash
 docker compose exec -T postgres pg_dump -U mluser mldb | gzip > backup-$(date +%F).sql.gz
-
-# Restore
-gunzip -c backup-2026-09-22.sql.gz | docker compose exec -T postgres psql -U mluser mldb
+gunzip -c backup-2026-09-26.sql.gz | docker compose exec -T postgres psql -U mluser mldb
 ```
 
-### Full recovery from nothing
+The in-process similarity index (the dev default) is not persisted; it is
+empty after a restart. Production uses pgvector, which lives in the Postgres
+backup.
 
-```bash
-git clone <repo> && cd ml-engineer-challenge
-cp .env.example .env            # then set real secrets
-python scripts/prepare_models.py
-docker compose up -d
-gunzip -c backup.sql.gz | docker compose exec -T postgres psql -U mluser mldb
-```
-
-The deliberate property here: **the system can be rebuilt from git plus one
-command.** Model artefacts are regenerated by `prepare_models.py`, and every
-dashboard, alert rule and data source
-is provisioned from files in the repository.
+Recovery from nothing is a clone, `git lfs pull`, real secrets, `up -d`, and a
+restore of the Postgres dump. Every dashboard, alert rule and data source is
+provisioned from the repository.
