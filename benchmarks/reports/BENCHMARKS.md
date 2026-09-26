@@ -1,6 +1,6 @@
 # Inference Benchmark Report
 
-Generated: 2026-09-26T03:13:13.763738+00:00
+Generated: 2026-09-26T07:32:15.270354+00:00
 
 ## Environment
 
@@ -21,34 +21,34 @@ batch size, which is the fair way to compare across batch sizes.
 
 | Model | Runtime | Device | Batch | p50 (ms) | p95 (ms) | p99 (ms) | per-image (ms) | Throughput (img/s) | Size (MB) |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| resnet50 | onnx | cpu | 1 | 77.86 | 184.83 | 222.56 | 83.86 | 11.9 | 97.4 |
-| resnet50 | onnx | cpu | 4 | 204.64 | 352.22 | 418.37 | 52.96 | 18.9 | 97.4 |
-| resnet50-embed | onnx | cpu | 1 | 65.72 | 128.77 | 211.24 | 65.82 | 15.2 | 89.6 |
-| resnet50-embed | onnx | cpu | 4 | 198.50 | 309.81 | 372.30 | 51.83 | 19.3 | 89.6 |
-| resnet50-embed_int8_static | onnx_int8 | cpu | 1 | 78.51 | 164.90 | 254.97 | 88.97 | 11.2 | 22.9 |
-| resnet50-embed_int8_static | onnx_int8 | cpu | 4 | 360.69 | 507.34 | 592.28 | 87.61 | 11.4 | 22.9 |
-| resnet50-tiny-imagenet | onnx | cpu | 1 | 66.62 | 138.98 | 176.58 | 65.87 | 15.2 | 91.2 |
-| resnet50-tiny-imagenet | onnx | cpu | 4 | 207.49 | 311.68 | 333.06 | 53.51 | 18.7 | 91.2 |
-| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 1 | 76.76 | 156.48 | 268.94 | 83.24 | 12.0 | 23.3 |
-| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 4 | 340.68 | 560.15 | 687.66 | 88.73 | 11.3 | 23.3 |
-| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 1 | 174.90 | 311.40 | 360.06 | 184.89 | 5.4 | 23.1 |
-| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 4 | 689.35 | 981.87 | 1193.10 | 173.81 | 5.8 | 23.1 |
-| resnet50_int8_static | onnx_int8 | cpu | 1 | 77.07 | 172.94 | 309.64 | 81.71 | 12.2 | 24.9 |
-| resnet50_int8_static | onnx_int8 | cpu | 4 | 338.83 | 478.88 | 629.02 | 83.05 | 12.0 | 24.9 |
-| yolov8n | onnx | cpu | 1 | 97.05 | 200.82 | 258.20 | 101.34 | 9.9 | 12.1 |
-| yolov8n | onnx | cpu | 4 | 319.00 | 484.73 | 509.90 | 82.85 | 12.1 | 12.1 |
-| yolov8n_int8_static | onnx_int8 | cpu | 1 | 177.38 | 278.11 | 342.77 | 183.35 | 5.5 | 3.3 |
-| yolov8n_int8_static | onnx_int8 | cpu | 4 | 761.56 | 1104.26 | 1341.15 | 202.35 | 4.9 | 3.3 |
+| resnet50 | onnx | cpu | 1 | 75.11 | 149.83 | 211.70 | 72.43 | 13.8 | 97.4 |
+| resnet50 | onnx | cpu | 4 | 244.29 | 387.22 | 445.39 | 66.08 | 15.1 | 97.4 |
+| resnet50-embed | onnx | cpu | 1 | 69.14 | 124.93 | 357.34 | 79.08 | 12.6 | 89.6 |
+| resnet50-embed | onnx | cpu | 4 | 246.23 | 370.93 | 421.29 | 65.44 | 15.3 | 89.6 |
+| resnet50-embed_int8_static | onnx_int8 | cpu | 1 | 28.09 | 99.34 | 132.28 | 39.83 | 25.1 | 22.9 |
+| resnet50-embed_int8_static | onnx_int8 | cpu | 4 | 96.63 | 126.62 | 173.09 | 23.79 | 42.0 | 22.9 |
+| resnet50-tiny-imagenet | onnx | cpu | 1 | 66.80 | 132.76 | 277.08 | 72.99 | 13.7 | 91.2 |
+| resnet50-tiny-imagenet | onnx | cpu | 4 | 271.37 | 449.44 | 553.27 | 72.82 | 13.7 | 91.2 |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 1 | 39.54 | 99.56 | 149.00 | 49.23 | 20.3 | 23.3 |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 4 | 103.99 | 215.60 | 273.89 | 29.46 | 33.9 | 23.3 |
+| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 1 | 201.46 | 347.58 | 488.18 | 222.83 | 4.5 | 23.1 |
+| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 4 | 820.77 | 1029.58 | 1370.34 | 209.86 | 4.8 | 23.1 |
+| resnet50_int8_static | onnx_int8 | cpu | 1 | 36.95 | 97.11 | 141.64 | 44.83 | 22.3 | 24.9 |
+| resnet50_int8_static | onnx_int8 | cpu | 4 | 102.87 | 142.97 | 195.48 | 26.98 | 37.1 | 24.9 |
+| yolov8n | onnx | cpu | 1 | 113.05 | 226.19 | 307.50 | 136.06 | 7.3 | 12.1 |
+| yolov8n | onnx | cpu | 4 | 396.86 | 670.27 | 829.31 | 105.65 | 9.5 | 12.1 |
+| yolov8n_int8_static | onnx_int8 | cpu | 1 | 150.91 | 256.21 | 306.94 | 161.87 | 6.2 | 3.3 |
+| yolov8n_int8_static | onnx_int8 | cpu | 4 | 523.50 | 975.16 | 1181.75 | 138.85 | 7.2 | 3.3 |
 
 ## Speed-up vs float32 ONNX (batch 1)
 
 | Model | Runtime | p50 speed-up | Size reduction |
 | --- | --- | ---: | ---: |
-| resnet50-embed_int8_static | onnx_int8 | 0.84x | 3.91x |
-| resnet50-tiny-imagenet_int8_static | onnx_int8 | 0.87x | 3.91x |
-| resnet50-tiny-imagenet_int8_trt | onnx_int8 | 0.38x | 3.94x |
-| resnet50_int8_static | onnx_int8 | 1.01x | 3.92x |
-| yolov8n_int8_static | onnx_int8 | 0.55x | 3.67x |
+| resnet50-embed_int8_static | onnx_int8 | 2.46x | 3.91x |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | 1.69x | 3.91x |
+| resnet50-tiny-imagenet_int8_trt | onnx_int8 | 0.33x | 3.94x |
+| resnet50_int8_static | onnx_int8 | 2.03x | 3.92x |
+| yolov8n_int8_static | onnx_int8 | 0.75x | 3.67x |
 
 ## How to read this
 

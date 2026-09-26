@@ -46,14 +46,14 @@
     },
     "yolov8n:1.0.0": {
       "metrics": {
-        "p50_latency_ms": 589.927,
-        "p95_latency_ms": 1103.655,
-        "p99_latency_ms": 1208.715,
-        "mean_latency_ms": 632.951,
-        "throughput_ips": 1.58,
+        "p50_latency_ms": 116.976,
+        "p95_latency_ms": 200.981,
+        "p99_latency_ms": 271.006,
+        "mean_latency_ms": 128.528,
+        "throughput_ips": 7.78,
         "size_mb": 12.09
       },
-      "recorded_at": "2026-09-26T04:40:38.405778+00:00",
+      "recorded_at": "2026-09-26T07:32:26.589794+00:00",
       "environment": {
         "platform": "Windows",
         "machine": "AMD64",
@@ -63,18 +63,18 @@
         "torch": "2.9.0+cpu",
         "gpu": null
       },
-      "note": "baseline after INT8 fix"
+      "note": "recorded on an idle machine"
     },
     "resnet50-embed:1.0.0": {
       "metrics": {
-        "p50_latency_ms": 491.435,
-        "p95_latency_ms": 807.452,
-        "p99_latency_ms": 864.085,
-        "mean_latency_ms": 495.642,
-        "throughput_ips": 2.02,
+        "p50_latency_ms": 78.805,
+        "p95_latency_ms": 102.161,
+        "p99_latency_ms": 105.45,
+        "mean_latency_ms": 72.133,
+        "throughput_ips": 13.86,
         "size_mb": 89.6
       },
-      "recorded_at": "2026-09-26T04:41:26.560659+00:00",
+      "recorded_at": "2026-09-26T07:32:36.493875+00:00",
       "environment": {
         "platform": "Windows",
         "machine": "AMD64",
@@ -84,8 +84,8 @@
         "torch": "2.9.0+cpu",
         "gpu": null
       },
-      "note": "initial baseline"
+      "note": "recorded on an idle machine"
     }
   },
-  "updated_at": "2026-09-26T04:41:26.652917+00:00"
+  "updated_at": "2026-09-26T07:32:36.519533+00:00"
 }
