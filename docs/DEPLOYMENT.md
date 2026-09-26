@@ -19,7 +19,7 @@ You need Docker with Compose v2, Python 3.11 or 3.12 for the model tooling,
 and Git LFS for the model files.
 
 ```bash
-git lfs pull                 # the committed models, about 460 MB
+git lfs pull                 # the committed models, about 500 MB
 cp .env.example .env
 docker compose up -d
 curl http://localhost/api/v1/health

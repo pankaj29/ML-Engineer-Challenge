@@ -12,7 +12,7 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | Tests | ⟦TESTS_ROW⟧ |
 | Coverage | ⟦COV_API⟧% on `api/`, ⟦COV_WORKER⟧% on `worker/` |
 | Lint | `ruff`, `black` and `mypy` clean, all three enforced in CI |
-| Stack | 7 services in development, 11 containers in production, all healthy |
+| Stack | 7 services in development; in production 10 containers plus a one-shot migration, all healthy |
 | Fine-tuned classifier | 78.91% top-1 on Tiny-ImageNet, measured through the served ONNX model |
 | Detector | 0.392 mAP50-95 on 500 COCO images (INT8: 0.381) |
 | Latency | 66 to 97 ms p50 per image on a laptop CPU; 0.92 ms on an A100 with TensorRT INT8 |
@@ -31,7 +31,7 @@ Docker Desktop.
 ```bash
 git clone https://github.com/pankaj29/ML-Engineer-Challenge.git
 cd ML-Engineer-Challenge
-git lfs pull                 # the model files, about 460 MB
+git lfs pull                 # the model files, about 500 MB
 cp .env.example .env         # PowerShell: copy .env.example .env
 docker compose up -d
 curl http://localhost/api/v1/health
@@ -210,7 +210,7 @@ against the ONNX graph. Getting INT8 to build took four fixes, described in
   and 3.12 with a 92% coverage gate on `api/`; the INT8 fidelity check; a
   security scan; image builds and a smoke test; end-to-end tests against the
   running stack; and a real model export on `main`. `release.yml` publishes
-  signed, scanned images on a version tag, and `drift-watch.yml` runs the
+  scanned images with provenance attestations on a version tag, and `drift-watch.yml` runs the
   retraining decision weekly.
 
 ```bash
