@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-09-26T06:12:41.300991+00:00",
+  "models": {
+    "resnet50-tiny-imagenet": {
+      "metric": "accuracy",
+      "images": 2000,
+      "fp32": 0.786,
+      "s8s8_minmax": 0.6995,
+      "s8s8_minmax_reduce_range": 0.6915,
+      "u8u8_minmax": 0.6995,
+      "u8u8_percentile": 0.7785
+    },
+    "resnet50": {
+      "metric": "agreement",
+      "images": 500,
+      "s8s8_minmax": 0.796,
+      "s8s8_minmax_reduce_range": 0.77,
+      "u8u8_minmax": 0.798,
+      "u8u8_percentile": 0.862
+    },
+    "resnet50-embed": {
+      "metric": "cosine",
+      "images": 500,
+      "s8s8_minmax": {
+        "mean": 0.9724,
+        "min": 0.8403
+      },
+      "s8s8_minmax_reduce_range": {
+        "mean": 0.9607,
+        "min": 0.7687
+      },
+      "u8u8_minmax": {
+        "mean": 0.9724,
+        "min": 0.8387
+      },
+      "u8u8_percentile": {
+        "mean": 0.9848,
+        "min": 0.8391
+      }
+    },
+    "yolov8n": {
+      "metric": "detection",
+      "images": 500,
+      "s8s8_minmax": 0.888,
+      "s8s8_minmax_reduce_range": 0.916,
+      "u8u8_minmax": 0.888,
+      "u8u8_percentile": 0.918
+    }
+  }
+}
