@@ -136,10 +136,10 @@ U8U8 with percentile calibration ships for all four models. Against fp32:
 
 | Model | Size | p50 change, batch 1 | Quality |
 | --- | ---: | ---: | --- |
-| resnet50 | 3.92x smaller | 0.49x faster | 86.2% top-1 agreement over 500 images |
-| resnet50-tiny-imagenet | 3.91x smaller | 0.59x faster | 78.38% against 78.91% top-1 on all 10,000 validation images |
+| resnet50 | 3.92x smaller | 2.03x faster | 86.2% top-1 agreement over 500 images |
+| resnet50-tiny-imagenet | 3.91x smaller | 1.69x faster | 78.38% against 78.91% top-1 on all 10,000 validation images |
 | yolov8n | 3.67x smaller | 1.33x slower | 0.388 against 0.392 mAP50-95 on 500 COCO images |
-| resnet50-embed | 3.91x smaller | 0.41x faster | 0.985 mean cosine to fp32 |
+| resnet50-embed | 3.91x smaller | 2.46x faster | 0.985 mean cosine to fp32 |
 
 For the three ResNets, INT8 now runs 1.7 to 2.5 times faster than fp32 on
 this CPU at a quarter of the size. That changes the trade-off from size-only
@@ -258,8 +258,9 @@ quota and uses that many threads, and the same request takes 90 to 130 ms.
 
 ### System properties
 
-From `tests/performance/test_performance.py`, output saved in
-benchmarks/reports/performance_tests.txt:
+From `tests/performance/test_performance.py`, which runs the real service code
+with a fake model, so it measures the service's own overhead. Output saved in
+`benchmarks/reports/performance_tests.txt`:
 
 | Property | Measured |
 | --- | --- |
