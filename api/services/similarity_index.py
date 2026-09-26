@@ -300,7 +300,8 @@ class SimilarityIndex:
 
 
 # Process-wide singleton, created in the application lifespan handler.
-_index: SimilarityIndex | None = None
+# Either backend; both expose the same async interface.
+_index: Any = None
 
 
 def get_similarity_index() -> Any:

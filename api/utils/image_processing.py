@@ -110,6 +110,7 @@ def decode_image(data: bytes) -> Image.Image:
     Raises:
         InvalidImageError: The bytes cannot be decoded.
     """
+    img: Image.Image
     try:
         img = Image.open(io.BytesIO(data))
         img.load()  # force full decode now, so errors surface here
@@ -187,7 +188,7 @@ def resize_letterbox(
 
 def to_array(img: Image.Image, cfg: PreprocessConfig) -> np.ndarray:
     """Convert a PIL image into the normalised float32 array a model expects."""
-    arr = np.asarray(img, dtype=np.float32 if cfg.to_float else np.uint8)
+    arr: np.ndarray = np.asarray(img, dtype=np.float32 if cfg.to_float else np.uint8)
 
     if cfg.to_float:
         arr = arr / 255.0

@@ -114,6 +114,10 @@ services:
 
       AUTH_ENABLED: "true"
       RATE_LIMIT_ENABLED: "true"
+      # Three replicas with the in-process index would hold three different
+      # indexes, and a search would miss anything indexed through another
+      # replica. pgvector keeps one shared index, and it survives restarts.
+      SIMILARITY_BACKEND: pgvector
       EAGER_MODEL_LOAD: "true"
       MAX_CONCURRENT_INFERENCES: ${MAX_CONCURRENT_INFERENCES:-8}
     deploy:

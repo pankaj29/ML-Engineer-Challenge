@@ -225,7 +225,7 @@ class CacheService:
             _record("get", "miss")
             return None
         try:
-            value = json.loads(raw)
+            value: dict[str, Any] = json.loads(raw)
         except json.JSONDecodeError:
             # A corrupt entry is treated as a miss and deleted, so one bad
             # write cannot poison a key permanently.

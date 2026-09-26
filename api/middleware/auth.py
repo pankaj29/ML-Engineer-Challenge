@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import Request
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.config import Settings, settings
 from api.exceptions import AuthenticationError, AuthorizationError
@@ -280,11 +281,11 @@ class AuthMiddleware:
     ``contextvars`` propagation, which would lose the correlation id.
     """
 
-    def __init__(self, app: Any, config: Settings | None = None) -> None:
+    def __init__(self, app: ASGIApp, config: Settings | None = None) -> None:
         self.app = app
         self.settings = config or settings
 
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -318,7 +319,7 @@ def get_principal(request: Request) -> Principal:
     The middleware has already run by the time a route handler executes, so
     this only reads what it stored.
     """
-    principal = getattr(request.state, "principal", None)
+    principal: Principal | None = getattr(request.state, "principal", None)
     if principal is None:
         # Reachable only if a route is mounted outside the middleware stack.
         return authenticate_request(request)

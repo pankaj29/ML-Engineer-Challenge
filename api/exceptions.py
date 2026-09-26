@@ -210,7 +210,8 @@ class OverloadedError(AppError):
 # ---------------------------------------------------------------------------
 def _correlation_id(request: Request) -> str | None:
     """Pull the correlation id that the logging middleware attached."""
-    return getattr(request.state, "correlation_id", None)
+    cid = getattr(request.state, "correlation_id", None)
+    return str(cid) if cid is not None else None
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:

@@ -207,7 +207,8 @@ class OnnxRuntimeBackend:
         )
 
     def infer(self, inputs: np.ndarray) -> list[np.ndarray]:
-        return self.session.run(self.output_names, {self.input_name: inputs})
+        outputs: list[np.ndarray] = self.session.run(self.output_names, {self.input_name: inputs})
+        return outputs
 
     def close(self) -> None:
         self.session = None  # type: ignore[assignment]
@@ -704,8 +705,10 @@ class ModelService:
             "torch_int8",
             "tensorrt",
         ]
-        seen: set[str] = set()
-        ordered = [f for f in chain if f in entry.artifacts and not (f in seen or seen.add(f))]
+        ordered: list[str] = []
+        for fmt in chain:
+            if fmt in entry.artifacts and fmt not in ordered:
+                ordered.append(fmt)
         return ordered
 
     def _build_runtime(self, entry: ModelEntry, fmt: str) -> ModelRuntime:

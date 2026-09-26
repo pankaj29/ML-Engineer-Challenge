@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Request
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api.config import Settings, settings
 from api.exceptions import RateLimitError
@@ -322,12 +323,12 @@ class RateLimitMiddleware:
     tier is already known.
     """
 
-    def __init__(self, app: Any, limiter: RateLimiter, config: Settings | None = None) -> None:
+    def __init__(self, app: ASGIApp, limiter: RateLimiter, config: Settings | None = None) -> None:
         self.app = app
         self.limiter = limiter
         self.settings = config or settings
 
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not self.settings.rate_limit_enabled:
             await self.app(scope, receive, send)
             return
@@ -352,7 +353,7 @@ class RateLimitMiddleware:
             return
 
         # Attach the rate-limit headers to whatever response the app produces.
-        async def send_with_headers(message: dict[str, Any]) -> None:
+        async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = message.setdefault("headers", [])
                 for name, value in decision.headers().items():

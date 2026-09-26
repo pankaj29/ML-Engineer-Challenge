@@ -342,7 +342,7 @@ def validate_image_url(url: str, *, allow_private: bool = False) -> str:
         ) from exc
 
     for info in infos:
-        ip_str = info[4][0]
+        ip_str = str(info[4][0])
         if _is_blocked_ip(ip_str):
             logger.warning(
                 "ssrf_attempt_blocked",

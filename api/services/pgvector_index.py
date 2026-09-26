@@ -184,7 +184,9 @@ class PgVectorSimilarityIndex:
             result = await session.execute(
                 text("DELETE FROM similarity_vectors WHERE id = :id"), {"id": item_id}
             )
-            return bool(result.rowcount)
+            # execute() is typed as Result, which has no rowcount; a DELETE
+            # returns a CursorResult, which does.
+            return bool(getattr(result, "rowcount", 0))
 
     async def reset(self, dimension: int | None = None) -> None:
         """Empty the index, and change its dimension if asked.

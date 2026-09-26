@@ -85,12 +85,14 @@ jobs:
         run: python scripts/build_colab_notebook.py --check
 
       - name: Mypy (types)
-        # Type checking is advisory for now: the codebase is fully annotated,
-        # but several third-party libraries ship no stubs, and failing the
-        # build on someone else's missing annotations is not useful.
-        # Remove `continue-on-error` once the ignore list is settled.
-        continue-on-error: true
-        run: mypy api/ --ignore-missing-imports --no-strict-optional
+        # A hard gate. It needs the project's own dependencies installed:
+        # without them every FastAPI, SQLAlchemy and pydantic value is Any and
+        # the check proves little. torch and torchvision are left out (2 GB,
+        # and already in pyproject's ignore list).
+        run: |
+          grep -vE '^(torch|torchvision)' requirements.txt > /tmp/requirements-types.txt
+          pip install -r /tmp/requirements-types.txt
+          mypy api/ --ignore-missing-imports --no-strict-optional
 
   # ---------------------------------------------------------------------------
   # 2. Tests

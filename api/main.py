@@ -265,9 +265,10 @@ def _custom_openapi(app: FastAPI) -> dict[str, Any]:
     just a list of endpoints.
     """
     if app.openapi_schema:
-        return app.openapi_schema
+        cached: dict[str, Any] = app.openapi_schema
+        return cached
 
-    schema = get_openapi(
+    schema: dict[str, Any] = get_openapi(
         title=app.title,
         version=app.version,
         description=(

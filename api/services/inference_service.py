@@ -95,7 +95,8 @@ def softmax(logits: np.ndarray, axis: int = -1) -> np.ndarray:
     """
     shifted = logits - np.max(logits, axis=axis, keepdims=True)
     exp = np.exp(shifted)
-    return exp / np.sum(exp, axis=axis, keepdims=True)
+    probs: np.ndarray = exp / np.sum(exp, axis=axis, keepdims=True)
+    return probs
 
 
 def nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float) -> list[int]:
@@ -152,7 +153,8 @@ def l2_normalize(vec: np.ndarray, axis: int = -1) -> np.ndarray:
     matrix multiplication.
     """
     norm = np.linalg.norm(vec, axis=axis, keepdims=True)
-    return vec / np.maximum(norm, 1e-12)
+    unit: np.ndarray = vec / np.maximum(norm, 1e-12)
+    return unit
 
 
 def _set_inflight(count: int) -> None:
@@ -703,7 +705,8 @@ class InferenceService:
         raw = outcome.outputs[0]
         if raw.ndim > 2:
             raw = raw.reshape(raw.shape[0], -1)
-        return l2_normalize(raw.astype(np.float32))[0]
+        vector: np.ndarray = l2_normalize(raw.astype(np.float32))[0]
+        return vector
 
 
 # Process-wide singleton, created in the application lifespan handler.

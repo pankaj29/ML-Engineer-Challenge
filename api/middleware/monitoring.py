@@ -25,7 +25,6 @@ hides the tail, and the tail is what users feel.
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from fastapi import Request
 from prometheus_client import (
@@ -36,6 +35,7 @@ from prometheus_client import (
     generate_latest,
     multiprocess,
 )
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api.config import Settings, settings
 from api.logging_config import bind_correlation_id, get_logger
@@ -205,11 +205,11 @@ class MonitoringMiddleware:
     that propagation.
     """
 
-    def __init__(self, app: Any, config: Settings | None = None) -> None:
+    def __init__(self, app: ASGIApp, config: Settings | None = None) -> None:
         self.app = app
         self.settings = config or settings
 
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -231,7 +231,7 @@ class MonitoringMiddleware:
         content_length = request.headers.get("content-length")
         request_bytes = int(content_length) if content_length and content_length.isdigit() else 0
 
-        async def send_wrapper(message: dict[str, Any]) -> None:
+        async def send_wrapper(message: Message) -> None:
             nonlocal status_code
             if message["type"] == "http.response.start":
                 status_code = message["status"]

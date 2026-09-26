@@ -1,11 +1,12 @@
 # Inference Benchmark Report
 
-Generated: 2026-09-26T03:02:52.061422+00:00
+Generated: 2026-09-26T03:13:13.763738+00:00
 
 ## Environment
 
 | Property | Value |
 | --- | --- |
+| method | 100 timed runs per case in 5 interleaved rounds, after 20 warmup runs |
 | platform | Windows-11-10.0.26200-SP0 |
 | processor | Intel64 Family 6 Model 170 Stepping 4, GenuineIntel |
 | cpu_count | 22 |
@@ -20,34 +21,34 @@ batch size, which is the fair way to compare across batch sizes.
 
 | Model | Runtime | Device | Batch | p50 (ms) | p95 (ms) | p99 (ms) | per-image (ms) | Throughput (img/s) | Size (MB) |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| resnet50 | onnx | cpu | 1 | 61.31 | 82.53 | 88.10 | 51.26 | 19.5 | 97.4 |
-| resnet50 | onnx | cpu | 4 | 180.93 | 277.34 | 373.24 | 49.96 | 20.0 | 97.4 |
-| resnet50-embed | onnx | cpu | 1 | 52.00 | 88.16 | 124.06 | 53.85 | 18.6 | 89.6 |
-| resnet50-embed | onnx | cpu | 4 | 182.01 | 256.22 | 291.97 | 47.85 | 20.9 | 89.6 |
-| resnet50-embed_int8_static | onnx_int8 | cpu | 1 | 58.01 | 90.98 | 130.76 | 60.52 | 16.5 | 22.9 |
-| resnet50-embed_int8_static | onnx_int8 | cpu | 4 | 235.85 | 347.24 | 413.55 | 61.96 | 16.1 | 22.9 |
-| resnet50-tiny-imagenet | onnx | cpu | 1 | 36.10 | 39.43 | 58.52 | 37.36 | 26.8 | 91.2 |
-| resnet50-tiny-imagenet | onnx | cpu | 4 | 136.51 | 213.92 | 256.44 | 38.52 | 26.0 | 91.2 |
-| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 1 | 43.32 | 70.89 | 79.92 | 47.93 | 20.9 | 23.3 |
-| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 4 | 220.47 | 394.62 | 459.15 | 59.89 | 16.7 | 23.3 |
-| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 1 | 106.07 | 177.15 | 201.29 | 113.25 | 8.8 | 23.1 |
-| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 4 | 419.67 | 596.52 | 651.49 | 109.71 | 9.1 | 23.1 |
-| resnet50_int8_static | onnx_int8 | cpu | 1 | 77.33 | 116.08 | 125.16 | 74.81 | 13.4 | 24.9 |
-| resnet50_int8_static | onnx_int8 | cpu | 4 | 197.59 | 317.94 | 356.66 | 53.80 | 18.6 | 24.9 |
-| yolov8n | onnx | cpu | 1 | 77.03 | 132.07 | 146.73 | 82.09 | 12.2 | 12.1 |
-| yolov8n | onnx | cpu | 4 | 281.86 | 394.44 | 484.97 | 74.04 | 13.5 | 12.1 |
-| yolov8n_int8_static | onnx_int8 | cpu | 1 | 173.55 | 264.71 | 310.83 | 189.35 | 5.3 | 3.3 |
-| yolov8n_int8_static | onnx_int8 | cpu | 4 | 704.44 | 1087.80 | 1334.52 | 192.03 | 5.2 | 3.3 |
+| resnet50 | onnx | cpu | 1 | 77.86 | 184.83 | 222.56 | 83.86 | 11.9 | 97.4 |
+| resnet50 | onnx | cpu | 4 | 204.64 | 352.22 | 418.37 | 52.96 | 18.9 | 97.4 |
+| resnet50-embed | onnx | cpu | 1 | 65.72 | 128.77 | 211.24 | 65.82 | 15.2 | 89.6 |
+| resnet50-embed | onnx | cpu | 4 | 198.50 | 309.81 | 372.30 | 51.83 | 19.3 | 89.6 |
+| resnet50-embed_int8_static | onnx_int8 | cpu | 1 | 78.51 | 164.90 | 254.97 | 88.97 | 11.2 | 22.9 |
+| resnet50-embed_int8_static | onnx_int8 | cpu | 4 | 360.69 | 507.34 | 592.28 | 87.61 | 11.4 | 22.9 |
+| resnet50-tiny-imagenet | onnx | cpu | 1 | 66.62 | 138.98 | 176.58 | 65.87 | 15.2 | 91.2 |
+| resnet50-tiny-imagenet | onnx | cpu | 4 | 207.49 | 311.68 | 333.06 | 53.51 | 18.7 | 91.2 |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 1 | 76.76 | 156.48 | 268.94 | 83.24 | 12.0 | 23.3 |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | cpu | 4 | 340.68 | 560.15 | 687.66 | 88.73 | 11.3 | 23.3 |
+| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 1 | 174.90 | 311.40 | 360.06 | 184.89 | 5.4 | 23.1 |
+| resnet50-tiny-imagenet_int8_trt | onnx_int8 | cpu | 4 | 689.35 | 981.87 | 1193.10 | 173.81 | 5.8 | 23.1 |
+| resnet50_int8_static | onnx_int8 | cpu | 1 | 77.07 | 172.94 | 309.64 | 81.71 | 12.2 | 24.9 |
+| resnet50_int8_static | onnx_int8 | cpu | 4 | 338.83 | 478.88 | 629.02 | 83.05 | 12.0 | 24.9 |
+| yolov8n | onnx | cpu | 1 | 97.05 | 200.82 | 258.20 | 101.34 | 9.9 | 12.1 |
+| yolov8n | onnx | cpu | 4 | 319.00 | 484.73 | 509.90 | 82.85 | 12.1 | 12.1 |
+| yolov8n_int8_static | onnx_int8 | cpu | 1 | 177.38 | 278.11 | 342.77 | 183.35 | 5.5 | 3.3 |
+| yolov8n_int8_static | onnx_int8 | cpu | 4 | 761.56 | 1104.26 | 1341.15 | 202.35 | 4.9 | 3.3 |
 
 ## Speed-up vs float32 ONNX (batch 1)
 
 | Model | Runtime | p50 speed-up | Size reduction |
 | --- | --- | ---: | ---: |
-| resnet50-embed_int8_static | onnx_int8 | 0.90x | 3.91x |
-| resnet50-tiny-imagenet_int8_static | onnx_int8 | 0.83x | 3.91x |
-| resnet50-tiny-imagenet_int8_trt | onnx_int8 | 0.34x | 3.94x |
-| resnet50_int8_static | onnx_int8 | 0.79x | 3.92x |
-| yolov8n_int8_static | onnx_int8 | 0.44x | 3.67x |
+| resnet50-embed_int8_static | onnx_int8 | 0.84x | 3.91x |
+| resnet50-tiny-imagenet_int8_static | onnx_int8 | 0.87x | 3.91x |
+| resnet50-tiny-imagenet_int8_trt | onnx_int8 | 0.38x | 3.94x |
+| resnet50_int8_static | onnx_int8 | 1.01x | 3.92x |
+| yolov8n_int8_static | onnx_int8 | 0.55x | 3.67x |
 
 ## How to read this
 

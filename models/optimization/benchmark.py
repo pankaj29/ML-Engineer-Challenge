@@ -404,6 +404,7 @@ def render_markdown(results: list[BenchmarkResult], env: dict[str, Any]) -> str:
         "| --- | --- |",
     ]
     for key in (
+        "method",
         "platform",
         "processor",
         "cpu_count",
@@ -584,6 +585,10 @@ def main() -> int:
         print(r.summary())
 
     env = environment_info()
+    env["method"] = (
+        f"{args.iterations} timed runs per case in {args.rounds} interleaved rounds, "
+        f"after {args.warmup} warmup runs"
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = args.output_dir / "benchmark_results.json"
