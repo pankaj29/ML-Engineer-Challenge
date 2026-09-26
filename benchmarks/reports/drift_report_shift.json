@@ -1,0 +1,338 @@
+{
+  "model": "resnet50-tiny-imagenet:1.0.0",
+  "generated_at": "2026-09-26T05:05:29.052706+00:00",
+  "results": [
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "confidence",
+      "statistic": 0.532,
+      "p_value": 4.241082342585957e-65,
+      "effect_size": 0.532,
+      "effect_metric": "ks_statistic",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.6676,
+        "current_mean": 0.3726,
+        "reference_std": 0.2488,
+        "current_std": 0.2316,
+        "reference_median": 0.7906,
+        "current_median": 0.3176
+      },
+      "interpretation": "confidence has drifted: the distribution shifted lower (mean 0.668 -> 0.373). Largest CDF gap 0.532, p=4.24e-65."
+    },
+    {
+      "test": "psi",
+      "feature": "confidence",
+      "statistic": 1.508677,
+      "p_value": 1.0,
+      "effect_size": 1.508677,
+      "effect_metric": "psi",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "bins": 10,
+        "reference_distribution": [
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1
+        ],
+        "current_distribution": [
+          0.362,
+          0.266,
+          0.192,
+          0.074,
+          0.034,
+          0.016,
+          0.02,
+          0.006,
+          0.014,
+          0.016
+        ]
+      },
+      "interpretation": "PSI for confidence is 1.5087 (major shift, action required)."
+    },
+    {
+      "test": "chi_square",
+      "feature": "predicted_label",
+      "statistic": 385.9889,
+      "p_value": 1.1122199480403183e-14,
+      "effect_size": 0.62128,
+      "effect_metric": "cramers_v",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "num_categories": 196,
+        "top_shifts": [
+          {
+            "category": "bannister",
+            "reference_pct": 0.4,
+            "current_pct": 3.4,
+            "change_pct": 3.0
+          },
+          {
+            "category": "bathtub",
+            "reference_pct": 0.6,
+            "current_pct": 3.6,
+            "change_pct": 3.0
+          },
+          {
+            "category": "pole",
+            "reference_pct": 0.4,
+            "current_pct": 3.0,
+            "change_pct": 2.6
+          },
+          {
+            "category": "dining table",
+            "reference_pct": 0.2,
+            "current_pct": 2.6,
+            "change_pct": 2.4
+          },
+          {
+            "category": "dumbbell",
+            "reference_pct": 0.2,
+            "current_pct": 2.4,
+            "change_pct": 2.2
+          }
+        ],
+        "new_categories": [
+          "CD player",
+          "broom",
+          "convertible",
+          "freight car",
+          "jinrikisha",
+          "maypole",
+          "military uniform",
+          "ox",
+          "police van",
+          "sock"
+        ],
+        "vanished_categories": [
+          "American lobster",
+          "Christmas stocking",
+          "European fire salamander",
+          "Yorkshire terrier",
+          "abacus",
+          "apron",
+          "baboon",
+          "barn",
+          "beach wagon",
+          "bee"
+        ]
+      },
+      "interpretation": "Prediction mix for predicted_label has drifted (Cramer's V 0.621, p=1.11e-14). Largest change: 'bannister' went from 0.4% to 3.4% (+3.00 points)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "aspect_ratio",
+      "statistic": 0.716,
+      "p_value": 7.411845536443753e-124,
+      "effect_size": 0.716,
+      "effect_metric": "ks_statistic",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 1.0,
+        "current_mean": 1.253,
+        "reference_std": 0.0,
+        "current_std": 0.3413,
+        "reference_median": 1.0,
+        "current_median": 1.3333
+      },
+      "interpretation": "aspect_ratio has drifted: the distribution shifted higher (mean 1.000 -> 1.253). Largest CDF gap 0.716, p=7.41e-124."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "contrast",
+      "statistic": 0.596,
+      "p_value": 7.708387308615547e-83,
+      "effect_size": 0.596,
+      "effect_metric": "ks_statistic",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.9433,
+        "current_mean": 0.991,
+        "reference_std": 0.0805,
+        "current_std": 0.0299,
+        "reference_median": 0.9765,
+        "current_median": 1.0
+      },
+      "interpretation": "contrast has drifted: the distribution shifted higher (mean 0.943 -> 0.991). Largest CDF gap 0.596, p=7.71e-83."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "edge_density",
+      "statistic": 0.568,
+      "p_value": 9.327109742594374e-75,
+      "effect_size": 0.568,
+      "effect_metric": "ks_statistic",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.1554,
+        "current_mean": 0.076,
+        "reference_std": 0.0664,
+        "current_std": 0.0428,
+        "reference_median": 0.1485,
+        "current_median": 0.0655
+      },
+      "interpretation": "edge_density has drifted: the distribution shifted lower (mean 0.155 -> 0.076). Largest CDF gap 0.568, p=9.33e-75."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_blue",
+      "statistic": 0.06,
+      "p_value": 0.3293581065813255,
+      "effect_size": 0.06,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.3953,
+        "current_mean": 0.3974,
+        "reference_std": 0.1615,
+        "current_std": 0.1442,
+        "reference_median": 0.385,
+        "current_median": 0.3933
+      },
+      "interpretation": "mean_blue shows no meaningful drift (KS 0.060, p=0.33)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_brightness",
+      "statistic": 0.038,
+      "p_value": 0.8636766933110154,
+      "effect_size": 0.038,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.4387,
+        "current_mean": 0.4294,
+        "reference_std": 0.1302,
+        "current_std": 0.1202,
+        "reference_median": 0.441,
+        "current_median": 0.4329
+      },
+      "interpretation": "mean_brightness shows no meaningful drift (KS 0.038, p=0.86)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_green",
+      "statistic": 0.054,
+      "p_value": 0.4599232291065006,
+      "effect_size": 0.054,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.447,
+        "current_mean": 0.4355,
+        "reference_std": 0.134,
+        "current_std": 0.1234,
+        "reference_median": 0.4484,
+        "current_median": 0.4407
+      },
+      "interpretation": "mean_green shows no meaningful drift (KS 0.054, p=0.46)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_red",
+      "statistic": 0.092,
+      "p_value": 0.028995961061089214,
+      "effect_size": 0.092,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.4738,
+        "current_mean": 0.4552,
+        "reference_std": 0.14,
+        "current_std": 0.1226,
+        "reference_median": 0.471,
+        "current_median": 0.4587
+      },
+      "interpretation": "mean_red shows a statistically significant but tiny difference (KS 0.092 < 0.1 threshold). This is sample-size sensitivity, not a real change. No action needed."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "pixels",
+      "statistic": 1.0,
+      "p_value": 7.399507995628047e-300,
+      "effect_size": 1.0,
+      "effect_metric": "ks_statistic",
+      "drifted": true,
+      "severity": "high",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 4096.0,
+        "current_mean": 273652.996,
+        "reference_std": 0.0,
+        "current_std": 54746.9585,
+        "reference_median": 4096.0,
+        "current_median": 273280.0
+      },
+      "interpretation": "pixels has drifted: the distribution shifted higher (mean 4096.000 -> 273652.996). Largest CDF gap 1.000, p=7.40e-300."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "std_brightness",
+      "statistic": 0.11,
+      "p_value": 0.004686682589297701,
+      "effect_size": 0.11,
+      "effect_metric": "ks_statistic",
+      "drifted": true,
+      "severity": "low",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.2409,
+        "current_mean": 0.2501,
+        "reference_std": 0.057,
+        "current_std": 0.0501,
+        "reference_median": 0.2405,
+        "current_median": 0.2525
+      },
+      "interpretation": "std_brightness has drifted: the distribution shifted higher (mean 0.241 -> 0.250). Largest CDF gap 0.110, p=4.69e-03."
+    }
+  ],
+  "overall_severity": "high",
+  "drifted": true,
+  "summary": "Drift detected in 8 of 12 test(s). Affected signals: aspect_ratio, confidence, contrast, edge_density, pixels, predicted_label, std_brightness. Overall severity: high.",
+  "recommendations": [
+    "Pull a sample of recent inputs and label them by hand to measure real accuracy. Distribution drift is a warning sign, not proof the model got worse.",
+    "Compare against the deployment timeline: a step change that lines up with a release usually means a preprocessing or client change, not model decay.",
+    "Falling confidence with a stable prediction mix usually means the inputs have moved away from the training distribution. Retraining on recent data is the fix.",
+    "A shifted prediction mix can be a genuine change in traffic rather than a model problem. Confirm with whoever owns the upstream product before retraining.",
+    "Severity is high: consider pinning clients to the previous model version while investigating, using the model_version parameter."
+  ]
+}

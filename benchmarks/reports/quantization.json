@@ -60,5 +60,22 @@
     "notes": [
       "quantized op types: Conv; the rest stay fp32"
     ]
+  },
+  {
+    "name": "resnet50",
+    "mode": "onnx_dynamic",
+    "source_path": "models\\artifacts\\resnet50.onnx",
+    "output_path": "models\\artifacts\\resnet50_int8.onnx",
+    "original_mb": 97.41438102722168,
+    "quantized_mb": 24.537757873535156,
+    "compression_ratio": 3.9699789006511694,
+    "max_abs_diff": 0.0,
+    "mean_abs_diff": 0.0,
+    "top1_agreement": 0.0,
+    "duration_seconds": 3.3048870000056922,
+    "calibration_images": 0,
+    "notes": [
+      "accuracy NOT verified: the quantized model could not be executed (NotImplemented). The file was still written. The usual cause is dynamic quantization of a convolutional model: DynamicQuantizeLinear emits uint8 activations by spec, weight_type defaults to int8, and ONNX Runtime registers ConvInteger for uint8 x uint8 only, so kernel resolution fails. QUInt8 weights avoid it; static quantization is the better answer for conv nets."
+    ]
   }
 ]

@@ -120,6 +120,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      # For tests/integration/test_real_services.py: the rate limiter's Lua
+      # script and the cache against a real server. Without it those tests
+      # skip, and a skip is green whether the code works or not.
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Only the real-service locations. The app's own settings (API keys, JWT
+    # secret) come from tests/conftest.py; see the note on the test step.
+    env:
+      TEST_POSTGRES_URL: postgresql+asyncpg://testuser:testpass@127.0.0.1:55432/testdb
+      TEST_REDIS_URL: redis://127.0.0.1:6379/15
 
     strategy:
       # Run every version even if one fails, so a 3.12-only problem is visible

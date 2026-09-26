@@ -1,9 +1,332 @@
 {
-  "model": "resnet50:latest",
-  "generated_at": "2026-09-24T04:40:45.773635+00:00",
-  "results": [],
+  "model": "resnet50-tiny-imagenet:1.0.0",
+  "generated_at": "2026-09-26T04:53:08.885995+00:00",
+  "results": [
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "confidence",
+      "statistic": 0.058,
+      "p_value": 0.3699050405997647,
+      "effect_size": 0.058,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.6676,
+        "current_mean": 0.6687,
+        "reference_std": 0.2488,
+        "current_std": 0.247,
+        "reference_median": 0.7906,
+        "current_median": 0.7972
+      },
+      "interpretation": "confidence shows no meaningful drift (KS 0.058, p=0.37)."
+    },
+    {
+      "test": "psi",
+      "feature": "confidence",
+      "statistic": 0.021068,
+      "p_value": 1.0,
+      "effect_size": 0.021068,
+      "effect_metric": "psi",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "bins": 10,
+        "reference_distribution": [
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1,
+          0.1
+        ],
+        "current_distribution": [
+          0.1,
+          0.11,
+          0.092,
+          0.114,
+          0.076,
+          0.08,
+          0.09,
+          0.104,
+          0.118,
+          0.116
+        ]
+      },
+      "interpretation": "PSI for confidence is 0.0211 (stable)."
+    },
+    {
+      "test": "chi_square",
+      "feature": "predicted_label",
+      "statistic": 206.5524,
+      "p_value": 0.32378976066313714,
+      "effect_size": 0.45448,
+      "effect_metric": "cramers_v",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "num_categories": 199,
+        "top_shifts": [
+          {
+            "category": "brown bear",
+            "reference_pct": 1.6,
+            "current_pct": 0.0,
+            "change_pct": -1.6
+          },
+          {
+            "category": "convertible",
+            "reference_pct": 0.0,
+            "current_pct": 1.2,
+            "change_pct": 1.2
+          },
+          {
+            "category": "plunger",
+            "reference_pct": 1.8,
+            "current_pct": 0.6,
+            "change_pct": -1.2
+          },
+          {
+            "category": "pop bottle",
+            "reference_pct": 0.4,
+            "current_pct": 1.6,
+            "change_pct": 1.2
+          },
+          {
+            "category": "cardigan",
+            "reference_pct": 0.2,
+            "current_pct": 1.2,
+            "change_pct": 1.0
+          }
+        ],
+        "new_categories": [
+          "CD player",
+          "broom",
+          "convertible",
+          "dragonfly",
+          "freight car",
+          "jinrikisha",
+          "military uniform",
+          "orangutan",
+          "ox",
+          "police van"
+        ],
+        "vanished_categories": [
+          "barbershop",
+          "bathtub",
+          "beacon",
+          "binoculars",
+          "brown bear",
+          "chain",
+          "golden retriever",
+          "goldfish",
+          "goose",
+          "grasshopper"
+        ]
+      },
+      "interpretation": "No meaningful shift in predicted_label (Cramer's V 0.454, p=0.32)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "aspect_ratio",
+      "statistic": 0.0,
+      "p_value": 1.0,
+      "effect_size": 0.0,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 1.0,
+        "current_mean": 1.0,
+        "reference_std": 0.0,
+        "current_std": 0.0,
+        "reference_median": 1.0,
+        "current_median": 1.0
+      },
+      "interpretation": "aspect_ratio shows no meaningful drift (KS 0.000, p=1.00)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "contrast",
+      "statistic": 0.044,
+      "p_value": 0.7189191850204419,
+      "effect_size": 0.044,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.9433,
+        "current_mean": 0.9386,
+        "reference_std": 0.0805,
+        "current_std": 0.0857,
+        "reference_median": 0.9765,
+        "current_median": 0.9739
+      },
+      "interpretation": "contrast shows no meaningful drift (KS 0.044, p=0.72)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "edge_density",
+      "statistic": 0.03,
+      "p_value": 0.978250151785604,
+      "effect_size": 0.03,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.1554,
+        "current_mean": 0.1534,
+        "reference_std": 0.0664,
+        "current_std": 0.064,
+        "reference_median": 0.1485,
+        "current_median": 0.1487
+      },
+      "interpretation": "edge_density shows no meaningful drift (KS 0.030, p=0.98)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_blue",
+      "statistic": 0.032,
+      "p_value": 0.9603008958861495,
+      "effect_size": 0.032,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.3953,
+        "current_mean": 0.3964,
+        "reference_std": 0.1615,
+        "current_std": 0.1613,
+        "reference_median": 0.385,
+        "current_median": 0.3851
+      },
+      "interpretation": "mean_blue shows no meaningful drift (KS 0.032, p=0.96)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_brightness",
+      "statistic": 0.044,
+      "p_value": 0.7189191850204419,
+      "effect_size": 0.044,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.4387,
+        "current_mean": 0.4444,
+        "reference_std": 0.1302,
+        "current_std": 0.1292,
+        "reference_median": 0.441,
+        "current_median": 0.4339
+      },
+      "interpretation": "mean_brightness shows no meaningful drift (KS 0.044, p=0.72)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_green",
+      "statistic": 0.034,
+      "p_value": 0.9351121874342835,
+      "effect_size": 0.034,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.447,
+        "current_mean": 0.4499,
+        "reference_std": 0.134,
+        "current_std": 0.1324,
+        "reference_median": 0.4484,
+        "current_median": 0.4485
+      },
+      "interpretation": "mean_green shows no meaningful drift (KS 0.034, p=0.94)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "mean_red",
+      "statistic": 0.054,
+      "p_value": 0.4599232291065006,
+      "effect_size": 0.054,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.4738,
+        "current_mean": 0.4869,
+        "reference_std": 0.14,
+        "current_std": 0.134,
+        "reference_median": 0.471,
+        "current_median": 0.4787
+      },
+      "interpretation": "mean_red shows no meaningful drift (KS 0.054, p=0.46)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "pixels",
+      "statistic": 0.0,
+      "p_value": 1.0,
+      "effect_size": 0.0,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 4096.0,
+        "current_mean": 4096.0,
+        "reference_std": 0.0,
+        "current_std": 0.0,
+        "reference_median": 4096.0,
+        "current_median": 4096.0
+      },
+      "interpretation": "pixels shows no meaningful drift (KS 0.000, p=1.00)."
+    },
+    {
+      "test": "kolmogorov_smirnov",
+      "feature": "std_brightness",
+      "statistic": 0.07,
+      "p_value": 0.1725563396262406,
+      "effect_size": 0.07,
+      "effect_metric": "ks_statistic",
+      "drifted": false,
+      "severity": "none",
+      "reference_size": 500,
+      "current_size": 500,
+      "detail": {
+        "reference_mean": 0.2409,
+        "current_mean": 0.238,
+        "reference_std": 0.057,
+        "current_std": 0.0514,
+        "reference_median": 0.2405,
+        "current_median": 0.2339
+      },
+      "interpretation": "std_brightness shows no meaningful drift (KS 0.070, p=0.17)."
+    }
+  ],
   "overall_severity": "none",
   "drifted": false,
-  "summary": "No drift tests could be run: no comparable data was supplied.",
+  "summary": "No meaningful drift detected across 12 test(s).",
   "recommendations": []
 }
