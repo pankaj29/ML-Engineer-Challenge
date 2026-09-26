@@ -17,24 +17,6 @@
     ]
   },
   {
-    "name": "yolov8n",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\yolov8n.onnx",
-    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
-    "original_mb": 12.090323448181152,
-    "quantized_mb": 3.2948570251464844,
-    "compression_ratio": 3.6694531373917916,
-    "max_abs_diff": 378.79376220703125,
-    "mean_abs_diff": 0.22329035396894914,
-    "top1_agreement": 0.9375,
-    "duration_seconds": 42.151677799993195,
-    "calibration_images": 100,
-    "notes": [
-      "uint8 activations and weights (U8U8)",
-      "quantized op types: Conv; the rest stay fp32"
-    ]
-  },
-  {
     "name": "resnet50",
     "mode": "onnx_static",
     "source_path": "models\\artifacts\\resnet50.onnx",
@@ -83,6 +65,24 @@
     "calibration_images": 100,
     "notes": [
       "uint8 activations and weights (U8U8)"
+    ]
+  },
+  {
+    "name": "yolov8n",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\yolov8n.onnx",
+    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
+    "original_mb": 12.090323448181152,
+    "quantized_mb": 3.2948646545410156,
+    "compression_ratio": 3.669444640622232,
+    "max_abs_diff": 385.16680908203125,
+    "mean_abs_diff": 0.22325476681058218,
+    "top1_agreement": 0.90625,
+    "duration_seconds": 149.67387490000692,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)",
+      "quantized op types: Conv; the rest stay fp32"
     ]
   }
 ]

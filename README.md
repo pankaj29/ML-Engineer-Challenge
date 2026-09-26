@@ -168,18 +168,25 @@ Every model meets the sub-second requirement at p99 for a single image, in
 both precisions.
 
 INT8 is applied to all four models and is the default for none. On this CPU
-it buys size, not speed, and the fine-tuned classifier loses real accuracy.
-The A/B test settles that with a paired McNemar test rather than a judgement
-call. INT8 stays available per request (`"runtime": "onnx_int8"`) for
-memory-bound deployments.
+it buys size, not speed, and the A/B test (a paired McNemar test) decides
+whether its accuracy cost is acceptable rather than a judgement call. It stays
+available per request (`"runtime": "onnx_int8"`).
 
-Two INT8 bugs were found and fixed on the way. The detector's first INT8 model
-found nothing at all: YOLOv8's head concatenates pixel coordinates and 0-1
-class scores into one tensor, so one int8 scale rounded every score to zero,
-and the quantization report said 100% agreement because it only compared
-classifier outputs. It now quantizes only convolutions, calibrates on COCO
-with the detector's own preprocessing, and CI compares every INT8 model with
-fp32 on real images.
+Measuring INT8 properly found three real problems, all fixed:
+
+1. **The detector's INT8 model found nothing.** One int8 scale covered pixel
+   coordinates and 0-1 class scores, so every score rounded to zero, and the
+   quantization report said 100% agreement because it only compared classifier
+   outputs. The detector now quantizes only its convolutions.
+2. **The same file behaved differently on different CPUs.** Signed int8 can
+   saturate on x86 CPUs without VNNI, such as CI's AMD runners. The models now
+   use unsigned int8 (U8U8), which cannot.
+3. **MinMax calibration wasted resolution** on rare outliers. The fine-tuned
+   classifier's INT8 build lost about 9 points and misread real photos until
+   calibration switched to percentile clipping.
+
+CI now compares every INT8 model with fp32 on real photos. The comparison of
+recipes is in [TECHNICAL.md](docs/TECHNICAL.md#int8-on-cpu).
 
 **TensorRT**, fine-tuned classifier on an A100, batch 1: fp32 1.298 ms, fp16
 0.990 ms, INT8 0.920 ms (1068 img/s, 24.1 MB engine). All three verified

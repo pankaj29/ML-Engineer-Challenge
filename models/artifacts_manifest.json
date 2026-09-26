@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-26T02:43:01Z",
+  "generated_at": "2026-09-26T06:12:08Z",
   "artifacts": {
     "coco_labels.json": {
       "sha256": "870d9b62483583605673c37812a780964045f6009eee31e4fa5879ae3a71d0d0",
@@ -14,24 +14,24 @@
       "size_bytes": 93952429
     },
     "resnet50-embed_int8_static.onnx": {
-      "sha256": "28e4592d030ddcf0aa6c7752d3be8cd8d1705e42e9a86628dd8b415e94fa0c59",
-      "size_bytes": 24021109
+      "sha256": "a9362f32fd76783feecda854af4574e1693d49d0c408a93a143ef9e0a2b4afa7",
+      "size_bytes": 24020605
     },
     "resnet50-tiny-imagenet.onnx": {
       "sha256": "46819a638d2701a0389ac9d4711ad8bb4973bc10718dfa9bd7106f094d6b33b2",
       "size_bytes": 95589581
     },
     "resnet50-tiny-imagenet_int8_static.onnx": {
-      "sha256": "9610401631e641765f5ef31ee0ce104865800ed7f75ba443c160d303b00d978c",
-      "size_bytes": 24429162
+      "sha256": "a1000586b693300aad16d7b1df11cc3ab21f3e9a42c0b6f3e8e77627267d2adb",
+      "size_bytes": 24428637
     },
     "resnet50.onnx": {
       "sha256": "1191e72d96972a729898483b70fe803acc08a2aad341d7a3e294f2f1b9f12fbc",
       "size_bytes": 102146382
     },
     "resnet50_int8_static.onnx": {
-      "sha256": "22b240cdf7026ff77bb42a44d4700ced58680b06866e44af8dd6c19c56b6105a",
-      "size_bytes": 26081159
+      "sha256": "242a63e82afe438109e2b5ee751be9303aa85aeeaccefd0744355c39e804a489",
+      "size_bytes": 26080637
     },
     "tiny_imagenet_labels.json": {
       "sha256": "a8d1fa051b67e0761007eebdbec9b7276fa121f7d3d117554f641df6999e25c2",
@@ -42,8 +42,8 @@
       "size_bytes": 12677623
     },
     "yolov8n_int8_static.onnx": {
-      "sha256": "63058fda1eca52316fd1ba6704f7ca6be36e5e9b7c88967c27a3e21c45a21772",
-      "size_bytes": 3455535
+      "sha256": "7989239fc801eb451e11decd5868f4adceb3816a04a466634187b9b30000d79b",
+      "size_bytes": 3454916
     }
   }
 }

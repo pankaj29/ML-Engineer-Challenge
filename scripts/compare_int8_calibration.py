@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,7 +63,6 @@ def main() -> int:
         quant_pre_process(str(MODEL), str(prepared), skip_symbolic_shape=False)
         for method, mode, calibrate, symmetric in CONFIGS:
             out = Path(tmp) / f"{method}_{mode}.onnx"
-            started = time.perf_counter()
             quantize_static(
                 str(prepared),
                 str(out),
@@ -76,18 +74,16 @@ def main() -> int:
                 calibrate_method=calibrate,
                 extra_options={"ActivationSymmetric": symmetric, "WeightSymmetric": symmetric},
             )
-            seconds = time.perf_counter() - started
             agreement = float((_top1(out, held_out) == reference).mean())
             results.append(
                 {
                     "calibration": method,
                     "quantization": mode,
                     "top1_agreement": round(agreement, 4),
-                    "calibration_seconds": round(seconds, 1),
                     "tensorrt_accepts": symmetric,
                 }
             )
-            print(f"{method:<11} {mode:<11} agreement {agreement:6.1%}  {seconds:5.1f}s")
+            print(f"{method:<11} {mode:<11} agreement {agreement:6.1%}")
 
     report = {
         "model": "resnet50-tiny-imagenet",

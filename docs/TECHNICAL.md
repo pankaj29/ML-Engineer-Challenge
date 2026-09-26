@@ -78,47 +78,65 @@ verification caught both; it now opts out of dynamo.
 
 ### INT8 on CPU
 
-INT8 is applied to all four models. It is the default for none, and the
-reasons are measured, not assumed.
+INT8 is applied to all four models, is selectable per request
+(`"runtime": "onnx_int8"`), and is the default for none. Getting to a
+trustworthy INT8 build took three fixes, each found by measuring rather than
+assuming.
 
-**Dynamic quantization** ⟦DYNAMIC_SENTENCE⟧ The cause is narrower than the
+**Dynamic quantization** fails to load as configured, and `quantization.json` records
+it: ONNX Runtime raises `NOT_IMPLEMENTED` for `ConvInteger` at session
+creation. The cause is narrower than the
 error suggests: `DynamicQuantizeLinear` emits uint8 by the ONNX spec,
 `quantize_dynamic` defaults to int8 weights, and ONNX Runtime only registers
-`ConvInteger` for uint8 with uint8. Even with `QUInt8` weights, static is the
-better choice: dynamic derives activation scales from each call's own tensor,
-so a result can depend on what it was batched with.
+`ConvInteger` for uint8 with uint8. Static quantization is the better choice
+anyway: dynamic derives activation scales from each call's own tensor, so a
+result can depend on what it was batched with.
 
-**Static QDQ** calibrates once on real images with the model's own serving
-preprocessing. Results against fp32:
+**1. The detector's first INT8 model found nothing.** YOLOv8's head
+concatenates box coordinates (0 to 640) and class scores (0 to 1) into one
+tensor, and quantizing that Concat gave both one int8 scale, about 2.5 per
+step, so every class score rounded to zero. Nothing flagged it: the quantizer
+only computed agreement for classifier-shaped outputs, reported 100% for
+anything else, and scored it on its own calibration images. Now only
+convolutions are quantized in the detector, each model is calibrated with its
+own serving preprocessing (the detector had been fed ImageNet-normalised
+crops), the quantizer compares detector outputs by dominant class on held-out
+images, and `tests/integration/test_quantized_fidelity.py` runs every INT8
+model beside its fp32 twin in CI, failing rather than skipping when artifacts
+are missing.
+
+**2. The same file behaved differently on different CPUs.** That CI test then
+failed on some GitHub runners and passed on others and on this laptop. With
+signed int8 activations, ONNX Runtime on x86 uses a multiply-add whose 16-bit
+intermediate sums can saturate on CPUs without VNNI, such as the AMD EPYC
+runners; this laptop has VNNI and never saturates. On `samples/person.jpg`
+the embedding's cosine to fp32 was 0.74 on a runner and above the test's 0.9
+floor here, from the same file. Unsigned activations
+and weights (U8U8) go through a kernel that cannot saturate. Seven-bit
+weights (`reduce_range`) would also avoid it, at a measured cost in accuracy.
+
+**3. MinMax calibration threw away resolution.** MinMax sets each range from
+the single most extreme activation seen, so a few outliers stretch it. The
+fine-tuned classifier's INT8 build lost about 9 points of top-1 and misread
+real photos: fp32 said "Labrador retriever" at 0.77 for `samples/dog.jpg`,
+INT8 said "academic gown" at 0.10. Percentile calibration, which clips at
+99.999%, fixed it.
+
+`scripts/compare_int8_recipes.py` builds every recipe from the fp32 model and
+scores it on held-out images (`benchmarks/reports/int8_recipes.json`):
+
+⟦RECIPE_TABLE⟧
+
+U8U8 with percentile calibration ships for all four models. Against fp32:
 
 | Model | Size | p50 change, batch 1 | Quality |
 | --- | ---: | ---: | --- |
-| resnet50 | 3.92x smaller | 0.99x (level) | ⟦R50_INT8_AGREE⟧ top-1 agreement over ⟦R50_INT8_N⟧ images |
-| resnet50-tiny-imagenet | 3.91x smaller | 1.15x slower | ⟦AB_SHORT⟧ on all 10,000 validation images |
-| yolov8n | 3.67x smaller | 1.83x slower | 0.381 against 0.392 mAP50-95 on 500 COCO images |
-| resnet50-embed | 3.91x smaller | 1.19x slower | ⟦EMBED_INT8_COS⟧ mean cosine to fp32 |
+| resnet50 | 3.92x smaller | ⟦R50_INT8_SPEED⟧ | ⟦R50_INT8_AGREE⟧ top-1 agreement over ⟦R50_INT8_N⟧ images |
+| resnet50-tiny-imagenet | 3.91x smaller | ⟦TINY_INT8_SPEED⟧ | ⟦AB_SHORT⟧ on all 10,000 validation images |
+| yolov8n | 3.67x smaller | ⟦YOLO_INT8_SPEED⟧ | ⟦YOLO_INT8_MAP⟧ against 0.392 mAP50-95 on 500 COCO images |
+| resnet50-embed | 3.91x smaller | ⟦EMBED_INT8_SPEED⟧ | ⟦EMBED_INT8_COS⟧ mean cosine to fp32 |
 
-This CPU has no fast INT8 path for these graphs, so INT8 buys size, not speed.
-The fine-tuned classifier also loses real accuracy, and the paired A/B test
-(section 7) says so with a p-value rather than a hunch. INT8 stays registered
-and selectable per request for deployments where memory is the constraint.
-
-**The detector's first INT8 model found nothing.** YOLOv8's head concatenates
-box coordinates (0 to 640) and class scores (0 to 1) into one tensor.
-Quantizing that Concat gives both one int8 scale, about 2.5 per step, and every
-class score rounds to zero. Nothing flagged it: the quantizer computed top-1
-agreement only for 2-D classifier outputs and reported 100% for anything else,
-and it scored agreement on its own calibration images. Three fixes followed:
-
-1. `quantize_onnx_static(op_types_to_quantize=["Conv"])` leaves the decode
-   head in fp32. The detector now gets 0.381 mAP50-95 against fp32's 0.392.
-2. Calibration uses each model's registered preprocessing. The detector had
-   been calibrated on ImageNet-normalised centre crops instead of 0-1
-   letterboxed frames, and on 64px Tiny-ImageNet thumbnails instead of COCO.
-3. The quantizer now compares detector outputs by dominant class, on held-out
-   images, and `tests/integration/test_quantized_fidelity.py` runs every INT8
-   model beside its fp32 twin in CI, in a mode where missing artifacts fail
-   rather than skip.
+⟦INT8_VERDICT⟧
 
 ### TensorRT
 
@@ -161,7 +179,15 @@ outlier stretches the rest. Measured on the fine-tuned classifier, calibrated
 on 200 validation images and scored on a disjoint 200
 (`benchmarks/reports/int8_calibration.json`, `scripts/compare_int8_calibration.py`):
 
-⟦CALIB_TABLE⟧
+| Calibration | Quantization | Top-1 agreement with fp32 | TensorRT |
+| --- | --- | ---: | --- |
+| MinMax | asymmetric | 79.0% | rejects the graph |
+| MinMax | symmetric | 43.0% | accepts |
+| Entropy | symmetric | 43.0% | accepts |
+| Percentile | symmetric | 94.5% | accepts |
+
+Percentile clips at 99.999%, ignoring the rarest extreme activations, and is
+more faithful than even the asymmetric graph TensorRT refuses.
 
 `check_trt_qdq_graph()` now reports constraints 1 and 2 together before any
 GPU time is spent, since the parser stops at the first offending node. The
@@ -376,7 +402,14 @@ replicas at once because Postgres applies DDL transactionally.
 
 **A/B:** ⟦AB_PARAGRAPH⟧
 
-**Drift:** ⟦DRIFT_PARAGRAPH⟧
+**Drift:** run on real images through the model, with the same tests the
+inference log feeds. As a control, 500 Tiny-ImageNet validation images against
+a disjoint 500: no drift in any of 12 tests (`drift_report.json`, the file the
+weekly workflow reads). Against 500 COCO photos, a real shift: high severity,
+8 of 12 tests drifted. Confidence fell from 0.668 to 0.373 (PSI 1.51), and
+aspect ratio, resolution, contrast and edge density all moved. Mean red was
+statistically significant but under the effect-size floor, and was correctly
+not flagged (`drift_report_shift.json`).
 
 **Regression:** ⟦REGRESSION_PARAGRAPH⟧
 
