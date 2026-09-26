@@ -485,23 +485,14 @@ def quantize_onnx_static(
         activation_type=qtype,
         weight_type=qtype,
         per_channel=per_channel,
-        # Percentile for TensorRT, MinMax otherwise. Symmetric quantization
-        # makes MinMax collapse: the range becomes [-max|x|, +max|x|], so a
-        # post-ReLU activation - never negative - spends half its 256 levels
-        # on values that cannot occur, and one outlier stretches the rest.
-        # Percentile clips at 99.999% instead, trading a few saturated
-        # outliers for resolution where the data actually is.
-        #
-        # Measured on 200 held-out Tiny-ImageNet val images, calibrated on a
-        # disjoint 200, top-1 agreement with fp32:
-        #
-        #     MinMax     asymmetric   70.0%   (TensorRT rejects the graph)
-        #     MinMax     symmetric    18.0%
-        #     Entropy    symmetric    18.0%   (and 4.6x slower to calibrate)
-        #     Percentile symmetric    95.0%
-        calibrate_method=(
-            CalibrationMethod.Percentile if trt_compatible else CalibrationMethod.MinMax
-        ),
+        # Percentile everywhere. MinMax sets each range from the single most
+        # extreme activation seen, so a few outliers stretch it and the
+        # values that matter share a handful of levels. Percentile clips at
+        # 99.999%. On the fine-tuned classifier (U8U8, 2,000 validation
+        # images) MinMax lost 9 points of top-1 and misread real photos;
+        # percentile loses under one. Symmetric quantization for TensorRT
+        # makes MinMax worse still (benchmarks/reports/int8_calibration.json).
+        calibrate_method=CalibrationMethod.Percentile,
         nodes_to_exclude=excluded_nodes,
         op_types_to_quantize=op_types_to_quantize,
         # Empty rather than None when off: ORT treats the two the same, and an
@@ -520,7 +511,8 @@ def quantize_onnx_static(
             "built for TensorRT: biases in fp32, quantization symmetric, calibrated by "
             "percentile. TensorRT rejects ONNX Runtime's INT32 bias DequantizeLinear "
             "and its non-zero zero points; MinMax then collapses under the symmetric "
-            "constraint (18% top-1 agreement against percentile's 95%)"
+            "constraint (43.0% top-1 agreement against percentile's 94.5%, "
+            "benchmarks/reports/int8_calibration.json)"
         )
         if excluded_nodes:
             notes.append(

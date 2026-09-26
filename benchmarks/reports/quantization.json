@@ -17,57 +17,6 @@
     ]
   },
   {
-    "name": "resnet50",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50.onnx",
-    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
-    "original_mb": 97.41438102722168,
-    "quantized_mb": 24.87242889404297,
-    "compression_ratio": 3.9165608410102943,
-    "max_abs_diff": 1.8073110580444336,
-    "mean_abs_diff": 0.1072911215517961,
-    "top1_agreement": 0.8125,
-    "duration_seconds": 28.658893799991347,
-    "calibration_images": 100,
-    "notes": [
-      "uint8 activations and weights (U8U8)"
-    ]
-  },
-  {
-    "name": "resnet50-embed",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50-embed.onnx",
-    "output_path": "models\\artifacts\\resnet50-embed_int8_static.onnx",
-    "original_mb": 89.60001850128174,
-    "quantized_mb": 22.90782928466797,
-    "compression_ratio": 3.9113273190511477,
-    "max_abs_diff": 0.19880352169275284,
-    "mean_abs_diff": 0.0019199949971215981,
-    "top1_agreement": 0.78125,
-    "duration_seconds": 29.73675509999157,
-    "calibration_images": 100,
-    "notes": [
-      "uint8 activations and weights (U8U8)"
-    ]
-  },
-  {
-    "name": "resnet50-tiny-imagenet",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50-tiny-imagenet.onnx",
-    "output_path": "models\\artifacts\\resnet50-tiny-imagenet_int8_static.onnx",
-    "original_mb": 91.16132831573486,
-    "quantized_mb": 23.296958923339844,
-    "compression_ratio": 3.9130140811814593,
-    "max_abs_diff": 5.648634731769562,
-    "mean_abs_diff": 0.41241969076450913,
-    "top1_agreement": 0.6875,
-    "duration_seconds": 31.879781199997524,
-    "calibration_images": 100,
-    "notes": [
-      "uint8 activations and weights (U8U8)"
-    ]
-  },
-  {
     "name": "yolov8n",
     "mode": "onnx_static",
     "source_path": "models\\artifacts\\yolov8n.onnx",
@@ -83,6 +32,57 @@
     "notes": [
       "uint8 activations and weights (U8U8)",
       "quantized op types: Conv; the rest stay fp32"
+    ]
+  },
+  {
+    "name": "resnet50",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50.onnx",
+    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
+    "original_mb": 97.41438102722168,
+    "quantized_mb": 24.87243366241455,
+    "compression_ratio": 3.9165600901542397,
+    "max_abs_diff": 1.904402256011963,
+    "mean_abs_diff": 0.07491083388724655,
+    "top1_agreement": 0.875,
+    "duration_seconds": 127.3499884000048,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)"
+    ]
+  },
+  {
+    "name": "resnet50-embed",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50-embed.onnx",
+    "output_path": "models\\artifacts\\resnet50-embed_int8_static.onnx",
+    "original_mb": 89.60001850128174,
+    "quantized_mb": 22.90783405303955,
+    "compression_ratio": 3.9113265048902806,
+    "max_abs_diff": 0.1787009835243225,
+    "mean_abs_diff": 0.001284929441848225,
+    "top1_agreement": 0.875,
+    "duration_seconds": 71.11372249998385,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)"
+    ]
+  },
+  {
+    "name": "resnet50-tiny-imagenet",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50-tiny-imagenet.onnx",
+    "output_path": "models\\artifacts\\resnet50-tiny-imagenet_int8_static.onnx",
+    "original_mb": 91.16132831573486,
+    "quantized_mb": 23.296963691711426,
+    "compression_ratio": 3.9130132802742943,
+    "max_abs_diff": 1.3473384976387024,
+    "mean_abs_diff": 0.1091674918239005,
+    "top1_agreement": 0.9375,
+    "duration_seconds": 72.27397500001825,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)"
     ]
   }
 ]
