@@ -242,16 +242,28 @@ graph, run on CPU for completeness; it is slow there by design.
 
 ### Through the stack
 
-⟦LOADTEST_TECH⟧
+Locust, 20 users for 45 seconds, mixed workload, through nginx to an API
+container limited to 2 CPUs: 1,619 requests, 1 failure (a 503 from load
+shedding), p50 89 ms, p95 440 ms, p99 1.3 s, 36.8 req/s
+(`benchmarks/reports/loadtest_stats.csv`).
+
+Before this run, ONNX Runtime inside the container sized its thread pool from
+the host's 22 cores rather than the container's 2, and the CPU quota
+throttled it: single images took 190 to 590 ms. The API now reads the cgroup
+quota and uses that many threads, and the same request takes 90 to 130 ms.
 
 ### System properties
 
 From `tests/performance/test_performance.py`, output saved in
-⟦PERF_REPORT_FILE⟧:
+benchmarks/reports/performance_tests.txt:
 
 | Property | Measured |
 | --- | --- |
-⟦PERF_ROWS⟧
+| Concurrency limit holds | Peak 4 inferences in flight against a limit of 4 |
+| No memory leak | 111.0 MB before, 111.0 MB after the first half, 99.8 MB at the end |
+| No slowdown under sustained load | p50 3.1 ms in the first half, 2.7 ms in the second |
+| Invalid input is cheap to reject | 0.003 ms per malformed image |
+| A bad image cannot fail a batch | Covered in `tests/performance/` and `tests/unit/test_worker_tasks.py` |
 
 ---
 
@@ -370,7 +382,7 @@ database because it adds no new service, failure mode or backup.
 
 ### Capacity
 
-⟦CAPACITY_SENTENCE⟧
+Measured: 36.8 req/s end to end through the dev stack with one 2-CPU API container and a realistic cache hit rate. The production overlay runs three.
 
 | Target | API replicas | Workers |
 | --- | ---: | ---: |

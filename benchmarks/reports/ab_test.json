@@ -1,34 +1,34 @@
 {
   "champion": "resnet50-tiny-imagenet:1.0.0@onnx",
   "challenger": "resnet50-tiny-imagenet:1.0.0@onnx_int8",
-  "n_samples": 500,
-  "champion_accuracy": 0.768,
-  "challenger_accuracy": 0.656,
-  "accuracy_delta": -0.112,
+  "n_samples": 10000,
+  "champion_accuracy": 0.7891,
+  "challenger_accuracy": 0.7838,
+  "accuracy_delta": -0.0053,
   "test": "mcnemar_chi2",
-  "statistic": 33.611111,
-  "p_value": 6.730715233582379e-09,
+  "statistic": 9.761733,
+  "p_value": 0.001781818823101279,
   "significant": true,
   "confidence_interval": [
-    -0.167702,
-    -0.056298
+    -0.016659,
+    0.006059
   ],
-  "champion_p95_ms": 184.62,
-  "challenger_p95_ms": 221.06,
-  "latency_delta_ms": 36.44,
+  "champion_p95_ms": 330.14,
+  "challenger_p95_ms": 284.68,
+  "latency_delta_ms": -45.46,
   "winner": "resnet50-tiny-imagenet:1.0.0@onnx",
-  "recommendation": "Do NOT promote \u2014 resnet50-tiny-imagenet:1.0.0@onnx_int8 is significantly WORSE by 11.20% (p=0.0000). It lost on 73 samples the champion got right. Investigate before retraining: check for a preprocessing mismatch, which is the most common cause of an unexpectedly worse challenger.",
+  "recommendation": "Do NOT promote \u2014 resnet50-tiny-imagenet:1.0.0@onnx_int8 is significantly WORSE by 0.53% (p=0.0018). It lost on 165 samples the champion got right. Investigate before retraining: check for a preprocessing mismatch, which is the most common cause of an unexpectedly worse challenger.",
   "detail": {
-    "champion_only_correct": 73,
-    "challenger_only_correct": 17,
-    "both_correct": 311,
-    "both_wrong": 99,
-    "champion_mean_confidence": 0.6555,
-    "challenger_mean_confidence": 0.5814,
+    "champion_only_correct": 165,
+    "challenger_only_correct": 112,
+    "both_correct": 7726,
+    "both_wrong": 1997,
+    "champion_mean_confidence": 0.6607,
+    "challenger_mean_confidence": 0.6524,
     "champion_errors": 0,
     "challenger_errors": 0,
     "alpha": 0.05,
     "min_improvement": 0.005
   },
-  "generated_at": "2026-09-26T03:18:51.594769+00:00"
+  "generated_at": "2026-09-26T08:42:42.701953+00:00"
 }

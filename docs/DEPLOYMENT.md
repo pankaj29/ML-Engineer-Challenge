@@ -141,7 +141,7 @@ not API traffic.
 
 ### Sizing
 
-Measured end to end through the dev stack on a 22-core laptop: ⟦LOADTEST_RPS⟧
+Measured end to end through the dev stack on a 22-core laptop: 36.8
 requests per second with 20 concurrent users (`benchmarks/reports/`).
 
 | Target | API replicas | Workers | Notes |

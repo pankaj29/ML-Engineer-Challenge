@@ -1,64 +1,64 @@
 [
   {
     "model": "resnet50-embed:1.0.0",
-    "baseline_recorded_at": "2026-09-26T07:32:36.493875+00:00",
-    "checked_at": "2026-09-26T07:32:43.706402+00:00",
-    "passed": false,
+    "baseline_recorded_at": "2026-09-26T08:44:58.077937+00:00",
+    "checked_at": "2026-09-26T08:45:09.958734+00:00",
+    "passed": true,
     "checks": [
       {
         "name": "p50_latency_ms",
-        "baseline": 78.805,
-        "current": 67.369,
-        "delta": -11.436,
-        "delta_percent": -14.512,
+        "baseline": 67.247,
+        "current": 64.15,
+        "delta": -3.097,
+        "delta_percent": -4.605,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "p50_latency_ms improved: 78.8050 -> 67.3690 (-14.5%)"
+        "message": "p50_latency_ms improved: 67.2470 -> 64.1500 (-4.6%)"
       },
       {
         "name": "p95_latency_ms",
-        "baseline": 102.161,
-        "current": 96.733,
-        "delta": -5.428,
-        "delta_percent": -5.313,
+        "baseline": 93.365,
+        "current": 93.611,
+        "delta": 0.246,
+        "delta_percent": 0.263,
         "tolerance": 0.3,
         "higher_is_better": false,
         "passed": true,
-        "message": "p95_latency_ms improved: 102.1610 -> 96.7330 (-5.3%)"
-      },
-      {
-        "name": "p99_latency_ms",
-        "baseline": 105.45,
-        "current": 154.481,
-        "delta": 49.031,
-        "delta_percent": 46.497,
-        "tolerance": 0.4,
-        "higher_is_better": false,
-        "passed": false,
-        "message": "REGRESSION: p99_latency_ms increased from 105.4500 to 154.4810 (+46.5%), exceeding the allowed 42.1800"
+        "message": "p95_latency_ms moved within tolerance: 93.3650 -> 93.6110 (+0.3%, limit 28.0095)"
       },
       {
         "name": "mean_latency_ms",
-        "baseline": 72.133,
-        "current": 65.968,
-        "delta": -6.165,
-        "delta_percent": -8.547,
+        "baseline": 63.148,
+        "current": 61.488,
+        "delta": -1.66,
+        "delta_percent": -2.629,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "mean_latency_ms improved: 72.1330 -> 65.9680 (-8.5%)"
+        "message": "mean_latency_ms improved: 63.1480 -> 61.4880 (-2.6%)"
       },
       {
         "name": "throughput_ips",
-        "baseline": 13.86,
-        "current": 15.16,
-        "delta": 1.3,
-        "delta_percent": 9.38,
+        "baseline": 15.84,
+        "current": 16.26,
+        "delta": 0.42,
+        "delta_percent": 2.652,
         "tolerance": 0.1,
         "higher_is_better": true,
         "passed": true,
-        "message": "throughput_ips improved: 13.8600 -> 15.1600 (+9.4%)"
+        "message": "throughput_ips improved: 15.8400 -> 16.2600 (+2.7%)"
+      },
+      {
+        "name": "p99_latency_ms",
+        "baseline": 136.263,
+        "current": 97.15,
+        "delta": -39.113,
+        "delta_percent": -28.704,
+        "tolerance": 0.4,
+        "higher_is_better": false,
+        "passed": true,
+        "message": "p99_latency_ms improved: 136.2630 -> 97.1500 (-28.7%)"
       },
       {
         "name": "size_mb",
@@ -72,9 +72,7 @@
         "message": "size_mb improved: 89.6000 -> 89.6000 (+0.0%)"
       }
     ],
-    "failures": [
-      "REGRESSION: p99_latency_ms increased from 105.4500 to 154.4810 (+46.5%), exceeding the allowed 42.1800"
-    ],
+    "failures": [],
     "warnings": [],
     "environment": {
       "platform": "Windows",
@@ -88,64 +86,64 @@
   },
   {
     "model": "resnet50-tiny-imagenet:1.0.0",
-    "baseline_recorded_at": "2026-09-24T14:09:50.040120+00:00",
-    "checked_at": "2026-09-26T07:32:47.275554+00:00",
-    "passed": false,
+    "baseline_recorded_at": "2026-09-26T08:44:28.103365+00:00",
+    "checked_at": "2026-09-26T08:45:17.580673+00:00",
+    "passed": true,
     "checks": [
       {
         "name": "p50_latency_ms",
-        "baseline": 54.277,
-        "current": 88.167,
-        "delta": 33.89,
-        "delta_percent": 62.439,
+        "baseline": 68.112,
+        "current": 69.879,
+        "delta": 1.767,
+        "delta_percent": 2.594,
         "tolerance": 0.25,
         "higher_is_better": false,
-        "passed": false,
-        "message": "REGRESSION: p50_latency_ms increased from 54.2770 to 88.1670 (+62.4%), exceeding the allowed 13.5693"
+        "passed": true,
+        "message": "p50_latency_ms moved within tolerance: 68.1120 -> 69.8790 (+2.6%, limit 17.0280)"
       },
       {
         "name": "p95_latency_ms",
-        "baseline": 66.51,
-        "current": 106.257,
-        "delta": 39.747,
-        "delta_percent": 59.761,
+        "baseline": 89.821,
+        "current": 97.154,
+        "delta": 7.333,
+        "delta_percent": 8.164,
         "tolerance": 0.3,
         "higher_is_better": false,
-        "passed": false,
-        "message": "REGRESSION: p95_latency_ms increased from 66.5100 to 106.2570 (+59.8%), exceeding the allowed 19.9530"
-      },
-      {
-        "name": "p99_latency_ms",
-        "baseline": 102.733,
-        "current": 113.114,
-        "delta": 10.381,
-        "delta_percent": 10.105,
-        "tolerance": 0.4,
-        "higher_is_better": false,
         "passed": true,
-        "message": "p99_latency_ms moved within tolerance: 102.7330 -> 113.1140 (+10.1%, limit 41.0932)"
+        "message": "p95_latency_ms moved within tolerance: 89.8210 -> 97.1540 (+8.2%, limit 26.9463)"
       },
       {
         "name": "mean_latency_ms",
-        "baseline": 50.389,
-        "current": 81.124,
-        "delta": 30.735,
-        "delta_percent": 60.995,
+        "baseline": 65.157,
+        "current": 66.6,
+        "delta": 1.443,
+        "delta_percent": 2.215,
         "tolerance": 0.25,
         "higher_is_better": false,
-        "passed": false,
-        "message": "REGRESSION: mean_latency_ms increased from 50.3890 to 81.1240 (+61.0%), exceeding the allowed 12.5973"
+        "passed": true,
+        "message": "mean_latency_ms moved within tolerance: 65.1570 -> 66.6000 (+2.2%, limit 16.2892)"
       },
       {
         "name": "throughput_ips",
-        "baseline": 19.85,
-        "current": 12.33,
-        "delta": -7.52,
-        "delta_percent": -37.884,
+        "baseline": 15.35,
+        "current": 15.01,
+        "delta": -0.34,
+        "delta_percent": -2.215,
         "tolerance": 0.1,
         "higher_is_better": true,
-        "passed": false,
-        "message": "REGRESSION: throughput_ips dropped from 19.8500 to 12.3300 (-37.9%), exceeding the allowed 1.9850"
+        "passed": true,
+        "message": "throughput_ips moved within tolerance: 15.3500 -> 15.0100 (-2.2%, limit 1.5350)"
+      },
+      {
+        "name": "p99_latency_ms",
+        "baseline": 132.886,
+        "current": 114.121,
+        "delta": -18.765,
+        "delta_percent": -14.121,
+        "tolerance": 0.4,
+        "higher_is_better": false,
+        "passed": true,
+        "message": "p99_latency_ms improved: 132.8860 -> 114.1210 (-14.1%)"
       },
       {
         "name": "size_mb",
@@ -181,12 +179,7 @@
         "message": "top5 improved: 92.1200 -> 92.1200 (+0.0%)"
       }
     ],
-    "failures": [
-      "REGRESSION: p50_latency_ms increased from 54.2770 to 88.1670 (+62.4%), exceeding the allowed 13.5693",
-      "REGRESSION: p95_latency_ms increased from 66.5100 to 106.2570 (+59.8%), exceeding the allowed 19.9530",
-      "REGRESSION: mean_latency_ms increased from 50.3890 to 81.1240 (+61.0%), exceeding the allowed 12.5973",
-      "REGRESSION: throughput_ips dropped from 19.8500 to 12.3300 (-37.9%), exceeding the allowed 1.9850"
-    ],
+    "failures": [],
     "warnings": [],
     "environment": {
       "platform": "Windows",
@@ -200,64 +193,64 @@
   },
   {
     "model": "resnet50:1.0.0",
-    "baseline_recorded_at": "2026-09-22T13:48:14.073765+00:00",
-    "checked_at": "2026-09-26T07:32:50.221634+00:00",
+    "baseline_recorded_at": "2026-09-26T08:44:16.122351+00:00",
+    "checked_at": "2026-09-26T08:45:25.370948+00:00",
     "passed": false,
     "checks": [
       {
         "name": "p50_latency_ms",
-        "baseline": 67.774,
-        "current": 71.668,
-        "delta": 3.894,
-        "delta_percent": 5.746,
+        "baseline": 53.87,
+        "current": 71.546,
+        "delta": 17.676,
+        "delta_percent": 32.812,
         "tolerance": 0.25,
         "higher_is_better": false,
-        "passed": true,
-        "message": "p50_latency_ms moved within tolerance: 67.7740 -> 71.6680 (+5.7%, limit 16.9435)"
+        "passed": false,
+        "message": "REGRESSION: p50_latency_ms increased from 53.8700 to 71.5460 (+32.8%), exceeding the allowed 13.4675"
       },
       {
         "name": "p95_latency_ms",
-        "baseline": 91.753,
-        "current": 95.896,
-        "delta": 4.143,
-        "delta_percent": 4.515,
+        "baseline": 73.681,
+        "current": 100.607,
+        "delta": 26.926,
+        "delta_percent": 36.544,
         "tolerance": 0.3,
         "higher_is_better": false,
-        "passed": true,
-        "message": "p95_latency_ms moved within tolerance: 91.7530 -> 95.8960 (+4.5%, limit 27.5259)"
-      },
-      {
-        "name": "p99_latency_ms",
-        "baseline": 91.83,
-        "current": 191.284,
-        "delta": 99.454,
-        "delta_percent": 108.302,
-        "tolerance": 0.4,
-        "higher_is_better": false,
         "passed": false,
-        "message": "REGRESSION: p99_latency_ms increased from 91.8300 to 191.2840 (+108.3%), exceeding the allowed 36.7320"
+        "message": "REGRESSION: p95_latency_ms increased from 73.6810 to 100.6070 (+36.5%), exceeding the allowed 22.1043"
       },
       {
         "name": "mean_latency_ms",
-        "baseline": 64.651,
-        "current": 66.433,
-        "delta": 1.782,
-        "delta_percent": 2.756,
+        "baseline": 52.445,
+        "current": 67.629,
+        "delta": 15.184,
+        "delta_percent": 28.952,
         "tolerance": 0.25,
         "higher_is_better": false,
-        "passed": true,
-        "message": "mean_latency_ms moved within tolerance: 64.6510 -> 66.4330 (+2.8%, limit 16.1627)"
+        "passed": false,
+        "message": "REGRESSION: mean_latency_ms increased from 52.4450 to 67.6290 (+29.0%), exceeding the allowed 13.1113"
       },
       {
         "name": "throughput_ips",
-        "baseline": 15.47,
-        "current": 15.05,
-        "delta": -0.42,
-        "delta_percent": -2.715,
+        "baseline": 19.07,
+        "current": 14.79,
+        "delta": -4.28,
+        "delta_percent": -22.444,
         "tolerance": 0.1,
         "higher_is_better": true,
+        "passed": false,
+        "message": "REGRESSION: throughput_ips dropped from 19.0700 to 14.7900 (-22.4%), exceeding the allowed 1.9070"
+      },
+      {
+        "name": "p99_latency_ms",
+        "baseline": 82.591,
+        "current": 113.354,
+        "delta": 30.763,
+        "delta_percent": 37.247,
+        "tolerance": 0.4,
+        "higher_is_better": false,
         "passed": true,
-        "message": "throughput_ips moved within tolerance: 15.4700 -> 15.0500 (-2.7%, limit 1.5470)"
+        "message": "p99_latency_ms moved within tolerance: 82.5910 -> 113.3540 (+37.2%, limit 33.0364)"
       },
       {
         "name": "size_mb",
@@ -272,7 +265,10 @@
       }
     ],
     "failures": [
-      "REGRESSION: p99_latency_ms increased from 91.8300 to 191.2840 (+108.3%), exceeding the allowed 36.7320"
+      "REGRESSION: p50_latency_ms increased from 53.8700 to 71.5460 (+32.8%), exceeding the allowed 13.4675",
+      "REGRESSION: p95_latency_ms increased from 73.6810 to 100.6070 (+36.5%), exceeding the allowed 22.1043",
+      "REGRESSION: mean_latency_ms increased from 52.4450 to 67.6290 (+29.0%), exceeding the allowed 13.1113",
+      "REGRESSION: throughput_ips dropped from 19.0700 to 14.7900 (-22.4%), exceeding the allowed 1.9070"
     ],
     "warnings": [],
     "environment": {
@@ -287,64 +283,64 @@
   },
   {
     "model": "yolov8n:1.0.0",
-    "baseline_recorded_at": "2026-09-26T07:32:26.589794+00:00",
-    "checked_at": "2026-09-26T07:32:54.557201+00:00",
+    "baseline_recorded_at": "2026-09-26T08:44:45.594018+00:00",
+    "checked_at": "2026-09-26T08:45:38.255816+00:00",
     "passed": true,
     "checks": [
       {
         "name": "p50_latency_ms",
-        "baseline": 116.976,
-        "current": 106.291,
-        "delta": -10.685,
-        "delta_percent": -9.134,
+        "baseline": 99.99,
+        "current": 111.874,
+        "delta": 11.884,
+        "delta_percent": 11.885,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "p50_latency_ms improved: 116.9760 -> 106.2910 (-9.1%)"
+        "message": "p50_latency_ms moved within tolerance: 99.9900 -> 111.8740 (+11.9%, limit 24.9975)"
       },
       {
         "name": "p95_latency_ms",
-        "baseline": 200.981,
-        "current": 167.255,
-        "delta": -33.726,
-        "delta_percent": -16.781,
+        "baseline": 157.432,
+        "current": 165.933,
+        "delta": 8.501,
+        "delta_percent": 5.4,
         "tolerance": 0.3,
         "higher_is_better": false,
         "passed": true,
-        "message": "p95_latency_ms improved: 200.9810 -> 167.2550 (-16.8%)"
-      },
-      {
-        "name": "p99_latency_ms",
-        "baseline": 271.006,
-        "current": 183.673,
-        "delta": -87.333,
-        "delta_percent": -32.225,
-        "tolerance": 0.4,
-        "higher_is_better": false,
-        "passed": true,
-        "message": "p99_latency_ms improved: 271.0060 -> 183.6730 (-32.2%)"
+        "message": "p95_latency_ms moved within tolerance: 157.4320 -> 165.9330 (+5.4%, limit 47.2296)"
       },
       {
         "name": "mean_latency_ms",
-        "baseline": 128.528,
-        "current": 116.106,
-        "delta": -12.422,
-        "delta_percent": -9.665,
+        "baseline": 106.877,
+        "current": 118.616,
+        "delta": 11.739,
+        "delta_percent": 10.984,
         "tolerance": 0.25,
         "higher_is_better": false,
         "passed": true,
-        "message": "mean_latency_ms improved: 128.5280 -> 116.1060 (-9.7%)"
+        "message": "mean_latency_ms moved within tolerance: 106.8770 -> 118.6160 (+11.0%, limit 26.7192)"
       },
       {
         "name": "throughput_ips",
-        "baseline": 7.78,
-        "current": 8.61,
-        "delta": 0.83,
-        "delta_percent": 10.668,
+        "baseline": 9.36,
+        "current": 8.43,
+        "delta": -0.93,
+        "delta_percent": -9.936,
         "tolerance": 0.1,
         "higher_is_better": true,
         "passed": true,
-        "message": "throughput_ips improved: 7.7800 -> 8.6100 (+10.7%)"
+        "message": "throughput_ips moved within tolerance: 9.3600 -> 8.4300 (-9.9%, limit 0.9360)"
+      },
+      {
+        "name": "p99_latency_ms",
+        "baseline": 171.797,
+        "current": 193.315,
+        "delta": 21.518,
+        "delta_percent": 12.525,
+        "tolerance": 0.4,
+        "higher_is_better": false,
+        "passed": true,
+        "message": "p99_latency_ms moved within tolerance: 171.7970 -> 193.3150 (+12.5%, limit 68.7188)"
       },
       {
         "name": "size_mb",

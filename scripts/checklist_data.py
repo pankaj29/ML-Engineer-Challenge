@@ -800,7 +800,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Memory usage profiling": (
         "DONE",
-        "tests/performance/test_performance.py; ⟦PERF_REPORT_FILE⟧",
+        "tests/performance/test_performance.py; benchmarks/reports/performance_tests.txt",
         "Resident memory measured across repeated inference, batches and preprocessing; growth levels off.",
     ),
     "Pytest configuration with fixtures": ("DONE", "pytest.ini, tests/conftest.py", ""),

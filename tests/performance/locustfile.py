@@ -314,5 +314,8 @@ def on_test_stop(environment, **kwargs) -> None:
     elif p95 > 2000:
         print(f"    WARN — p95 of {p95} ms is above the 2 s target")
     else:
-        print("    PASS — no failures and p95 within target")
+        print(
+            f"    PASS — failures {failure_rate:.2%} (under 1%) and p95 of {p95} ms "
+            "within the 2 s target"
+        )
     print("=" * 68 + "\n")

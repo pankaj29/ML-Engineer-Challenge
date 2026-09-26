@@ -2,14 +2,14 @@
   "baselines": {
     "resnet50:1.0.0": {
       "metrics": {
-        "p50_latency_ms": 67.774,
-        "p95_latency_ms": 91.753,
-        "p99_latency_ms": 91.83,
-        "mean_latency_ms": 64.651,
-        "throughput_ips": 15.47,
+        "p50_latency_ms": 53.87,
+        "p95_latency_ms": 73.681,
+        "mean_latency_ms": 52.445,
+        "throughput_ips": 19.07,
+        "p99_latency_ms": 82.591,
         "size_mb": 97.414
       },
-      "recorded_at": "2026-09-22T13:48:14.073765+00:00",
+      "recorded_at": "2026-09-26T08:44:16.122351+00:00",
       "environment": {
         "platform": "Windows",
         "machine": "AMD64",
@@ -19,20 +19,20 @@
         "torch": "2.9.0+cpu",
         "gpu": null
       },
-      "note": "initial baseline"
+      "note": "100 iterations, idle machine, 26 Sep 2026"
     },
     "resnet50-tiny-imagenet:1.0.0": {
       "metrics": {
-        "p50_latency_ms": 54.277,
-        "p95_latency_ms": 66.51,
-        "p99_latency_ms": 102.733,
-        "mean_latency_ms": 50.389,
-        "throughput_ips": 19.85,
+        "p50_latency_ms": 68.112,
+        "p95_latency_ms": 89.821,
+        "mean_latency_ms": 65.157,
+        "throughput_ips": 15.35,
+        "p99_latency_ms": 132.886,
         "size_mb": 91.161,
         "top1": 78.91,
         "top5": 92.12
       },
-      "recorded_at": "2026-09-24T14:09:50.040120+00:00",
+      "recorded_at": "2026-09-26T08:44:28.103365+00:00",
       "environment": {
         "platform": "Windows",
         "machine": "AMD64",
@@ -42,18 +42,18 @@
         "torch": "2.9.0+cpu",
         "gpu": null
       },
-      "note": "224px EMA model, local CPU baseline"
+      "note": "100 iterations, idle machine, 26 Sep 2026"
     },
     "yolov8n:1.0.0": {
       "metrics": {
-        "p50_latency_ms": 116.976,
-        "p95_latency_ms": 200.981,
-        "p99_latency_ms": 271.006,
-        "mean_latency_ms": 128.528,
-        "throughput_ips": 7.78,
+        "p50_latency_ms": 99.99,
+        "p95_latency_ms": 157.432,
+        "mean_latency_ms": 106.877,
+        "throughput_ips": 9.36,
+        "p99_latency_ms": 171.797,
         "size_mb": 12.09
       },
-      "recorded_at": "2026-09-26T07:32:26.589794+00:00",
+      "recorded_at": "2026-09-26T08:44:45.594018+00:00",
       "environment": {
         "platform": "Windows",
         "machine": "AMD64",
@@ -63,18 +63,18 @@
         "torch": "2.9.0+cpu",
         "gpu": null
       },
-      "note": "recorded on an idle machine"
+      "note": "100 iterations, idle machine, 26 Sep 2026"
     },
     "resnet50-embed:1.0.0": {
       "metrics": {
-        "p50_latency_ms": 78.805,
-        "p95_latency_ms": 102.161,
-        "p99_latency_ms": 105.45,
-        "mean_latency_ms": 72.133,
-        "throughput_ips": 13.86,
+        "p50_latency_ms": 67.247,
+        "p95_latency_ms": 93.365,
+        "mean_latency_ms": 63.148,
+        "throughput_ips": 15.84,
+        "p99_latency_ms": 136.263,
         "size_mb": 89.6
       },
-      "recorded_at": "2026-09-26T07:32:36.493875+00:00",
+      "recorded_at": "2026-09-26T08:44:58.077937+00:00",
       "environment": {
         "platform": "Windows",
         "machine": "AMD64",
@@ -84,8 +84,8 @@
         "torch": "2.9.0+cpu",
         "gpu": null
       },
-      "note": "recorded on an idle machine"
+      "note": "100 iterations, idle machine, 26 Sep 2026"
     }
   },
-  "updated_at": "2026-09-26T07:32:36.519533+00:00"
+  "updated_at": "2026-09-26T08:44:58.129150+00:00"
 }

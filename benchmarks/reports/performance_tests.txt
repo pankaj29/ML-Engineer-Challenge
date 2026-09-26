@@ -1,0 +1,32 @@
+
+classification: p50=3.1 ms  p95=16.6 ms
+.
+detection: p50=136.5 ms
+.
+20 concurrent: 20 ok, 0 shed, 0.06 s total
+.
+peak in-flight: 4 (limit 4)
+.
+throughput: 507.8 req/s over 30 requests
+.
+memory: baseline 111.0 MB -> 111.0 MB -> 99.8 MB (growth: +0.0 then -11.2 MB)
+.
+batch memory: 99.9 -> 108.3 MB (+8.4)
+.
+preprocessing x500: -7.9 MB
+.
+sustained: first half 3.1 ms, second half 2.7 ms
+.
+64x64: 1.7 ms
+.
+224x224: 2.7 ms
+.
+1920x1080: 17.8 ms
+.
+4000x200: 56.4 ms
+.
+200x4000: 18.3 ms
+.
+rejection cost: 0.003 ms per invalid image
+.
+15 passed in 5.69s

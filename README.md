@@ -16,7 +16,7 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | Fine-tuned classifier | 78.91% top-1 on Tiny-ImageNet, measured through the served ONNX model |
 | Detector | 0.392 mAP50-95 on 500 COCO images (INT8: 0.381) |
 | Latency | 66 to 97 ms p50 per image on a laptop CPU; 0.92 ms on an A100 with TensorRT INT8 |
-| Load test | ⟦LOADTEST_STATUS⟧ |
+| Load test | 1,619 requests from 20 users over 45 s: 1 failure (a 503 from load shedding), p95 440 ms, 36.8 req/s |
 
 Every number in this README comes from a file in
 [`benchmarks/reports/`](benchmarks/reports/), and the command that produced it
@@ -242,11 +242,23 @@ against the ONNX graph. Getting INT8 to build took four fixes, described in
 
 ### Through the whole stack
 
-⟦LOADTEST_PARAGRAPH⟧
+Locust, 20 concurrent users for 45 seconds against the dev stack through
+nginx, with a mixed workload of classification, detection, similarity and
+batch requests (`benchmarks/reports/loadtest_stats.csv`): 1,619 requests, one
+failure (a 503 from the concurrency limit shedding load, which is the designed
+behaviour), p50 89 ms, p95 440 ms, p99 1.3 s, 36.8 requests a second. The API
+container is limited to 2 CPUs.
+
+The performance tests below run the real service code with a fake model, so
+they measure the service's own overhead (`benchmarks/reports/performance_tests.txt`):
 
 | Property | Evidence |
 | --- | --- |
-⟦PERF_ROWS⟧
+| Concurrency limit holds | Peak 4 inferences in flight against a limit of 4 |
+| No memory leak | 111.0 MB before, 111.0 MB after the first half, 99.8 MB at the end |
+| No slowdown under sustained load | p50 3.1 ms in the first half, 2.7 ms in the second |
+| Invalid input is cheap to reject | 0.003 ms per malformed image |
+| A bad image cannot fail a batch | Covered in `tests/performance/` and `tests/unit/test_worker_tasks.py` |
 
 ## Testing and CI
 
