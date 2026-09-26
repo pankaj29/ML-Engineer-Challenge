@@ -1043,8 +1043,9 @@ if trt_results:
 
 Section 8 builds engines for the fine-tuned classifier. This section does the
 same for the ImageNet ResNet-50, the embedding model and YOLOv8n, and it runs
-on its own: after section 2 (the code and its LFS model files) it needs no
-training. Run sections 1, 2 and 8b, then 12.
+on its own: after sections 2 and 3 (the code, its LFS model files and the
+TensorRT packages) it needs no training. Run sections 1, 2, 3 and 8b, then 12.
+Without section 3 this cell prints SKIPPED, because TensorRT is not installed.
 
 For each model it builds a TensorRT-compatible INT8 graph (fp32 biases,
 symmetric, percentile calibration, the 3-channel stem left in fp32), then
@@ -1099,6 +1100,14 @@ MODELS = [
 
 report_path = Path("benchmarks/reports/tensorrt.json")
 report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else []
+
+# Quantization and engine verification both need onnxruntime, which Colab does
+# not ship. Section 8 installs TensorRT on its own, so without this check a
+# skipped section 3 builds nothing here while the run still looks finished.
+try:
+    import onnxruntime  # noqa: F401
+except ImportError as exc:
+    raise RuntimeError("onnxruntime is not installed: run section 3, then this cell again") from exc
 
 available, reason = tensorrt_available()
 if not available:
