@@ -108,15 +108,39 @@ async def submit_batch(
     }
     items = [item.model_dump(mode="json") for item in body.items]
 
+    import uuid
+
+    from api.services.db_service import get_db_service
+
+    # The job id is generated here rather than letting Celery assign one, so
+    # the same id is written to Postgres, sent to the worker and returned to
+    # the caller: one identifier across all three.
+    job_id = str(uuid.uuid4())
+    submitted_at = datetime.now(UTC)
+    db = get_db_service()
+
+    # Row first, then the queue message. The other order let a fast worker
+    # write "running" before the row existed, so the update matched nothing
+    # and started_at was never recorded.
+    await db.create_batch_job(
+        {
+            "id": job_id,
+            "correlation_id": correlation_id,
+            "user_id": principal.user_id,
+            "user_tier": principal.tier.value,
+            "task": body.task.value,
+            "model_name": entry.name,
+            "model_version": entry.version,
+            "status": JobStatus.PENDING.value,
+            "total_items": len(items),
+            "params": params,
+            "callback_url": body.callback_url,
+            "submitted_at": submitted_at,
+        }
+    )
+
     try:
-        import uuid
-
         from worker.celery_app import celery_app
-
-        # The job id is generated here rather than letting Celery assign one,
-        # so the same id is written to Postgres, sent to the worker and
-        # returned to the caller — one identifier across all three.
-        job_id = str(uuid.uuid4())
 
         # `send_task` addresses the task by NAME rather than importing it.
         # That keeps the API image free of the worker's implementation (and
@@ -139,33 +163,17 @@ async def submit_batch(
         )
     except Exception as exc:
         logger.error("batch_enqueue_failed", extra={"error": f"{type(exc).__name__}: {exc}"})
+        await db.update_batch_job(
+            job_id,
+            status=JobStatus.FAILED.value,
+            error="enqueue failed",
+            completed_at=datetime.now(UTC),
+        )
         raise ServiceUnavailableError(
             "The background job queue is unavailable. Try again shortly, or "
             "use the single-image endpoints.",
             internal_message=f"celery enqueue failed: {type(exc).__name__}: {exc}",
         ) from exc
-
-    submitted_at = datetime.now(UTC)
-
-    # Record the job so status survives a worker restart.
-    from api.services.db_service import get_db_service
-
-    await get_db_service().create_batch_job(
-        {
-            "id": job_id,
-            "correlation_id": correlation_id,
-            "user_id": principal.user_id,
-            "user_tier": principal.tier.value,
-            "task": body.task.value,
-            "model_name": entry.name,
-            "model_version": entry.version,
-            "status": JobStatus.PENDING.value,
-            "total_items": len(items),
-            "params": params,
-            "callback_url": body.callback_url,
-            "submitted_at": submitted_at,
-        }
-    )
 
     logger.info(
         "batch_submitted",

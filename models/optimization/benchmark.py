@@ -227,6 +227,89 @@ def benchmark_onnx(
     return results
 
 
+def benchmark_interleaved(
+    cases: list[tuple[Path, tuple[int, ...]]],
+    *,
+    batch_sizes: tuple[int, ...] = (1,),
+    iterations: int = 100,
+    warmup: int = 10,
+    rounds: int = 5,
+    device: str = "cpu",
+) -> list[BenchmarkResult]:
+    """Benchmark several models in rotation rather than one after another.
+
+    On a laptop CPU, run-to-run conditions drift: thermal limits, power
+    states, and on a hybrid part the scheduler moving threads between
+    performance and efficiency cores. Timing each model in one block hands
+    that drift to whichever model happens to run during a slow phase. Two
+    ResNet-50s that differ only in their final layer once measured 36 and
+    61 ms p50 in the same run that way. Here every (model, batch) case gets
+    ``iterations / rounds`` timed calls per round, round after round, so each
+    one samples the same spread of machine conditions.
+    """
+    import onnxruntime as ort
+
+    providers = (
+        ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        if device == "cuda"
+        else ["CPUExecutionProvider"]
+    )
+    rounds = max(1, rounds)
+    per_round = max(1, iterations // rounds)
+
+    runs: list[dict[str, Any]] = []
+    for path, input_shape in cases:
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        session = ort.InferenceSession(str(path), opts, providers=providers)
+        actual = "cuda" if "CUDAExecutionProvider" in session.get_providers() else "cpu"
+        input_name = session.get_inputs()[0].name
+        output_names = [o.name for o in session.get_outputs()]
+        for batch in batch_sizes:
+            data = np.random.randn(batch, *input_shape).astype(np.float32)
+            runs.append(
+                {
+                    "path": path,
+                    "batch": batch,
+                    "device": actual,
+                    "fn": lambda s=session, o=output_names, n=input_name, d=data: s.run(o, {n: d}),
+                    "timings": [],
+                    "error": None,
+                }
+            )
+
+    for run in runs:
+        try:
+            for _ in range(warmup):
+                run["fn"]()
+        except Exception as exc:
+            run["error"] = f"failed at batch {run['batch']}: {type(exc).__name__}: {exc}"
+
+    for _ in range(rounds):
+        for run in runs:
+            if run["error"] is None:
+                run["timings"].extend(measure(run["fn"], iterations=per_round, warmup=0))
+
+    results: list[BenchmarkResult] = []
+    for run in runs:
+        path = run["path"]
+        notes = [run["error"]] if run["error"] else []
+        if device == "cuda" and run["device"] == "cpu":
+            notes.append("CUDA requested but ONNX Runtime ran on CPU: these are CPU numbers")
+        results.append(
+            summarise(
+                run["timings"],
+                name=path.stem,
+                runtime="onnx_int8" if "int8" in path.stem else "onnx",
+                device=run["device"],
+                batch_size=run["batch"],
+                size_mb=path.stat().st_size / 1_048_576,
+                notes=notes,
+            )
+        )
+    return results
+
+
 def benchmark_torch(
     model: Any,
     *,
@@ -434,6 +517,12 @@ def main() -> int:
     parser.add_argument("--batch-sizes", default="1,4,8", help="Comma-separated batch sizes.")
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=10)
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=5,
+        help="Interleave models over this many rounds; see benchmark_interleaved.",
+    )
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument(
@@ -476,20 +565,19 @@ def main() -> int:
     # make the comparison meaningless.
     shapes_by_stem = _registry_input_shapes()
 
-    results: list[BenchmarkResult] = []
-    for path in targets:
-        model_shape = shapes_by_stem.get(path.stem.replace("_int8", ""), shape)
-        print(f"benchmarking {path.name} at {model_shape} ...")
-        results.extend(
-            benchmark_onnx(
-                path,
-                input_shape=model_shape,
-                batch_sizes=batch_sizes,
-                iterations=args.iterations,
-                warmup=args.warmup,
-                device=device,
-            )
-        )
+    cases = [(path, shapes_by_stem.get(path.stem.replace("_int8", ""), shape)) for path in targets]
+    print(
+        f"benchmarking {len(cases)} models x {len(batch_sizes)} batch sizes, "
+        f"{args.iterations} iterations in {args.rounds} interleaved rounds ..."
+    )
+    results = benchmark_interleaved(
+        cases,
+        batch_sizes=batch_sizes,
+        iterations=args.iterations,
+        warmup=args.warmup,
+        rounds=args.rounds,
+        device=device,
+    )
 
     print()
     for r in sorted(results, key=lambda x: (x.name, x.batch_size)):

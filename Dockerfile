@@ -57,7 +57,7 @@ COPY requirements.txt .
 
 # CPU-only PyTorch. The default wheel bundles CUDA libraries that add roughly
 # 2 GB to the image and are useless without a GPU. GPU deployments use
-# Dockerfile.api with --build-arg TORCH_INDEX set to the CUDA index instead.
+# docker/Dockerfile.gpu instead.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 RUN pip install --upgrade pip setuptools wheel \
     && pip install --extra-index-url ${TORCH_INDEX} -r requirements.txt

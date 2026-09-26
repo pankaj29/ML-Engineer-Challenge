@@ -643,6 +643,62 @@ async def detect_drift_from_database(
     )
 
 
+def _image_files(directory: Path, limit: int, offset: int = 0) -> list[Path]:
+    files = sorted(
+        f for f in Path(directory).rglob("*") if f.suffix.lower() in {".jpg", ".jpeg", ".png"}
+    )
+    return files[offset : offset + limit]
+
+
+def detect_drift_between_dirs(
+    model_name: str,
+    reference: list[Path],
+    current: list[Path],
+    *,
+    model_version: str | None = None,
+) -> DriftReport:
+    """Drift between two image sets, run through the model's serving path.
+
+    The inference log only has a reference window once a deployment has a
+    month of traffic. This runs the same tests on two sets of images instead,
+    which is how the detector is exercised before that history exists.
+    """
+    from api.models.schemas import TaskType
+    from api.services.model_service import ModelService
+    from api.utils.image_processing import preprocess
+
+    service = ModelService()
+    entry = service.resolve(TaskType.CLASSIFICATION, model_name, model_version)
+    loaded = service.load(entry)
+
+    def observe(paths: list[Path]) -> tuple[list[float], list[str], dict[str, list[float]]]:
+        confidences: list[float] = []
+        labels: list[str] = []
+        features: dict[str, list[float]] = {}
+        for path in paths:
+            data = path.read_bytes()
+            logits = loaded.runtime.infer(preprocess(data, loaded.preprocess_config).array)[0][0]
+            probs = np.exp(logits - logits.max())
+            probs /= probs.sum()
+            confidences.append(float(probs.max()))
+            labels.append(loaded.label_for(int(probs.argmax())))
+            for key, value in image_statistics(data).items():
+                features.setdefault(key, []).append(value)
+        return confidences, labels, features
+
+    ref_conf, ref_labels, ref_features = observe(reference)
+    cur_conf, cur_labels, cur_features = observe(current)
+    return detect_drift(
+        model=entry.key,
+        reference_confidences=ref_conf,
+        current_confidences=cur_conf,
+        reference_labels=ref_labels,
+        current_labels=cur_labels,
+        reference_features=ref_features,
+        current_features=cur_features,
+    )
+
+
 def main() -> int:
     import argparse
 
@@ -652,24 +708,51 @@ def main() -> int:
     parser.add_argument("--reference-days", type=int, default=30)
     parser.add_argument("--current-days", type=int, default=1)
     parser.add_argument(
+        "--reference-dir",
+        type=Path,
+        default=None,
+        help="Compare two image directories instead of reading the inference log.",
+    )
+    parser.add_argument("--current-dir", type=Path, default=None)
+    parser.add_argument("--samples", type=int, default=300, help="Images per directory.")
+    parser.add_argument(
+        "--current-offset",
+        type=int,
+        default=0,
+        help="Skip this many current images; with the same directory, a disjoint control sample.",
+    )
+    parser.add_argument(
         "--output", type=Path, default=REPO_ROOT / "benchmarks" / "reports" / "drift_report.json"
     )
     args = parser.parse_args()
 
-    import asyncio
-
-    from api.services.db_service import get_db_service
-
-    async def run() -> DriftReport:
-        await get_db_service().connect()
-        return await detect_drift_from_database(
-            args.model,
-            args.version,
-            reference_days=args.reference_days,
-            current_days=args.current_days,
+    if args.reference_dir or args.current_dir:
+        if not (args.reference_dir and args.current_dir):
+            print("error: --reference-dir and --current-dir go together", file=sys.stderr)
+            return 2
+        reference = _image_files(args.reference_dir, args.samples)
+        current = _image_files(args.current_dir, args.samples, args.current_offset)
+        if not reference or not current:
+            print("error: no images found in one of the directories", file=sys.stderr)
+            return 2
+        report = detect_drift_between_dirs(
+            args.model, reference, current, model_version=args.version
         )
+    else:
+        import asyncio
 
-    report = asyncio.run(run())
+        from api.services.db_service import get_db_service
+
+        async def run() -> DriftReport:
+            await get_db_service().connect()
+            return await detect_drift_from_database(
+                args.model,
+                args.version,
+                reference_days=args.reference_days,
+                current_days=args.current_days,
+            )
+
+        report = asyncio.run(run())
 
     print(f"model    : {report.model}")
     print(f"severity : {report.overall_severity}")

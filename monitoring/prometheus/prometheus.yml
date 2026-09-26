@@ -72,6 +72,26 @@ scrape_configs:
         target_label: instance
 
   # ---------------------------------------------------------------------------
+  # Celery workers
+  # ---------------------------------------------------------------------------
+  # Batch job counters and durations are recorded in the worker, not the API.
+  # Each worker serves them on 9808 (worker/celery_app.py).
+  - job_name: "worker"
+    metrics_path: /metrics
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 9808
+        refresh_interval: 15s
+    relabel_configs:
+      - target_label: service
+        replacement: worker
+      - target_label: component
+        replacement: batch
+      - source_labels: [__address__]
+        target_label: instance
+
+  # ---------------------------------------------------------------------------
   # Prometheus itself
   # ---------------------------------------------------------------------------
   # Monitoring the monitoring matters: if Prometheus is failing to scrape or

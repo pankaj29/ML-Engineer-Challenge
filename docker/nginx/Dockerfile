@@ -11,18 +11,10 @@ FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # Validate the configuration at build time, so a syntax error fails the build
-# rather than the deploy.
-#
-# Nginx resolves upstream hostnames when it parses the config, and `ml-api`
-# only exists once Docker Compose has created the network — so a plain
-# `nginx -t` here fails with "host not found in upstream". We therefore
-# validate a *copy* with the upstream rewritten to a literal address. Every
-# directive is still checked; only the name lookup is sidestepped. The shipped
-# config is untouched and resolves normally through Docker's DNS at runtime.
-RUN mkdir -p /var/log/nginx \
-    && sed 's|server ml-api:8000|server 127.0.0.1:8000|' /etc/nginx/nginx.conf > /tmp/validate.conf \
-    && nginx -t -c /tmp/validate.conf \
-    && rm /tmp/validate.conf
+# rather than the deploy. The ml-api host does not exist at build time, and
+# that is fine: the config proxies to a variable, which nginx resolves per
+# request at runtime, not while parsing.
+RUN mkdir -p /var/log/nginx && nginx -t
 
 EXPOSE 80
 

@@ -71,6 +71,50 @@ def batch_payload(sample_image_b64: str):
     return _build
 
 
+class TestBatchRecordOrdering:
+    """The row must exist before the worker can see the job."""
+
+    @pytest.fixture
+    def db_calls(self, monkeypatch, mock_celery):
+        from worker.celery_app import celery_app
+
+        calls: list[tuple] = []
+
+        class RecordingDb:
+            async def create_batch_job(self, record: dict) -> bool:
+                calls.append(("create", record["status"]))
+                return True
+
+            async def update_batch_job(self, job_id: str, **fields: Any) -> bool:
+                calls.append(("update", fields.get("status")))
+                return True
+
+        monkeypatch.setattr("api.services.db_service.get_db_service", lambda: RecordingDb())
+        original = celery_app.send_task
+
+        def send_task(name: str, **kwargs: Any):
+            calls.append(("enqueue", None))
+            return original(name, **kwargs)
+
+        monkeypatch.setattr(celery_app, "send_task", send_task)
+        return calls
+
+    def test_row_is_written_before_the_job_is_enqueued(
+        self, api_client, auth_headers, batch_payload, db_calls
+    ) -> None:
+        response = api_client.post("/api/v1/batch", json=batch_payload(2), headers=auth_headers)
+        assert response.status_code == 202
+        assert db_calls == [("create", "pending"), ("enqueue", None)]
+
+    def test_failed_enqueue_marks_the_row_failed(
+        self, api_client, auth_headers, batch_payload, mock_celery, db_calls
+    ) -> None:
+        mock_celery["fail_enqueue"] = True
+        response = api_client.post("/api/v1/batch", json=batch_payload(2), headers=auth_headers)
+        assert response.status_code == 503
+        assert db_calls == [("create", "pending"), ("enqueue", None), ("update", "failed")]
+
+
 class TestBatchSubmission:
     def test_returns_202_with_job_id(
         self, api_client, auth_headers, mock_celery, batch_payload

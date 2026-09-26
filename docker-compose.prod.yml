@@ -36,13 +36,10 @@
 services:
   api-gateway:
     ports:
-      # The only port open to the world. Terminate TLS here or at a load
-      # balancer in front.
+      # The only port open to the world. TLS terminates at the load balancer
+      # in front of this host. nginx.conf has no 443 listener; to terminate
+      # here instead, add one and mount certificates (docs/DEPLOYMENT.md).
       - "80:80"
-      - "443:443"
-    volumes:
-      # Mount real certificates in production.
-      - ./docker/nginx/certs:/etc/nginx/certs:ro
     deploy:
       replicas: 1
       resources:

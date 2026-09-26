@@ -492,8 +492,12 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="A/B compare two registered models.")
-    parser.add_argument("--champion", required=True, help="Current model, as name:version.")
-    parser.add_argument("--challenger", required=True, help="Candidate model, as name:version.")
+    parser.add_argument(
+        "--champion",
+        required=True,
+        help="Current model, as name:version, or name:version@runtime (e.g. @onnx_int8).",
+    )
+    parser.add_argument("--challenger", required=True, help="Candidate model, same form.")
     parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data")
     parser.add_argument("--samples", type=int, default=500)
     parser.add_argument("--alpha", type=float, default=0.05)
@@ -511,14 +515,22 @@ def main() -> int:
 
     service = ModelService()
 
+    from api.models.schemas import RuntimeFormat
+
     def build_predictor(spec: str) -> Callable[[bytes], tuple[int, float, float]]:
-        name, _, version = spec.partition(":")
+        model_spec, _, runtime = spec.partition("@")
+        name, _, version = model_spec.partition(":")
         entry = service.resolve(
             next(e.task for e in service.list_entries() if e.name == name),
             name,
             version or "latest",
         )
-        loaded = service.load(entry)
+        requested = RuntimeFormat(runtime) if runtime else None
+        loaded = service.load(entry, requested)
+        # load() falls back along the runtime chain. Comparing fp32 with an
+        # "INT8" that silently fell back to fp32 would prove nothing.
+        if requested and loaded.runtime.format != requested:
+            raise SystemExit(f"{spec}: {requested.value} did not load")
         cfg = loaded.preprocess_config
 
         def predict(image_bytes: bytes) -> tuple[int, float, float]:
@@ -540,7 +552,7 @@ def main() -> int:
 
     # Check the comparison is meaningful BEFORE spending minutes on inference.
     def _num_classes(spec: str) -> int | None:
-        name, _, version = spec.partition(":")
+        name, _, version = spec.partition("@")[0].partition(":")
         entry = service.resolve(
             next(e.task for e in service.list_entries() if e.name == name),
             name,

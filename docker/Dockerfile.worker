@@ -10,8 +10,9 @@
 #   2. Different failure modes. A worker OOM must not take down the API that
 #      is serving live traffic.
 #
-# The build stage is identical to the API's, so Docker reuses its cached
-# layers — building both images costs barely more than building one.
+# The build stage installs the same requirements as the API's. Docker caches
+# layers per build, and the API builder also installs curl, so the two do not
+# share the pip layer.
 # =============================================================================
 
 FROM python:3.12-slim-bookworm AS builder
@@ -47,6 +48,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     # time context-switching rather than computing.
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
+    # Batch metrics are recorded in the Celery child processes. Multiprocess
+    # mode collects them in this directory and the main process serves the
+    # total on WORKER_METRICS_PORT for Prometheus (worker/celery_app.py).
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus-worker \
+    WORKER_METRICS_PORT=9808 \
     OPENBLAS_NUM_THREADS=1
 
 RUN apt-get update && apt-get install --no-install-recommends -y \
@@ -79,7 +85,8 @@ USER appuser
 HEALTHCHECK --interval=60s --timeout=15s --start-period=90s --retries=3 \
     CMD celery -A worker.celery_app inspect ping -d celery@$HOSTNAME || exit 1
 
-# --concurrency is set by the compose file so it can be tuned per deployment.
+# Two processes per container. Scale by adding worker replicas, so each
+# container's memory limit still describes what it can use.
 # --max-tasks-per-child recycles a worker process periodically, which caps
 # the damage from the slow memory growth ML libraries are prone to.
 CMD ["celery", "-A", "worker.celery_app", "worker", \

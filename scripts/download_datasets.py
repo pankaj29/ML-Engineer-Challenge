@@ -1,4 +1,4 @@
-# scripts/setup/download_datasets.py
+# scripts/download_datasets.py
 """
 Dataset Download Script for ML Engineer Challenge
 Downloads and prepares all required datasets for the challenge.

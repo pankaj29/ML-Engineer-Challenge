@@ -431,6 +431,39 @@ class TestBenchmarkOnnx:
         assert results[0].size_mb > 0
 
 
+class TestBenchmarkInterleaved:
+    def test_every_case_gets_all_its_iterations(self, exported: Path) -> None:
+        from models.optimization.benchmark import benchmark_interleaved
+
+        results = benchmark_interleaved(
+            [(exported, (3, 16, 16))], batch_sizes=(1, 2), iterations=6, warmup=1, rounds=3
+        )
+        assert {(r.batch_size, r.iterations) for r in results} == {(1, 6), (2, 6)}
+        assert all(r.p50_ms > 0 for r in results)
+
+    def test_rounds_are_interleaved_across_models(self, exported: Path, monkeypatch) -> None:
+        """Model A must not finish all its rounds before model B starts."""
+        import models.optimization.benchmark as bench
+
+        order: list[int] = []
+        real_measure = bench.measure
+
+        def spy(fn, *, iterations, warmup):
+            order.append(id(fn))
+            return real_measure(fn, iterations=iterations, warmup=warmup)
+
+        monkeypatch.setattr(bench, "measure", spy)
+        bench.benchmark_interleaved(
+            [(exported, (3, 16, 16)), (exported, (3, 16, 16))],
+            iterations=4,
+            warmup=0,
+            rounds=2,
+        )
+        first, second = order[0], order[1]
+        assert first != second
+        assert order == [first, second, first, second]
+
+
 class TestBenchmarkResultShape:
     def test_is_json_serialisable(self) -> None:
         from dataclasses import asdict

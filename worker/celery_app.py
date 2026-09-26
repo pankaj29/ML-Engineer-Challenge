@@ -28,14 +28,25 @@ Configuration choices that matter in production:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from celery import Celery
-from celery.signals import setup_logging, worker_process_init, worker_process_shutdown
+from celery.signals import (
+    setup_logging,
+    worker_init,
+    worker_process_init,
+    worker_process_shutdown,
+)
 
 from api.config import settings
 from api.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
+
+# prometheus_client in multiprocess mode fails on the first metric write if
+# this directory does not exist, and a tmpfs /tmp starts empty.
+if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+    Path(os.environ["PROMETHEUS_MULTIPROC_DIR"]).mkdir(parents=True, exist_ok=True)
 
 # The task module is registered only when it can actually be imported.
 #
@@ -105,6 +116,33 @@ def _configure_worker_logging(**_: object) -> None:
     configure_logging(settings.log_level, settings.log_format)
 
 
+@worker_init.connect
+def _serve_worker_metrics(**_: object) -> None:
+    """Serve the worker's Prometheus metrics, summed across child processes.
+
+    batch_jobs_total and batch_job_duration_seconds are recorded where the
+    batch runs, in a Celery child process that nothing scrapes. With
+    PROMETHEUS_MULTIPROC_DIR set, each child writes to that directory and this
+    endpoint, started once in the parent before it forks, reads them all.
+    Without the variable (tests, local runs) nothing is started.
+    """
+    directory = os.getenv("PROMETHEUS_MULTIPROC_DIR")
+    port = os.getenv("WORKER_METRICS_PORT")
+    if not directory or not port:
+        return
+    import shutil
+
+    from prometheus_client import CollectorRegistry, multiprocess, start_http_server
+
+    # Files left by a previous run would be summed into this one's counters.
+    shutil.rmtree(directory, ignore_errors=True)
+    Path(directory).mkdir(parents=True, exist_ok=True)
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+    start_http_server(int(port), registry=registry)
+    logger.info("worker_metrics_serving", extra={"port": int(port)})
+
+
 @worker_process_init.connect
 def _init_worker(**_: object) -> None:
     """Prepare each worker process when it starts.
@@ -131,6 +169,14 @@ def _shutdown_worker(**_: object) -> None:
         get_model_service().unload_all()
     except Exception:  # shutdown must never raise
         pass
+    if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+        try:
+            from prometheus_client import multiprocess
+
+            # Otherwise the recycled process's live gauges keep being summed.
+            multiprocess.mark_process_dead(os.getpid())
+        except Exception:
+            pass
     logger.info("worker_process_stopped", extra={"pid": os.getpid()})
 
 

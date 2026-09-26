@@ -328,7 +328,7 @@ htmlcov/
         print("\nNext steps:")
         print("1. Copy .env.example to .env and configure")
         print("2. Install dependencies: pip install -r requirements.txt")
-        print("3. Download datasets: python scripts/setup/download_datasets.py")
+        print("3. Download datasets: python scripts/download_datasets.py")
         print("4. Start development: docker-compose up -d")
 
 
