@@ -99,3 +99,13 @@ spec:
               port: http
             periodSeconds: 10
             failureThreshold: 60
+          # The registry that lists the engine as a tensorrt artifact. Without
+          # it the API never looks for the engine and serves ONNX instead.
+          volumeMounts:
+            - name: gpu-registry
+              mountPath: /app/config
+              readOnly: true
+      volumes:
+        - name: gpu-registry
+          configMap:
+            name: mlcv-gpu-registry

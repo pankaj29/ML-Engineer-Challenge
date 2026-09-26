@@ -179,15 +179,22 @@ kubectl apply -k k8s/overlays/gpu
 Needs a GPU node, the NVIDIA device plugin or GPU Operator, and for the HPA,
 dcgm-exporter behind prometheus-adapter.
 
-Three things in it are not obvious.
+Four things in it are not obvious.
 
 **The engine is built at pod start, on the node that will serve it.** A
 TensorRT engine is compiled for one GPU architecture and one TensorRT version:
 one built on an A100 will not load on an L4, and one built with 11.3 will not
 load under 11.4. So it cannot go in the image or come from a bucket. A
 `build-engine` init container runs after the artefact fetch and compiles an
-fp16 engine from the fp32 ONNX model. Budget about 25 to 90 seconds, which is why the startup probe
-allows 600.
+fp16 engine from the fp32 ONNX model. Budget about 25 to 90 seconds, which is
+why the startup probe allows 600.
+
+**The overlay carries its own registry.** The API loads an engine only when
+the registry lists it as a `tensorrt` artifact, and the shared
+`models/registry.json` cannot, because CPU deployments have no engine. The
+overlay's `registry.json` is that file plus the engine, mounted from a
+ConfigMap through `MODEL_REGISTRY_PATH`. After changing the shared registry,
+run `python scripts/sync_gpu_registry.py`; a unit test fails until you do.
 
 **It scales on GPU utilisation, not CPU.** A GPU pod's CPU sits near idle
 while the accelerator saturates, so the base's CPU target would never fire and

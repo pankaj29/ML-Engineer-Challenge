@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
@@ -690,3 +690,59 @@ class TestMigrations:
         assert (
             "alembic.ini" in dockerfile
         ), "the migrate init container runs alembic, which needs its config"
+
+
+class TestGpuRegistry:
+    """The API loads an engine only when the registry lists it."""
+
+    def test_the_overlay_registry_is_in_sync(self) -> None:
+        import scripts.sync_gpu_registry as sync
+
+        current = sync.GPU_REGISTRY.read_text(encoding="utf-8")
+        assert current == sync.render(), "run python scripts/sync_gpu_registry.py"
+
+    def test_the_api_reads_the_registry_that_lists_the_engine(self, gpu_objects) -> None:
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        spec = api["spec"]["template"]["spec"]
+        container = next(c for c in spec["containers"] if c["name"] == "api")
+        config = next(c for c in _by_kind(gpu_objects, "ConfigMap") if _name(c) == "mlcv-config")
+        registry_path = PurePosixPath(config["data"]["MODEL_REGISTRY_PATH"])
+
+        mount = next(
+            m for m in container["volumeMounts"] if m["mountPath"] == str(registry_path.parent)
+        )
+        volume = next(v for v in spec["volumes"] if v["name"] == mount["name"])
+        generated = next(
+            c for c in _by_kind(gpu_objects, "ConfigMap") if _name(c) == volume["configMap"]["name"]
+        )
+        registry = json.loads(generated["data"][registry_path.name])
+
+        builder = next(c for c in spec["initContainers"] if c["name"] == "build-engine")
+        output = PurePosixPath(builder["command"][builder["command"].index("--output") + 1])
+        engines = {
+            m["artifacts"].get("tensorrt")
+            for m in registry["models"]
+            if "tensorrt" in m["artifacts"]
+        }
+        assert engines == {output.name}, "the registry does not list the engine that is built"
+
+        # The builder writes to the volume the API reads its artifacts from.
+        written = next(m for m in builder["volumeMounts"] if m["mountPath"] == str(output.parent))
+        read = next(m for m in container["volumeMounts"] if m["name"] == written["name"])
+        assert read["mountPath"] == "/app/models/artifacts"
+
+    def test_the_api_prefers_the_engine_with_that_registry(self, tmp_path: Path) -> None:
+        from api.config import Settings
+        from api.services.model_service import ModelService
+
+        registry = REPO_ROOT / "k8s" / "overlays" / "gpu" / "registry.json"
+        service = ModelService(
+            Settings(
+                environment="test",
+                model_registry_path=registry,
+                model_artifacts_dir=tmp_path,
+                preferred_runtime="tensorrt",
+            )
+        )
+        entry = next(e for e in service.list_entries() if e.name == "resnet50-tiny-imagenet")
+        assert service._runtime_preference(entry, None)[0] == "tensorrt"
