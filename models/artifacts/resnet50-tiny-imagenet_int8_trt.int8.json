@@ -3,14 +3,36 @@
   "engine_path": "models/artifacts/resnet50-tiny-imagenet_int8_trt.int8.engine",
   "precision": "int8",
   "onnx_mb": 23.139477729797363,
-  "engine_mb": 24.07009506225586,
-  "build_seconds": 23.567674410999643,
+  "engine_mb": 24.046504974365234,
+  "build_seconds": 23.98941804900005,
   "max_batch_size": 32,
   "gpu_name": "NVIDIA A100-SXM4-40GB",
   "tensorrt_version": "11.3.0.99",
-  "max_abs_diff": 0.10995638370513916,
-  "verified": true,
+  "max_abs_diff": 0.49480342864990234,
+  "verified": false,
   "notes": [
     "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
-  ]
+  ],
+  "source_onnx": "resnet50-tiny-imagenet_int8_trt.onnx",
+  "benchmark": {
+    "p50_ms": 0.973,
+    "p95_ms": 1.031,
+    "p99_ms": 1.143,
+    "throughput_ips": 1043.68
+  },
+  "max_diff_check_passed": false,
+  "agreement_with_source": {
+    "metric": "top1_agreement",
+    "value": 0.965,
+    "images": 200,
+    "reference": "resnet50-tiny-imagenet_int8_trt.onnx",
+    "passed": false
+  },
+  "agreement_with_fp32": {
+    "metric": "top1_agreement",
+    "value": 0.95,
+    "images": 200,
+    "reference": "resnet50-tiny-imagenet.onnx",
+    "passed": false
+  }
 }

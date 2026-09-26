@@ -51,6 +51,19 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 | ONNX INT8 | 1 | 14.1 ms | 81.4 ms | 165.4 ms | 36.2 img/s | 22.9 MB |
 | ONNX INT8 | 4 | 60.2 ms | 103.5 ms | 160.6 ms | 58.4 img/s | 22.9 MB |
 
+TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1, agreement on 200
+held-out Tiny-ImageNet validation photos (`benchmarks/reports/tensorrt.json`):
+
+| Precision | Engine | p50 | p99 | Throughput | Agrees with its ONNX graph | Agrees with fp32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fp32 | 90.0 MB | 1.082 ms | 1.131 ms | 922 img/s | cosine 1.000 | cosine 1.000 |
+| fp16 | 45.1 MB | 0.844 ms | 0.944 ms | 1179 img/s | cosine 1.000 | cosine 1.000 |
+| INT8 | 23.6 MB | 0.952 ms | 1.000 ms | 1047 img/s | cosine 0.995 | cosine 0.970 |
+
+fp32 and fp16 reproduce the ONNX vectors (lowest cosine 0.9997). INT8's mean
+cosine to fp32 is 0.970 with a lowest of 0.754 (CPU INT8: 0.985 and 0.839),
+so it is the wrong choice for an index built from fp32 vectors.
+
 ### Search
 
 Exact search over the in-process index, 50 queries per size

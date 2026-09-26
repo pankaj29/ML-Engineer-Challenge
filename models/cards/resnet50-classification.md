@@ -70,6 +70,19 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 p99 for a single image is 143.4 ms in ONNX fp32, well inside the one-second budget.
 
+TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1, agreement on 200
+held-out Tiny-ImageNet validation photos (`benchmarks/reports/tensorrt.json`):
+
+| Precision | Engine | p50 | p99 | Throughput | Agrees with its ONNX graph | Agrees with fp32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fp32 | 97.8 MB | 1.098 ms | 1.341 ms | 859 img/s | 100.0% | 100.0% |
+| fp16 | 49.1 MB | 0.900 ms | 0.954 ms | 1107 img/s | 98.0% | 98.0% |
+| INT8 | 25.6 MB | 0.997 ms | 1.144 ms | 998 img/s | 96.5% | 85.0% |
+
+fp16 is the fastest and changes the top class on 4 of 200 images. INT8 is
+no faster than fp16 at batch 1 and agrees with fp32 on 85.0% (CPU INT8:
+86.2%).
+
 ### INT8
 
 INT8 (uint8, percentile calibration) is 3.92x smaller and 2.2x faster than

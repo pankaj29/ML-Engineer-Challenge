@@ -1,0 +1,38 @@
+{
+  "name": "yolov8n_int8_trt",
+  "engine_path": "models/artifacts/yolov8n_int8_trt.int8.engine",
+  "precision": "int8",
+  "onnx_mb": 3.244175910949707,
+  "engine_mb": 5.501773834228516,
+  "build_seconds": 73.10061426500033,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 130.70986938476562,
+  "verified": false,
+  "notes": [
+    "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+  ],
+  "source_onnx": "yolov8n_int8_trt.onnx",
+  "benchmark": {
+    "p50_ms": 4.268,
+    "p95_ms": 4.379,
+    "p99_ms": 4.4,
+    "throughput_ips": 233.72
+  },
+  "max_diff_check_passed": false,
+  "agreement_with_source": {
+    "metric": "dominant_class_agreement",
+    "value": 0.96,
+    "images": 200,
+    "reference": "yolov8n_int8_trt.onnx",
+    "passed": false
+  },
+  "agreement_with_fp32": {
+    "metric": "dominant_class_agreement",
+    "value": 0.935,
+    "images": 200,
+    "reference": "yolov8n.onnx",
+    "passed": false
+  }
+}

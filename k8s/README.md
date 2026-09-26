@@ -165,7 +165,7 @@ kubectl -n mlcv logs job/drift-now
 ## Serving on a GPU
 
 `k8s/overlays/gpu` runs the API through TensorRT on a GPU node. On an A100
-the fine-tuned classifier's INT8 engine runs at 0.92 ms and 1068 img/s, against
+the fine-tuned classifier's fp16 engine runs at 0.98 ms and 1066 img/s, against
 19.8 img/s through ONNX Runtime (fp32) on the development laptop's CPU
 (`benchmarks/reports/tensorrt.json`, `BENCHMARKS.md`). The engine has to be
 built on the serving node: it is tied to one GPU architecture and TensorRT
@@ -185,8 +185,8 @@ Three things in it are not obvious.
 TensorRT engine is compiled for one GPU architecture and one TensorRT version:
 one built on an A100 will not load on an L4, and one built with 11.3 will not
 load under 11.4. So it cannot go in the image or come from a bucket. A
-`build-engine` init container runs after the artefact fetch and compiles the
-INT8 QDQ graph. Budget about 25 to 90 seconds, which is why the startup probe
+`build-engine` init container runs after the artefact fetch and compiles an
+fp16 engine from the fp32 ONNX model. Budget about 25 to 90 seconds, which is why the startup probe
 allows 600.
 
 **It scales on GPU utilisation, not CPU.** A GPU pod's CPU sits near idle

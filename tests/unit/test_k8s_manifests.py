@@ -10,6 +10,7 @@ These are the cross-references a human reviewer checks by eye and gets wrong.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -514,6 +515,18 @@ class TestGpuOverlay:
         assert builder["resources"]["limits"].get(
             "nvidia.com/gpu"
         ), "the engine builder has no GPU, so it cannot compile for one"
+
+    def test_the_engine_is_built_from_a_fetched_artifact(self, gpu_objects) -> None:
+        """The builder once read an INT8 graph the fetch step never downloads,
+        so the pod would have failed at start on real hardware."""
+        api = next(d for d in _by_kind(gpu_objects, "Deployment") if _name(d) == "ml-api")
+        init = api["spec"]["template"]["spec"]["initContainers"]
+        command = next(c for c in init if c["name"] == "build-engine")["command"]
+        source = Path(command[command.index("--onnx") + 1]).name
+        manifest = json.loads(Path("models/artifacts_manifest.json").read_text(encoding="utf-8"))
+        assert source in manifest["artifacts"], f"{source} is not in the artifact manifest"
+        report = command[command.index("--report") + 1] if "--report" in command else ""
+        assert report.startswith("/tmp/"), "the report must go to a writable mount"
 
     def test_the_engine_is_built_after_the_artifacts_arrive(self, gpu_objects) -> None:
         """Init containers run in order. Building before the fetch would

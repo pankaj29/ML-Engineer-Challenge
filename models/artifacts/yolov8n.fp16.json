@@ -1,0 +1,31 @@
+{
+  "name": "yolov8n",
+  "engine_path": "models/artifacts/yolov8n.fp16.engine",
+  "precision": "fp16",
+  "onnx_mb": 6.107481002807617,
+  "engine_mb": 7.890254974365234,
+  "build_seconds": 135.07406545899994,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 5.07476806640625,
+  "verified": true,
+  "notes": [
+    "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+  ],
+  "source_onnx": "yolov8n.onnx",
+  "benchmark": {
+    "p50_ms": 3.161,
+    "p95_ms": 3.423,
+    "p99_ms": 3.628,
+    "throughput_ips": 312.1
+  },
+  "max_diff_check_passed": true,
+  "agreement_with_source": {
+    "metric": "dominant_class_agreement",
+    "value": 0.995,
+    "images": 200,
+    "reference": "yolov8n.onnx",
+    "passed": true
+  }
+}

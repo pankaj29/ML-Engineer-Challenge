@@ -9,13 +9,13 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| Tests | 1,440: 1236 unit, 161 integration, 28 end-to-end, 15 performance |
+| Tests | 1,441: 1237 unit, 161 integration, 28 end-to-end, 15 performance |
 | Coverage | 95.8% on `api/`, 94.6% on `worker/` |
 | Lint | `ruff`, `black` and `mypy` clean, all three enforced in CI |
 | Stack | 7 services in development; in production 10 containers plus a one-shot migration, all healthy |
 | Fine-tuned classifier | 78.91% top-1 on Tiny-ImageNet, measured through the served ONNX model |
 | Detector | 0.392 mAP50-95 on 500 COCO images (INT8: 0.388) |
-| Latency | 28 to 47 ms p50 per image on a laptop CPU in ONNX fp32 (PyTorch: 80 to 91 ms), 14 ms for the INT8 ResNets; 0.92 ms on an A100 with TensorRT INT8 |
+| Latency | 28 to 47 ms p50 per image on a laptop CPU in ONNX fp32 (PyTorch: 80 to 91 ms), 14 ms for the INT8 ResNets; 0.84 to 0.98 ms for the ResNets and 3.2 ms for YOLOv8n on an A100 with TensorRT fp16 |
 | Load test | 1,619 requests from 20 users over 45 s: 1 failure (a 503 from load shedding), p95 440 ms, 36.8 req/s |
 
 Every number in this README comes from a file in
@@ -238,10 +238,12 @@ Measuring INT8 properly found three real problems, all fixed:
 CI now compares every INT8 model with fp32 on real photos. The comparison of
 recipes is in [TECHNICAL.md](docs/TECHNICAL.md#int8-on-cpu).
 
-**TensorRT**, fine-tuned classifier on an A100, batch 1: fp32 1.298 ms, fp16
-0.990 ms, INT8 0.920 ms (1068 img/s, 24.1 MB engine). All three verified
-against the ONNX graph. Getting INT8 to build took four fixes, described in
-[TECHNICAL.md](docs/TECHNICAL.md#tensorrt).
+**TensorRT**, all four models on an A100, batch 1: fp16 is the fastest engine
+for each (level with INT8 on the fine-tuned classifier), 0.84 to 0.98 ms for
+the ResNets and 3.16 ms for YOLOv8n, and gives the same answer as fp32 on 98%
+to 100% of 200 held-out images per model. INT8 is no faster at batch 1 and
+slower than fp32 on YOLOv8n. Getting INT8 to build took four fixes, described
+in [TECHNICAL.md](docs/TECHNICAL.md#tensorrt).
 
 ### Through the whole stack
 
@@ -266,7 +268,7 @@ they measure the service's own overhead (`benchmarks/reports/performance_tests.t
 
 ## Testing and CI
 
-- 1,440 tests: 1236 unit, 161 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,441 tests: 1237 unit, 161 integration, 28 end-to-end, 15 performance, plus Locust load
 - Unit tests need nothing running: fakeredis, in-memory SQLite and a fake
   model runtime.
 - Integration tests use real ONNX models, and real Redis, PostgreSQL and
@@ -309,10 +311,10 @@ python scripts/check_readme_stats.py         # the Tests row above, checked in C
 
 1. **ImageNet accuracy is cited, not measured.** The validation set needs an
    account. COCO accuracy is measured.
-2. **TensorRT engines are built for the fine-tuned classifier only.** Engines
-   need an NVIDIA GPU. Section 8b of `notebooks/colab_gpu_pipeline.ipynb` builds,
-   verifies and benchmarks fp32, fp16 and INT8 engines for the other three
-   models in one run on a Colab GPU; it has not been run yet.
+2. **TensorRT INT8 does not pay off at batch 1.** On the A100 it is level with
+   fp16 for the ResNets, slower than fp32 for YOLOv8n, and loses 5 to 15 points
+   of agreement with fp32, so the GPU overlay builds fp16. Larger batches were
+   not measured.
 3. **Confidence is not calibrated.** The fine-tuned model is underconfident
    (ECE 0.128). Use the ranking, not the raw score.
 4. **The dev similarity index is per process** and empty after a restart.
@@ -324,7 +326,7 @@ python scripts/check_readme_stats.py         # the Tests row above, checked in C
    fairly across models, but p95 and p99 are wide.
 
 Next, in order: temperature scaling for calibrated confidence, TensorRT
-engines for the other three models and larger batches, a labelled retrieval
+at larger batches, a labelled retrieval
 set for the embedding model, and OpenTelemetry tracing.
 
 ## Documentation

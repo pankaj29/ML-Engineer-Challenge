@@ -8,9 +8,9 @@
 #
 # Measured on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1:
 #
-#     int8   0.920 ms   1068 img/s   24.1 MB engine
-#     fp16   0.990 ms   1066 img/s   46.0 MB
-#     fp32   1.298 ms    822 img/s   91.5 MB
+#     int8   0.973 ms   1044 img/s   24.0 MB engine
+#     fp16   0.980 ms   1066 img/s   46.0 MB
+#     fp32   1.089 ms    878 img/s   91.5 MB
 #
 # against roughly 15 ms for the same model on ONNX Runtime CPU.
 #

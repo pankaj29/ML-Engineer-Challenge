@@ -1,0 +1,40 @@
+{
+  "name": "resnet50-embed_int8_trt",
+  "engine_path": "models/artifacts/resnet50-embed_int8_trt.int8.engine",
+  "precision": "int8",
+  "onnx_mb": 22.75600242614746,
+  "engine_mb": 23.628849029541016,
+  "build_seconds": 22.326117030000205,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 0.018564164638519287,
+  "verified": false,
+  "notes": [
+    "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+  ],
+  "source_onnx": "resnet50-embed_int8_trt.onnx",
+  "benchmark": {
+    "p50_ms": 0.952,
+    "p95_ms": 0.992,
+    "p99_ms": 1.0,
+    "throughput_ips": 1047.04
+  },
+  "max_diff_check_passed": true,
+  "agreement_with_source": {
+    "metric": "mean_cosine",
+    "value": 0.9949,
+    "images": 200,
+    "reference": "resnet50-embed_int8_trt.onnx",
+    "min_cosine": 0.9887,
+    "passed": false
+  },
+  "agreement_with_fp32": {
+    "metric": "mean_cosine",
+    "value": 0.9698,
+    "images": 200,
+    "reference": "resnet50-embed.onnx",
+    "min_cosine": 0.7537,
+    "passed": false
+  }
+}

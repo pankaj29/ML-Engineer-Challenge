@@ -1,0 +1,30 @@
+{
+  "name": "resnet50-embed",
+  "engine_path": "models/artifacts/resnet50-embed.fp32.engine",
+  "precision": "fp32",
+  "onnx_mb": 89.60001850128174,
+  "engine_mb": 89.96868515014648,
+  "build_seconds": 21.78398970499984,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 0.0008340924978256226,
+  "verified": true,
+  "notes": [],
+  "source_onnx": "resnet50-embed.onnx",
+  "benchmark": {
+    "p50_ms": 1.082,
+    "p95_ms": 1.112,
+    "p99_ms": 1.131,
+    "throughput_ips": 922.44
+  },
+  "max_diff_check_passed": true,
+  "agreement_with_source": {
+    "metric": "mean_cosine",
+    "value": 1.0,
+    "images": 200,
+    "reference": "resnet50-embed.onnx",
+    "min_cosine": 0.9999,
+    "passed": true
+  }
+}

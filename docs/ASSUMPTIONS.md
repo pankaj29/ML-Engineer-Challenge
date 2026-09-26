@@ -152,9 +152,8 @@ or error handling. It is illustrative; the delivered API shares none of it.
 
 - **ImageNet accuracy for the default classifier** is torchvision's published
   80.86%, not re-measured: the validation set needs an account.
-- **TensorRT engines exist for the fine-tuned classifier only.** Engines need
-  an NVIDIA GPU. Section 8b of the Colab notebook builds the other three in one
-  run and merges them into `tensorrt.json`; it has not been run yet.
+- **TensorRT was timed at batch 1 only.** INT8 may pull ahead of fp16 at
+  larger batches; that was not measured.
 - **Retrieval quality** of the embedding model is not measured; that needs a
   dataset with similarity labels.
 - **Confidence is not calibrated.** The fine-tuned model is underconfident

@@ -53,9 +53,9 @@ flowchart LR
     T["PyTorch"] --> O["ONNX fp32"]
     O -->|"static QDQ, MinMax<br/>calibrated on real images"| Q["ONNX INT8 (CPU)"]
     O -->|"static QDQ, percentile<br/>symmetric, fp32 bias"| QT["ONNX INT8 (TensorRT)"]
-    O -->|"TensorRT build"| E32["TRT fp32<br/>1.298 ms"]
-    O -->|"fp16 graph, TensorRT build"| E16["TRT fp16<br/>0.990 ms"]
-    QT -->|"TensorRT build"| EI["TRT INT8<br/>0.920 ms"]
+    O -->|"TensorRT build"| E32["TRT fp32"]
+    O -->|"fp16 graph, TensorRT build"| E16["TRT fp16"]
+    QT -->|"TensorRT build"| EI["TRT INT8"]
 ```
 
 ### ONNX export
@@ -149,20 +149,54 @@ caller that needs throughput asks for INT8 per request.
 
 ### TensorRT
 
-The fine-tuned classifier on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1
-(`benchmarks/reports/tensorrt.json`):
+All four models on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1, 200 timed
+runs each (`benchmarks/reports/tensorrt.json`, from section 8b of the Colab
+notebook). Agreement is measured on 200 held-out images per model, past the
+calibration set, with the metrics of the CPU INT8 fidelity report: top-1
+agreement for the classifiers, mean cosine for the embeddings, and the most
+confident detected class for YOLOv8n.
 
-| Precision | Engine | Build | p50 | p95 | Throughput | Max abs diff vs ONNX |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| fp32 | 91.5 MB | 24 s | 1.298 ms | 1.336 ms | 822 img/s | 2.62e-03 |
-| fp16 | 46.0 MB | 29 s | 0.990 ms | 1.008 ms | 1066 img/s | 2.19e-02 |
-| INT8 | 24.1 MB | 24 s | 0.920 ms | 1.017 ms | 1068 img/s | 1.10e-01 |
+| Model | Precision | Engine | p50 | p99 | Throughput | Agrees with its ONNX graph | Agrees with fp32 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| resnet50-tiny-imagenet | fp32 | 91.5 MB | 1.089 ms | 1.351 ms | 878 img/s | 100.0% | 100.0% |
+| resnet50-tiny-imagenet | fp16 | 46.0 MB | 0.980 ms | 1.038 ms | 1066 img/s | 100.0% | 100.0% |
+| resnet50-tiny-imagenet | INT8 | 24.0 MB | 0.973 ms | 1.143 ms | 1044 img/s | 96.5% | 95.0% |
+| resnet50 | fp32 | 97.8 MB | 1.098 ms | 1.341 ms | 859 img/s | 100.0% | 100.0% |
+| resnet50 | fp16 | 49.1 MB | 0.900 ms | 0.954 ms | 1107 img/s | 98.0% | 98.0% |
+| resnet50 | INT8 | 25.6 MB | 0.997 ms | 1.144 ms | 998 img/s | 96.5% | 85.0% |
+| resnet50-embed | fp32 | 90.0 MB | 1.082 ms | 1.131 ms | 922 img/s | cosine 1.000 | cosine 1.000 |
+| resnet50-embed | fp16 | 45.1 MB | 0.844 ms | 0.944 ms | 1179 img/s | cosine 1.000 | cosine 1.000 |
+| resnet50-embed | INT8 | 23.6 MB | 0.952 ms | 1.000 ms | 1047 img/s | cosine 0.995 | cosine 0.970 |
+| yolov8n | fp32 | 14.1 MB | 3.507 ms | 4.000 ms | 279 img/s | 99.5% | 99.5% |
+| yolov8n | fp16 | 7.9 MB | 3.161 ms | 3.628 ms | 312 img/s | 99.5% | 99.5% |
+| yolov8n | INT8 | 5.5 MB | 4.268 ms | 4.400 ms | 234 img/s | 96.0% | 93.5% |
 
-INT8 is 1.41x faster than fp32 and a quarter of its size, and level with
-fp16. At batch 1 a ResNet-50 on an A100 is bound by memory traffic and kernel
-launches, not arithmetic, so lower precision arithmetic helps little; larger
-batches are where INT8 should pull ahead. Against the same model on the laptop
-CPU (19.8 img/s in ONNX fp32), the A100 serves 41 to 54 times the throughput.
+fp16 is the fastest engine for every model, or level with INT8 on the
+fine-tuned classifier: 0.84 to 0.98 ms for the ResNets and 3.16 ms for
+YOLOv8n. It agrees with fp32 ONNX on 99.5% to 100% of images, except ResNet-50
+at 98.0% (4 of 200 get a different top class). INT8 does not beat fp16 at
+batch 1: a ResNet-50 at batch 1 on an A100 is bound by memory traffic and
+kernel launches, not arithmetic. On YOLOv8n INT8 is slower than fp32 (4.27
+against 3.51 ms), probably because only its convolutions are quantized and
+the rest of the graph converts back and forth. Larger batches were not
+measured.
+
+INT8 engines agree with their own INT8 ONNX graph on 96.0% to 96.5% of images
+(cosine 0.995 for the embeddings): TensorRT and ONNX Runtime fuse and round
+the same Q/DQ graph differently. That misses the 99% bar, so `tensorrt.json`
+marks them unverified. Against fp32 they land close to CPU INT8 (500-image
+figures from `int8_fidelity.json` in brackets): fine-tuned classifier 95.0%
+(95.6%), ResNet-50 85.0% (86.2%), YOLOv8n 93.5% (91.8%), embeddings mean cosine
+0.970 (0.985) with a lowest of 0.754 (0.839).
+
+The verdict used to be the largest output difference on one photo. That
+failed good fp32 engines, because TensorRT runs fp32 matrix maths in TF32,
+which has fp16's 10-bit mantissa, and it could not judge YOLOv8n, whose output
+mixes pixel box coordinates with 0 to 1 class scores. The fp32 bound now
+matches fp16's, and agreement on held-out images decides `verified`.
+
+Against the fine-tuned model on the laptop CPU (19.8 img/s in ONNX fp32), the
+A100 serves 44 to 54 times the throughput.
 
 The TensorRT API changed across the versions this had to run on:
 `EXPLICIT_BATCH` and `platform_has_fast_fp16` went in 10, `BuilderFlag.FP16`
@@ -408,7 +442,7 @@ production overlay runs three such containers.
 | 100 to 500 req/s | 8 to 10 | 4 |
 | over 500 req/s | GPU inference | |
 
-The largest lever is the GPU: 41 to 54 times the laptop's throughput for the
+The largest lever is the GPU: 44 to 54 times the laptop's throughput for the
 fine-tuned classifier, as measured above. The second is the cache: at a high
 hit rate throughput is bounded by Redis, which is far cheaper to scale.
 

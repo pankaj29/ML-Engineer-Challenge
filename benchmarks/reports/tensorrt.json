@@ -4,20 +4,28 @@
     "engine_path": "models/artifacts/resnet50-tiny-imagenet.fp32.engine",
     "precision": "fp32",
     "onnx_mb": 91.16132831573486,
-    "engine_mb": 91.53640365600586,
-    "build_seconds": 23.912863642999582,
+    "engine_mb": 91.52844619750977,
+    "build_seconds": 23.626247272999535,
     "max_batch_size": 32,
     "gpu_name": "NVIDIA A100-SXM4-40GB",
     "tensorrt_version": "11.3.0.99",
-    "max_abs_diff": 0.0026166439056396484,
+    "max_abs_diff": 0.021143555641174316,
     "verified": true,
     "notes": [],
     "source_onnx": "resnet50-tiny-imagenet.onnx",
     "benchmark": {
-      "p50_ms": 1.298,
-      "p95_ms": 1.336,
-      "p99_ms": 1.354,
-      "throughput_ips": 821.72
+      "p50_ms": 1.089,
+      "p95_ms": 1.323,
+      "p99_ms": 1.351,
+      "throughput_ips": 877.55
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "top1_agreement",
+      "value": 1.0,
+      "images": 200,
+      "reference": "resnet50-tiny-imagenet.onnx",
+      "passed": true
     }
   },
   {
@@ -25,22 +33,30 @@
     "engine_path": "models/artifacts/resnet50-tiny-imagenet.fp16.engine",
     "precision": "fp16",
     "onnx_mb": 45.60054302215576,
-    "engine_mb": 45.9604606628418,
-    "build_seconds": 29.139021781999872,
+    "engine_mb": 45.97163009643555,
+    "build_seconds": 31.625594058999923,
     "max_batch_size": 32,
     "gpu_name": "NVIDIA A100-SXM4-40GB",
     "tensorrt_version": "11.3.0.99",
-    "max_abs_diff": 0.021877765655517578,
+    "max_abs_diff": 0.03278195858001709,
     "verified": true,
     "notes": [
       "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
     ],
     "source_onnx": "resnet50-tiny-imagenet.onnx",
     "benchmark": {
-      "p50_ms": 0.99,
-      "p95_ms": 1.008,
-      "p99_ms": 1.051,
-      "throughput_ips": 1065.69
+      "p50_ms": 0.98,
+      "p95_ms": 1.001,
+      "p99_ms": 1.038,
+      "throughput_ips": 1066.11
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "top1_agreement",
+      "value": 1.0,
+      "images": 200,
+      "reference": "resnet50-tiny-imagenet.onnx",
+      "passed": true
     }
   },
   {
@@ -48,22 +64,335 @@
     "engine_path": "models/artifacts/resnet50-tiny-imagenet_int8_trt.int8.engine",
     "precision": "int8",
     "onnx_mb": 23.139477729797363,
-    "engine_mb": 24.07009506225586,
-    "build_seconds": 23.567674410999643,
+    "engine_mb": 24.046504974365234,
+    "build_seconds": 23.98941804900005,
     "max_batch_size": 32,
     "gpu_name": "NVIDIA A100-SXM4-40GB",
     "tensorrt_version": "11.3.0.99",
-    "max_abs_diff": 0.10995638370513916,
-    "verified": true,
+    "max_abs_diff": 0.49480342864990234,
+    "verified": false,
     "notes": [
       "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
     ],
     "source_onnx": "resnet50-tiny-imagenet_int8_trt.onnx",
     "benchmark": {
-      "p50_ms": 0.92,
-      "p95_ms": 1.017,
-      "p99_ms": 1.047,
-      "throughput_ips": 1067.87
+      "p50_ms": 0.973,
+      "p95_ms": 1.031,
+      "p99_ms": 1.143,
+      "throughput_ips": 1043.68
+    },
+    "max_diff_check_passed": false,
+    "agreement_with_source": {
+      "metric": "top1_agreement",
+      "value": 0.965,
+      "images": 200,
+      "reference": "resnet50-tiny-imagenet_int8_trt.onnx",
+      "passed": false
+    },
+    "agreement_with_fp32": {
+      "metric": "top1_agreement",
+      "value": 0.95,
+      "images": 200,
+      "reference": "resnet50-tiny-imagenet.onnx",
+      "passed": false
+    }
+  },
+  {
+    "name": "resnet50",
+    "engine_path": "models/artifacts/resnet50.fp32.engine",
+    "precision": "fp32",
+    "onnx_mb": 97.41438102722168,
+    "engine_mb": 97.7651252746582,
+    "build_seconds": 23.1300868670005,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.013356924057006836,
+    "verified": true,
+    "notes": [],
+    "source_onnx": "resnet50.onnx",
+    "benchmark": {
+      "p50_ms": 1.098,
+      "p95_ms": 1.322,
+      "p99_ms": 1.341,
+      "throughput_ips": 858.56
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "top1_agreement",
+      "value": 1.0,
+      "images": 200,
+      "reference": "resnet50.onnx",
+      "passed": true
+    }
+  },
+  {
+    "name": "resnet50",
+    "engine_path": "models/artifacts/resnet50.fp16.engine",
+    "precision": "fp16",
+    "onnx_mb": 48.72706985473633,
+    "engine_mb": 49.104976654052734,
+    "build_seconds": 29.093451978999838,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.025041937828063965,
+    "verified": false,
+    "notes": [
+      "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+    ],
+    "source_onnx": "resnet50.onnx",
+    "benchmark": {
+      "p50_ms": 0.9,
+      "p95_ms": 0.936,
+      "p99_ms": 0.954,
+      "throughput_ips": 1106.74
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "top1_agreement",
+      "value": 0.98,
+      "images": 200,
+      "reference": "resnet50.onnx",
+      "passed": false
+    }
+  },
+  {
+    "name": "resnet50_int8_trt",
+    "engine_path": "models/artifacts/resnet50_int8_trt.int8.engine",
+    "precision": "int8",
+    "onnx_mb": 24.70884418487549,
+    "engine_mb": 25.642215728759766,
+    "build_seconds": 23.172107780999795,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.31387627124786377,
+    "verified": false,
+    "notes": [
+      "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+    ],
+    "source_onnx": "resnet50_int8_trt.onnx",
+    "benchmark": {
+      "p50_ms": 0.997,
+      "p95_ms": 1.068,
+      "p99_ms": 1.144,
+      "throughput_ips": 998.14
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "top1_agreement",
+      "value": 0.965,
+      "images": 200,
+      "reference": "resnet50_int8_trt.onnx",
+      "passed": false
+    },
+    "agreement_with_fp32": {
+      "metric": "top1_agreement",
+      "value": 0.85,
+      "images": 200,
+      "reference": "resnet50.onnx",
+      "passed": false
+    }
+  },
+  {
+    "name": "resnet50-embed",
+    "engine_path": "models/artifacts/resnet50-embed.fp32.engine",
+    "precision": "fp32",
+    "onnx_mb": 89.60001850128174,
+    "engine_mb": 89.96868515014648,
+    "build_seconds": 21.78398970499984,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.0008340924978256226,
+    "verified": true,
+    "notes": [],
+    "source_onnx": "resnet50-embed.onnx",
+    "benchmark": {
+      "p50_ms": 1.082,
+      "p95_ms": 1.112,
+      "p99_ms": 1.131,
+      "throughput_ips": 922.44
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "mean_cosine",
+      "value": 1.0,
+      "images": 200,
+      "reference": "resnet50-embed.onnx",
+      "min_cosine": 0.9999,
+      "passed": true
+    }
+  },
+  {
+    "name": "resnet50-embed",
+    "engine_path": "models/artifacts/resnet50-embed.fp16.engine",
+    "precision": "fp16",
+    "onnx_mb": 44.82154655456543,
+    "engine_mb": 45.123905181884766,
+    "build_seconds": 21.082838545999948,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.001317135989665985,
+    "verified": true,
+    "notes": [
+      "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+    ],
+    "source_onnx": "resnet50-embed.onnx",
+    "benchmark": {
+      "p50_ms": 0.844,
+      "p95_ms": 0.893,
+      "p99_ms": 0.944,
+      "throughput_ips": 1179.24
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "mean_cosine",
+      "value": 1.0,
+      "images": 200,
+      "reference": "resnet50-embed.onnx",
+      "min_cosine": 0.9997,
+      "passed": true
+    }
+  },
+  {
+    "name": "resnet50-embed_int8_trt",
+    "engine_path": "models/artifacts/resnet50-embed_int8_trt.int8.engine",
+    "precision": "int8",
+    "onnx_mb": 22.75600242614746,
+    "engine_mb": 23.628849029541016,
+    "build_seconds": 22.326117030000205,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 0.018564164638519287,
+    "verified": false,
+    "notes": [
+      "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+    ],
+    "source_onnx": "resnet50-embed_int8_trt.onnx",
+    "benchmark": {
+      "p50_ms": 0.952,
+      "p95_ms": 0.992,
+      "p99_ms": 1.0,
+      "throughput_ips": 1047.04
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "mean_cosine",
+      "value": 0.9949,
+      "images": 200,
+      "reference": "resnet50-embed_int8_trt.onnx",
+      "min_cosine": 0.9887,
+      "passed": false
+    },
+    "agreement_with_fp32": {
+      "metric": "mean_cosine",
+      "value": 0.9698,
+      "images": 200,
+      "reference": "resnet50-embed.onnx",
+      "min_cosine": 0.7537,
+      "passed": false
+    }
+  },
+  {
+    "name": "yolov8n",
+    "engine_path": "models/artifacts/yolov8n.fp32.engine",
+    "precision": "fp32",
+    "onnx_mb": 12.090323448181152,
+    "engine_mb": 14.11629867553711,
+    "build_seconds": 87.3362024549997,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 2.45050048828125,
+    "verified": true,
+    "notes": [],
+    "source_onnx": "yolov8n.onnx",
+    "benchmark": {
+      "p50_ms": 3.507,
+      "p95_ms": 3.902,
+      "p99_ms": 4.0,
+      "throughput_ips": 279.34
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "dominant_class_agreement",
+      "value": 0.995,
+      "images": 200,
+      "reference": "yolov8n.onnx",
+      "passed": true
+    }
+  },
+  {
+    "name": "yolov8n",
+    "engine_path": "models/artifacts/yolov8n.fp16.engine",
+    "precision": "fp16",
+    "onnx_mb": 6.107481002807617,
+    "engine_mb": 7.890254974365234,
+    "build_seconds": 135.07406545899994,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 5.07476806640625,
+    "verified": true,
+    "notes": [
+      "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+    ],
+    "source_onnx": "yolov8n.onnx",
+    "benchmark": {
+      "p50_ms": 3.161,
+      "p95_ms": 3.423,
+      "p99_ms": 3.628,
+      "throughput_ips": 312.1
+    },
+    "max_diff_check_passed": true,
+    "agreement_with_source": {
+      "metric": "dominant_class_agreement",
+      "value": 0.995,
+      "images": 200,
+      "reference": "yolov8n.onnx",
+      "passed": true
+    }
+  },
+  {
+    "name": "yolov8n_int8_trt",
+    "engine_path": "models/artifacts/yolov8n_int8_trt.int8.engine",
+    "precision": "int8",
+    "onnx_mb": 3.244175910949707,
+    "engine_mb": 5.501773834228516,
+    "build_seconds": 73.10061426500033,
+    "max_batch_size": 32,
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "tensorrt_version": "11.3.0.99",
+    "max_abs_diff": 130.70986938476562,
+    "verified": false,
+    "notes": [
+      "int8 from a QDQ graph; precision comes from the QuantizeLinear/DequantizeLinear nodes rather than a builder flag"
+    ],
+    "source_onnx": "yolov8n_int8_trt.onnx",
+    "benchmark": {
+      "p50_ms": 4.268,
+      "p95_ms": 4.379,
+      "p99_ms": 4.4,
+      "throughput_ips": 233.72
+    },
+    "max_diff_check_passed": false,
+    "agreement_with_source": {
+      "metric": "dominant_class_agreement",
+      "value": 0.96,
+      "images": 200,
+      "reference": "yolov8n_int8_trt.onnx",
+      "passed": false
+    },
+    "agreement_with_fp32": {
+      "metric": "dominant_class_agreement",
+      "value": 0.935,
+      "images": 200,
+      "reference": "yolov8n.onnx",
+      "passed": false
     }
   }
 ]

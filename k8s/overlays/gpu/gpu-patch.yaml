@@ -33,9 +33,11 @@ spec:
         # shipped in the image or fetched from a bucket. It is built here,
         # on the GPU that will serve it, at pod start.
         #
-        # INT8, from the QDQ graph the artifact fetch just downloaded. It
-        # matches fp16 on latency and halves the engine, and the graph is
-        # already calibrated: biases in fp32, symmetric, percentile.
+        # fp16, from the fp32 ONNX model the artifact fetch just downloaded.
+        # On an A100 at batch 1 it is as fast as INT8 (0.98 against 0.97 ms)
+        # and gives the fp32 answer on every held-out image, where INT8 agrees
+        # on 95% (benchmarks/reports/tensorrt.json). The report goes to /tmp
+        # because the root filesystem is read-only.
         - name: build-engine
           image: mlcv/api-gpu:latest
           imagePullPolicy: IfNotPresent
@@ -44,11 +46,15 @@ spec:
             - -m
             - models.optimization.export_tensorrt
             - --onnx
-            - /models/resnet50-tiny-imagenet_int8_trt.onnx
+            - /models/resnet50-tiny-imagenet.onnx
             - --output
-            - /models/resnet50-tiny-imagenet.int8.engine
+            - /models/resnet50-tiny-imagenet.fp16.engine
             - --precision
-            - int8
+            - fp16
+            - --preset
+            - tiny_imagenet
+            - --report
+            - /tmp/tensorrt.json
             - --max-batch-size
             - "32"
           resources:

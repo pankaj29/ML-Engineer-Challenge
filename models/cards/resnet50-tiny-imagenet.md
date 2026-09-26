@@ -98,19 +98,18 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`):
 | ONNX INT8 | 1 | 14.7 ms | 73.5 ms | 177.1 ms | 37.3 img/s | 23.3 MB |
 | ONNX INT8 | 4 | 48.0 ms | 99.2 ms | 111.6 ms | 69.7 img/s | 23.3 MB |
 
-TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1
-(`benchmarks/reports/tensorrt.json`):
+TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1, agreement on 200
+held-out Tiny-ImageNet images (`benchmarks/reports/tensorrt.json`):
 
-| Precision | p50 | p95 | Throughput | Engine | Max abs diff vs ONNX |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| fp32 | 1.298 ms | 1.336 ms | 822 img/s | 91.5 MB | 2.62e-03 |
-| fp16 | 0.990 ms | 1.008 ms | 1066 img/s | 46.0 MB | 2.19e-02 |
-| INT8 | 0.920 ms | 1.017 ms | 1068 img/s | 24.1 MB | 1.10e-01 |
+| Precision | Engine | p50 | p99 | Throughput | Agrees with its ONNX graph | Agrees with fp32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fp32 | 91.5 MB | 1.089 ms | 1.351 ms | 878 img/s | 100.0% | 100.0% |
+| fp16 | 46.0 MB | 0.980 ms | 1.038 ms | 1066 img/s | 100.0% | 100.0% |
+| INT8 | 24.0 MB | 0.973 ms | 1.143 ms | 1044 img/s | 96.5% | 95.0% |
 
-All three engines passed verification against the fp32 ONNX graph on a real
-photograph. INT8 is 1.41x faster than fp32 and a quarter of its size; at batch
-1 it is level with fp16, because this model at batch 1 is bound by memory
-traffic, not arithmetic.
+fp32 and fp16 give the same top-1 as the ONNX model on every image. INT8 is
+level with fp16 on speed and agrees with fp32 on 95.0%, close to CPU INT8's
+95.6%, so on a GPU fp16 is the better choice.
 
 ### INT8 on CPU
 

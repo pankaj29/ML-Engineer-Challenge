@@ -1,0 +1,29 @@
+{
+  "name": "yolov8n",
+  "engine_path": "models/artifacts/yolov8n.fp32.engine",
+  "precision": "fp32",
+  "onnx_mb": 12.090323448181152,
+  "engine_mb": 14.11629867553711,
+  "build_seconds": 87.3362024549997,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 2.45050048828125,
+  "verified": true,
+  "notes": [],
+  "source_onnx": "yolov8n.onnx",
+  "benchmark": {
+    "p50_ms": 3.507,
+    "p95_ms": 3.902,
+    "p99_ms": 4.0,
+    "throughput_ips": 279.34
+  },
+  "max_diff_check_passed": true,
+  "agreement_with_source": {
+    "metric": "dominant_class_agreement",
+    "value": 0.995,
+    "images": 200,
+    "reference": "yolov8n.onnx",
+    "passed": true
+  }
+}

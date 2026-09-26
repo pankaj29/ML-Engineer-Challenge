@@ -59,6 +59,8 @@ The production overlay had never been started, only validated with
 | The quantizer reported 100% agreement for any non-classifier output, and scored agreement on its calibration images | Detector-aware comparison on held-out images |
 | The benchmark had no PyTorch baseline, though the brief asks for every format | Eager PyTorch timed in the same interleaved run as ONNX fp32 and INT8: ONNX fp32 is 1.9x to 2.8x faster |
 | The TensorRT builder assumed 224x224 for dynamic inputs (YOLO serves 640x640), verified every model with ImageNet preprocessing, and its CLI overwrote the report | Input size and preset passed through; report entries merged by model and precision |
+| TensorRT engines existed for the fine-tuned classifier only | All four models built, timed and checked on an A100 (`tensorrt.json`) |
+| TensorRT verification failed good fp32 engines (a 0.1% bound, though TF32 has fp16's precision) and could not judge YOLO's mixed box and score output | fp32 bound set to fp16's 1%; engines scored on 200 held-out images with the INT8 fidelity metrics |
 | No test compared INT8 with fp32 through the serving path | `tests/integration/test_quantized_fidelity.py`, strict in CI; fails on the old model |
 | The benchmark's speed-up table was empty in every report (`_int8_static` never matched its baseline) | Strip the whole INT8 suffix; test with real names |
 | Benchmarks timed each model in one block, and on this hybrid laptop CPU two identical backbones measured 36 and 61 ms | Interleaved rounds; the method is recorded in the report |
@@ -93,9 +95,7 @@ about half their length.
 
 - ImageNet accuracy for the default classifier is cited (the validation set
   needs an account).
-- TensorRT engines exist for the fine-tuned classifier only. The builder now
-  handles each model's input size and preprocessing, and section 8b of the
-  Colab notebook builds the other three; running it needs a GPU session.
+- TensorRT was timed at batch 1 only, where INT8 does not beat fp16.
 - API keys carry full access including model reload, by design; scoped JWTs
   are the way to narrow it.
 - Confidence is not calibrated.

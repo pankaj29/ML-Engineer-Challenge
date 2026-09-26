@@ -710,7 +710,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Convert models to TensorRT format": (
         "DONE",
         "models/optimization/export_tensorrt.py; benchmarks/reports/tensorrt.json",
-        "Built and verified on an A100 (TensorRT 11.3.0.99) for the fine-tuned classifier: INT8 0.920 ms p50, 1068 img/s, 24.1 MB; fp16 0.990 ms; fp32 1.298 ms. The other three models have CPU INT8 only; section 8b of the Colab notebook builds their engines on a GPU runtime and has not been run yet.",
+        "fp32, fp16 and INT8 engines for all 4 models on an A100 (TensorRT 11.3.0.99), batch 1. fp16 is fastest for each (level with INT8 on the fine-tuned classifier): 0.84 to 0.98 ms for the ResNets, 3.16 ms for yolov8n, same answer as fp32 on 98% to 100% of 200 held-out images. INT8 is no faster at batch 1 and agrees with fp32 on 85% to 95% (embeddings: cosine 0.970), close to CPU INT8.",
     ),
     "Benchmark inference times across all formats": (
         "DONE",

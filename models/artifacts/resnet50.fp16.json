@@ -1,0 +1,31 @@
+{
+  "name": "resnet50",
+  "engine_path": "models/artifacts/resnet50.fp16.engine",
+  "precision": "fp16",
+  "onnx_mb": 48.72706985473633,
+  "engine_mb": 49.104976654052734,
+  "build_seconds": 29.093451978999838,
+  "max_batch_size": 32,
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "tensorrt_version": "11.3.0.99",
+  "max_abs_diff": 0.025041937828063965,
+  "verified": false,
+  "notes": [
+    "fp16 from a converted fp16 ONNX graph; TensorRT 11.3.0.99 has no FP16 builder flag"
+  ],
+  "source_onnx": "resnet50.onnx",
+  "benchmark": {
+    "p50_ms": 0.9,
+    "p95_ms": 0.936,
+    "p99_ms": 0.954,
+    "throughput_ips": 1106.74
+  },
+  "max_diff_check_passed": true,
+  "agreement_with_source": {
+    "metric": "top1_agreement",
+    "value": 0.98,
+    "images": 200,
+    "reference": "resnet50.onnx",
+    "passed": false
+  }
+}

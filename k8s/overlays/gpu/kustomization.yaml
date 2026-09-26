@@ -4,7 +4,7 @@ kind: Kustomization
 # Serve on a GPU with TensorRT.
 #
 # The base runs ONNX on CPU at roughly 15 ms per image. This runs the same
-# model through a TensorRT engine at 0.92 ms, measured on an A100. That gap is
+# model through a TensorRT fp16 engine at 0.98 ms, measured on an A100. That gap is
 # the reason the optimisation work exists, and until this overlay there was no
 # way to reach it from a running pod.
 #

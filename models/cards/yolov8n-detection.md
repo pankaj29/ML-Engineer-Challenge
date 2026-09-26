@@ -75,6 +75,19 @@ Single images are well inside the one-second budget, and ONNX Runtime is
 1.9 times faster than eager PyTorch. Batching trades per-image cost for tail
 latency, which is why batches go through the async endpoint.
 
+TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1, agreement on 200
+held-out COCO val2017 images (`benchmarks/reports/tensorrt.json`):
+
+| Precision | Engine | p50 | p99 | Throughput | Agrees with its ONNX graph | Agrees with fp32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| fp32 | 14.1 MB | 3.507 ms | 4.000 ms | 279 img/s | 99.5% | 99.5% |
+| fp16 | 7.9 MB | 3.161 ms | 3.628 ms | 312 img/s | 99.5% | 99.5% |
+| INT8 | 5.5 MB | 4.268 ms | 4.400 ms | 234 img/s | 96.0% | 93.5% |
+
+fp16 is the fastest at 3.16 ms and keeps 99.5% agreement. INT8 is slower than
+fp32 here, probably because only the convolutions are quantized, and agrees
+with fp32 on the dominant class in 93.5% of images (CPU INT8: 91.8%).
+
 ### INT8
 
 INT8 is 3.67x smaller and 0.4 mAP points below fp32 (0.388 against 0.392),
