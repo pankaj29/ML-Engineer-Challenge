@@ -1,0 +1,32 @@
+{
+  "images_per_model": 500,
+  "offset": 1000,
+  "generated_at": "2026-09-26T07:00:33.538831+00:00",
+  "models": {
+    "resnet50:1.0.0": {
+      "metric": "top1_agreement",
+      "value": 0.862,
+      "images": 500,
+      "dataset": "Tiny-ImageNet val"
+    },
+    "resnet50-tiny-imagenet:1.0.0": {
+      "metric": "top1_agreement",
+      "value": 0.956,
+      "images": 500,
+      "dataset": "Tiny-ImageNet val"
+    },
+    "yolov8n:1.0.0": {
+      "metric": "dominant_class_agreement",
+      "value": 0.918,
+      "images": 500,
+      "dataset": "COCO val2017"
+    },
+    "resnet50-embed:1.0.0": {
+      "metric": "mean_cosine",
+      "value": 0.9848,
+      "images": 500,
+      "dataset": "Tiny-ImageNet val",
+      "min_cosine": 0.8391
+    }
+  }
+}

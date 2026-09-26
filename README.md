@@ -55,7 +55,54 @@ curl -X POST http://localhost/api/v1/classify/upload \
 On Windows use `curl.exe`; plain `curl` in PowerShell is `Invoke-WebRequest`.
 
 ```json
-⟦SAMPLE_RESPONSE⟧
+{
+  "predictions": [
+    {
+      "class_id": 208,
+      "label": "Labrador retriever",
+      "confidence": 0.39691928029060364,
+      "rank": 1
+    },
+    {
+      "class_id": 205,
+      "label": "flat-coated retriever",
+      "confidence": 0.01685599610209465,
+      "rank": 2
+    },
+    {
+      "class_id": 227,
+      "label": "kelpie",
+      "confidence": 0.014008959755301476,
+      "rank": 3
+    }
+  ],
+  "top_prediction": {
+    "class_id": 208,
+    "label": "Labrador retriever",
+    "confidence": 0.39691928029060364,
+    "rank": 1
+  },
+  "model": {
+    "name": "resnet50",
+    "version": "1.0.0",
+    "task": "classification",
+    "runtime": "onnx",
+    "device": "cpu"
+  },
+  "timing": {
+    "preprocess_ms": 26.09,
+    "inference_ms": 188.47,
+    "postprocess_ms": 0.24,
+    "total_ms": 223.81
+  },
+  "warnings": [
+    "image resized from 640x480 to 224x224 using center_crop"
+  ],
+  "correlation_id": "093a707dd81f4674ae40a634c600f7ea",
+  "cached": false,
+  "degraded": false,
+  "image_id": "dog.jpg"
+}
 ```
 
 Every response carries the model and version that answered, a per-stage
@@ -159,10 +206,10 @@ Full table: [`BENCHMARKS.md`](benchmarks/reports/BENCHMARKS.md).
 
 | Model | fp32 p50 / p99 | INT8 p50 / p99 | INT8 size | INT8 quality vs fp32 |
 | --- | ---: | ---: | ---: | --- |
-| resnet50 | 77.9 / 222.6 ms | 77.1 / 309.6 ms | 3.92x smaller | ⟦R50_INT8_AGREE⟧ top-1 agreement |
+| resnet50 | 77.9 / 222.6 ms | 77.1 / 309.6 ms | 3.92x smaller | 86.2% top-1 agreement |
 | resnet50-tiny-imagenet | 66.6 / 176.6 ms | 76.8 / 268.9 ms | 3.91x smaller | ⟦AB_SHORT⟧ |
 | yolov8n | 97.0 / 258.2 ms | 177.4 / 342.8 ms | 3.67x smaller | 0.381 against 0.392 mAP50-95 |
-| resnet50-embed | 65.7 / 211.2 ms | 78.5 / 255.0 ms | 3.91x smaller | ⟦EMBED_INT8_COS⟧ mean cosine |
+| resnet50-embed | 65.7 / 211.2 ms | 78.5 / 255.0 ms | 3.91x smaller | 0.985 mean cosine |
 
 Every model meets the sub-second requirement at p99 for a single image, in
 both precisions.

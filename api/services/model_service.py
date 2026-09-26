@@ -152,6 +152,30 @@ class ModelRuntime(Protocol):
         ...
 
 
+def container_cpu_quota(root: Path = Path("/sys/fs/cgroup")) -> int | None:
+    """Whole CPUs this container may use, or None when there is no limit.
+
+    cgroup v2 keeps the limit in ``cpu.max`` ("200000 100000" for two CPUs,
+    "max 100000" for none). cgroup v1, which Docker Desktop still uses, keeps
+    it in ``cpu/cpu.cfs_quota_us`` and ``cpu/cpu.cfs_period_us``, with -1 for
+    no limit. Outside a container neither exists.
+    """
+    try:
+        quota, period = (root / "cpu.max").read_text(encoding="utf-8").split()[:2]
+    except (OSError, ValueError):
+        try:
+            quota = (root / "cpu" / "cpu.cfs_quota_us").read_text(encoding="utf-8").strip()
+            period = (root / "cpu" / "cpu.cfs_period_us").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+    if quota in ("max", "-1"):
+        return None
+    try:
+        return max(1, int(quota) // int(period))
+    except ValueError:
+        return None
+
+
 class OnnxRuntimeBackend:
     """Runs a model through ONNX Runtime.
 
@@ -182,9 +206,11 @@ class OnnxRuntimeBackend:
         )
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        # Leave threading to the container's CPU limit rather than letting ORT
-        # spawn a thread per core inside a cgroup-limited container.
-        opts.intra_op_num_threads = 0
+        # 0 would let ORT start one thread per core it can see, which inside a
+        # container is every host core, not the container's CPU limit. On a
+        # 22-core host with a 2-CPU limit that meant CFS throttling and single
+        # images taking 190 to 590 ms instead of about 70.
+        opts.intra_op_num_threads = settings.ort_intra_op_threads or container_cpu_quota() or 0
 
         try:
             self.session = ort.InferenceSession(str(path), opts, providers=providers)

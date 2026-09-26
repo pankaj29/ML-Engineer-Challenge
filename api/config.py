@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     # being OOM-killed under a traffic spike.
     max_concurrent_inferences: int = 8
     inference_timeout_seconds: float = 30.0
+    # ONNX Runtime threads per session. 0 means the container's CPU quota
+    # (cgroup cpu.max), falling back to ONNX Runtime's own default.
+    ort_intra_op_threads: int = 0
 
     # ------------------------------------------------------------- security ---
     # SECURITY: there is no default secret. The app refuses to start in

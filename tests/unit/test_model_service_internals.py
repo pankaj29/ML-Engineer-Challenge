@@ -277,3 +277,47 @@ class TestWarmupAndHealth:
             await asyncio.wait_for(
                 service.load_async(_entry(artifacts={"onnx": "absent.onnx"})), timeout=10
             )
+
+
+class TestContainerCpuQuota:
+    """ONNX Runtime's thread count follows the container's CPU limit."""
+
+    def test_cgroup_v2_two_cpus(self, tmp_path) -> None:
+        from api.services.model_service import container_cpu_quota
+
+        (tmp_path / "cpu.max").write_text("200000 100000")
+        assert container_cpu_quota(tmp_path) == 2
+
+    def test_cgroup_v2_no_limit(self, tmp_path) -> None:
+        from api.services.model_service import container_cpu_quota
+
+        (tmp_path / "cpu.max").write_text("max 100000")
+        assert container_cpu_quota(tmp_path) is None
+
+    def test_cgroup_v1_two_cpus(self, tmp_path) -> None:
+        """Docker Desktop's layout."""
+        from api.services.model_service import container_cpu_quota
+
+        (tmp_path / "cpu").mkdir()
+        (tmp_path / "cpu" / "cpu.cfs_quota_us").write_text("200000")
+        (tmp_path / "cpu" / "cpu.cfs_period_us").write_text("100000")
+        assert container_cpu_quota(tmp_path) == 2
+
+    def test_cgroup_v1_no_limit(self, tmp_path) -> None:
+        from api.services.model_service import container_cpu_quota
+
+        (tmp_path / "cpu").mkdir()
+        (tmp_path / "cpu" / "cpu.cfs_quota_us").write_text("-1")
+        (tmp_path / "cpu" / "cpu.cfs_period_us").write_text("100000")
+        assert container_cpu_quota(tmp_path) is None
+
+    def test_a_fractional_limit_never_rounds_to_zero(self, tmp_path) -> None:
+        from api.services.model_service import container_cpu_quota
+
+        (tmp_path / "cpu.max").write_text("50000 100000")
+        assert container_cpu_quota(tmp_path) == 1
+
+    def test_outside_a_container(self, tmp_path) -> None:
+        from api.services.model_service import container_cpu_quota
+
+        assert container_cpu_quota(tmp_path) is None

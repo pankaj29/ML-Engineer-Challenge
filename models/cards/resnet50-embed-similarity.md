@@ -61,9 +61,9 @@ Time and memory both grow linearly with the number of vectors.
 ### Correctness
 
 - The ONNX file matches PyTorch to a maximum absolute difference of
-  ⟦EMBED_PARITY⟧ on the three sample photos (`benchmarks/reports/onnx_export.json`).
-- INT8 vectors have a mean cosine similarity of ⟦EMBED_INT8_COS⟧ to the fp32
-  vectors on ⟦EMBED_INT8_N⟧ images (`benchmarks/reports/int8_fidelity.json`).
+  5.96e-07 on the three sample photos (`benchmarks/reports/onnx_export.json`).
+- INT8 vectors have a mean cosine similarity of 0.985 to the fp32
+  vectors on 500 images (`benchmarks/reports/int8_fidelity.json`).
 - Validation passes: deterministic, batch-invariant, no NaN or Inf, p95
   96.3 ms (`benchmarks/reports/validation.json`).
 

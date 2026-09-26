@@ -42,5 +42,37 @@
       ]
     ],
     "notes": []
+  },
+  {
+    "name": "resnet50-embed",
+    "input_shape": [
+      "batch",
+      3,
+      224,
+      224
+    ],
+    "max_abs_diff": 5.960464477539062e-07,
+    "mean_abs_diff": 1.3131915800138986e-08,
+    "verified": true,
+    "tolerance": 0.0001,
+    "notes": [
+      "checked after export against the committed file on 3 sample photos (scripts/verify_onnx_parity.py)"
+    ]
+  },
+  {
+    "name": "yolov8n",
+    "input_shape": [
+      "batch",
+      3,
+      "height",
+      "width"
+    ],
+    "max_abs_diff": 0.003173828125,
+    "mean_abs_diff": 2.258181267283659e-06,
+    "verified": true,
+    "tolerance": 0.01,
+    "notes": [
+      "checked after export against the committed file on 3 sample photos (scripts/verify_onnx_parity.py)"
+    ]
   }
 ]

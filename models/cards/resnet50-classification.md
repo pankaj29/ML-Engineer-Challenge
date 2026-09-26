@@ -72,8 +72,8 @@ p99 for a single image is 223 ms, well inside the one-second budget.
 
 Static INT8 is 3.92x smaller and the same speed as fp32 at batch 1 on this CPU
 (slower at batch 4). Without labels its accuracy cannot be measured here, but
-agreement can: on ⟦R50_INT8_N⟧ held-out images INT8 picks the same top class as
-fp32 ⟦R50_INT8_AGREE⟧ of the time (`benchmarks/reports/int8_fidelity.json`).
+agreement can: on 500 held-out images INT8 picks the same top class as
+fp32 86.2% of the time (`benchmarks/reports/int8_fidelity.json`).
 fp32 stays the default; INT8 is available per request with
 `"runtime": "onnx_int8"`.
 

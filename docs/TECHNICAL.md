@@ -69,8 +69,8 @@ that computes the wrong thing is worse than a failed export
 | --- | ---: |
 | resnet50 | 2.86e-06 |
 | resnet50-tiny-imagenet | 3.81e-06 |
-| resnet50-embed | ⟦EMBED_PARITY⟧ |
-| yolov8n | ⟦YOLO_PARITY⟧ |
+| resnet50-embed | 5.96e-07 |
+| yolov8n | 3.17e-03 |
 
 torch 2.9's default "dynamo" exporter ignored `dynamic_axes`, baking in batch
 size 1, and split weights into a sidecar file. The export script's own
@@ -125,16 +125,21 @@ INT8 said "academic gown" at 0.10. Percentile calibration, which clips at
 `scripts/compare_int8_recipes.py` builds every recipe from the fp32 model and
 scores it on held-out images (`benchmarks/reports/int8_recipes.json`):
 
-⟦RECIPE_TABLE⟧
+| Model | Measure | S8S8 MinMax | S8S8 MinMax, 7-bit weights | U8U8 MinMax | U8U8 percentile |
+| --- | --- | ---: | ---: | ---: | ---: |
+| resnet50-tiny-imagenet | top-1 accuracy, 2,000 images (fp32 78.6%) | 70.0% | 69.2% | 70.0% | **77.8%** |
+| resnet50 | top-1 agreement, 500 images | 79.6% | 77.0% | 79.8% | **86.2%** |
+| resnet50-embed | mean cosine, 500 images | 0.972 (min 0.840) | 0.961 (min 0.769) | 0.972 (min 0.839) | **0.985 (min 0.839)** |
+| yolov8n | dominant-class agreement, 500 COCO images | 88.8% | 91.6% | 88.8% | **91.8%** |
 
 U8U8 with percentile calibration ships for all four models. Against fp32:
 
 | Model | Size | p50 change, batch 1 | Quality |
 | --- | ---: | ---: | --- |
-| resnet50 | 3.92x smaller | ⟦R50_INT8_SPEED⟧ | ⟦R50_INT8_AGREE⟧ top-1 agreement over ⟦R50_INT8_N⟧ images |
+| resnet50 | 3.92x smaller | ⟦R50_INT8_SPEED⟧ | 86.2% top-1 agreement over 500 images |
 | resnet50-tiny-imagenet | 3.91x smaller | ⟦TINY_INT8_SPEED⟧ | ⟦AB_SHORT⟧ on all 10,000 validation images |
 | yolov8n | 3.67x smaller | ⟦YOLO_INT8_SPEED⟧ | ⟦YOLO_INT8_MAP⟧ against 0.392 mAP50-95 on 500 COCO images |
-| resnet50-embed | 3.91x smaller | ⟦EMBED_INT8_SPEED⟧ | ⟦EMBED_INT8_COS⟧ mean cosine to fp32 |
+| resnet50-embed | 3.91x smaller | ⟦EMBED_INT8_SPEED⟧ | 0.985 mean cosine to fp32 |
 
 ⟦INT8_VERDICT⟧
 
