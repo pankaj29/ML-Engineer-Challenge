@@ -358,7 +358,11 @@ Postgres the stack already runs. The production overlay and Kubernetes both
 use it. Search is exact in both, and linear in index size
 (`benchmarks/reports/similarity_search.json`):
 
-⟦SEARCH_TABLE⟧
+| Vectors | Search p50 | Memory |
+| ---: | ---: | ---: |
+| 1,000 | 0.22 ms | 7.8 MB |
+| 10,000 | 2.22 ms | 78.1 MB |
+| 100,000 | 24.07 ms | 781.2 MB |
 
 pgvector's HNSW index is the next step past about a million vectors, trading a
 little recall for a large speed-up. Postgres was chosen over FAISS or a vector

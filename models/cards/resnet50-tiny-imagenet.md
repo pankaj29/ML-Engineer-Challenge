@@ -112,16 +112,20 @@ traffic, not arithmetic.
 
 ### INT8 on CPU
 
-A paired A/B test on all 10,000 validation images, fp32 against static INT8
-through the serving path (`benchmarks/reports/ab_test.json`):
+A paired A/B test on all 10,000 validation images, fp32 against INT8 through
+the serving path (`benchmarks/reports/ab_test.json`):
 
 | | fp32 | INT8 |
 | --- | ---: | ---: |
 | Top-1 | ⟦AB_FP32⟧ | ⟦AB_INT8⟧ |
-| p95 latency | ⟦AB_FP32_P95⟧ | ⟦AB_INT8_P95⟧ |
 
-⟦AB_SENTENCE⟧ INT8 is 3.91x smaller, and on this CPU also slower. It stays
-available per request and is not the default.
+⟦AB_SENTENCE⟧
+
+The INT8 build is uint8 with percentile calibration. The first build used
+MinMax calibration, which let a few extreme activations set every range; it
+lost about 9 points of top-1 and misread real photos (fp32 said "Labrador
+retriever" at 0.77 for `samples/dog.jpg`, INT8 said "academic gown").
+`benchmarks/reports/int8_recipes.json` compares the recipes.
 
 ### Validation
 
@@ -166,10 +170,13 @@ python -m models.training.train_classifier \
     --grad-clip 1.0 --label-smoothing 0.1 --patience 0 --ema --device cuda
 ```
 
-About 1.6 hours on an A100. On the laptop CPU the same model trains at
-⟦CPU_R50_IPS⟧ images per second (`benchmarks/reports/cpu_training_throughput.json`),
-which is why it was trained on a GPU. For hosted GPUs, pass `--mirror-dir` so
-checkpoints outlive the container.
+About 1.6 hours on an A100. The laptop CPU is not an option: even at the
+native 64px, where each step is cheapest, ResNet-50 trains at 14.5 images a
+second with the pretrained stem, 2.4 days for 30 epochs, and at 2.4 images a
+second with the adapted stem, 14.6 days
+(`benchmarks/reports/cpu_training_throughput.json`). The 224px run that
+produced this model would be slower still. On hosted GPUs, pass `--mirror-dir`
+so checkpoints outlive the container.
 
 Leave early stopping off (`--patience 0`). A cosine schedule does much of its
 work in the final anneal, so validation accuracy plateaus mid-run as a matter

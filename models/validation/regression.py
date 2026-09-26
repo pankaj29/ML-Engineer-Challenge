@@ -414,10 +414,13 @@ def measure_model(
     metrics: dict[str, float] = {
         "p50_latency_ms": round(result.p50_ms, 3),
         "p95_latency_ms": round(result.p95_ms, 3),
-        "p99_latency_ms": round(result.p99_ms, 3),
         "mean_latency_ms": round(result.mean_ms, 3),
         "throughput_ips": round(result.throughput_ips, 2),
     }
+    # With fewer than 100 samples the "99th percentile" is just the slowest
+    # run, one scheduler hiccup, and gating on it fails healthy models.
+    if iterations >= 100:
+        metrics["p99_latency_ms"] = round(result.p99_ms, 3)
 
     artifact = service._artifact_path(entry, next(iter(entry.artifacts)))
     if artifact and artifact.exists():
@@ -435,13 +438,13 @@ def main() -> int:
 
     p_record = sub.add_parser("record", help="Record a baseline for a model.")
     p_record.add_argument("--model", required=True, help="name:version")
-    p_record.add_argument("--iterations", type=int, default=50)
+    p_record.add_argument("--iterations", type=int, default=100)
     p_record.add_argument("--note", default="")
     p_record.add_argument("--baseline-file", type=Path, default=DEFAULT_BASELINE)
 
     p_check = sub.add_parser("check", help="Check a model against its baseline.")
     p_check.add_argument("--model", required=True, help="name:version")
-    p_check.add_argument("--iterations", type=int, default=50)
+    p_check.add_argument("--iterations", type=int, default=100)
     p_check.add_argument("--baseline-file", type=Path, default=DEFAULT_BASELINE)
     p_check.add_argument("--strict-environment", action="store_true")
     p_check.add_argument(
@@ -449,7 +452,7 @@ def main() -> int:
     )
 
     p_all = sub.add_parser("check-all", help="Check every registered model.")
-    p_all.add_argument("--iterations", type=int, default=30)
+    p_all.add_argument("--iterations", type=int, default=100)
     p_all.add_argument("--baseline-file", type=Path, default=DEFAULT_BASELINE)
     p_all.add_argument(
         "--output", type=Path, default=REPO_ROOT / "benchmarks" / "reports" / "regression.json"

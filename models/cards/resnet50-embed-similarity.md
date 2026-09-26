@@ -54,7 +54,11 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 Exact search over the in-process index, 50 queries per size
 (`benchmarks/reports/similarity_search.json`):
 
-⟦SEARCH_TABLE⟧
+| Vectors | Search p50 | Memory |
+| ---: | ---: | ---: |
+| 1,000 | 0.22 ms | 7.8 MB |
+| 10,000 | 2.22 ms | 78.1 MB |
+| 100,000 | 24.07 ms | 781.2 MB |
 
 Time and memory both grow linearly with the number of vectors.
 
