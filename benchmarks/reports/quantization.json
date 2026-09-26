@@ -1,22 +1,5 @@
 [
   {
-    "name": "yolov8n",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\yolov8n.onnx",
-    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
-    "original_mb": 12.090323448181152,
-    "quantized_mb": 3.295454978942871,
-    "compression_ratio": 3.6687873223683165,
-    "max_abs_diff": 351.85040283203125,
-    "mean_abs_diff": 0.22361412509710132,
-    "top1_agreement": 0.9375,
-    "duration_seconds": 15.384916800016072,
-    "calibration_images": 100,
-    "notes": [
-      "quantized op types: Conv; the rest stay fp32"
-    ]
-  },
-  {
     "name": "resnet50",
     "mode": "onnx_static",
     "source_path": "models\\artifacts\\resnet50.onnx",
@@ -24,10 +7,10 @@
     "original_mb": 97.41438102722168,
     "quantized_mb": 24.872931480407715,
     "compression_ratio": 3.9164817023660645,
-    "max_abs_diff": 1.6589536666870117,
-    "mean_abs_diff": 0.10752753591071815,
-    "top1_agreement": 0.84375,
-    "duration_seconds": 15.917603699985193,
+    "max_abs_diff": 2.8095682859420776,
+    "mean_abs_diff": 0.137700142185844,
+    "top1_agreement": 0.78125,
+    "duration_seconds": 92.23552699998254,
     "calibration_images": 100,
     "notes": []
   },
@@ -39,11 +22,43 @@
     "original_mb": 89.60001850128174,
     "quantized_mb": 22.90831470489502,
     "compression_ratio": 3.91124443921386,
-    "max_abs_diff": 0.1937718614935875,
-    "mean_abs_diff": 0.0019195383721815026,
-    "top1_agreement": 0.84375,
-    "duration_seconds": 15.907675800001016,
+    "max_abs_diff": 0.23612573742866516,
+    "mean_abs_diff": 0.0023512842647294696,
+    "top1_agreement": 0.8125,
+    "duration_seconds": 85.54180639999686,
     "calibration_images": 100,
     "notes": []
+  },
+  {
+    "name": "resnet50-tiny-imagenet",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50-tiny-imagenet.onnx",
+    "output_path": "models\\artifacts\\resnet50-tiny-imagenet_int8_static.onnx",
+    "original_mb": 91.16132831573486,
+    "quantized_mb": 23.29746150970459,
+    "compression_ratio": 3.9129296673700473,
+    "max_abs_diff": 4.452429175376892,
+    "mean_abs_diff": 0.44715271395165473,
+    "top1_agreement": 0.6875,
+    "duration_seconds": 101.66044029998011,
+    "calibration_images": 100,
+    "notes": []
+  },
+  {
+    "name": "yolov8n",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\yolov8n.onnx",
+    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
+    "original_mb": 12.090323448181152,
+    "quantized_mb": 3.295454978942871,
+    "compression_ratio": 3.6687873223683165,
+    "max_abs_diff": 377.6076965332031,
+    "mean_abs_diff": 0.3062202983529689,
+    "top1_agreement": 0.8125,
+    "duration_seconds": 39.20900010000332,
+    "calibration_images": 100,
+    "notes": [
+      "quantized op types: Conv; the rest stay fp32"
+    ]
   }
 ]
