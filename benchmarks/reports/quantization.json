@@ -1,20 +1,5 @@
 [
   {
-    "name": "resnet50",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50.onnx",
-    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
-    "original_mb": 97.41438102722168,
-    "quantized_mb": 24.872931480407715,
-    "compression_ratio": 3.9164817023660645,
-    "max_abs_diff": 1.9747489131987095,
-    "mean_abs_diff": 0.13065410126290955,
-    "top1_agreement": 0.71875,
-    "duration_seconds": 31.609714800011716,
-    "calibration_images": 100,
-    "notes": []
-  },
-  {
     "name": "yolov8n",
     "mode": "onnx_static",
     "source_path": "models\\artifacts\\yolov8n.onnx",
@@ -22,13 +7,28 @@
     "original_mb": 12.090323448181152,
     "quantized_mb": 3.295454978942871,
     "compression_ratio": 3.6687873223683165,
-    "max_abs_diff": 363.81280517578125,
-    "mean_abs_diff": 0.23128129254785035,
-    "top1_agreement": 1.0,
-    "duration_seconds": 15.322150899999542,
+    "max_abs_diff": 351.85040283203125,
+    "mean_abs_diff": 0.22361412509710132,
+    "top1_agreement": 0.9375,
+    "duration_seconds": 15.384916800016072,
     "calibration_images": 100,
     "notes": [
       "quantized op types: Conv; the rest stay fp32"
     ]
+  },
+  {
+    "name": "resnet50",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50.onnx",
+    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
+    "original_mb": 97.41438102722168,
+    "quantized_mb": 24.872931480407715,
+    "compression_ratio": 3.9164817023660645,
+    "max_abs_diff": 1.6589536666870117,
+    "mean_abs_diff": 0.10752753591071815,
+    "top1_agreement": 0.84375,
+    "duration_seconds": 15.917603699985193,
+    "calibration_images": 100,
+    "notes": []
   }
 ]

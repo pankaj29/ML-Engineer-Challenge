@@ -188,8 +188,21 @@ def _compare_onnx_models(
         if out_a.ndim == 2:
             agree += int(np.argmax(out_a, axis=1)[0] == np.argmax(out_b, axis=1)[0])
             total += 1
+        elif out_a.ndim == 3 and out_a.shape[1] > 4:
+            # YOLO layout (batch, 4 box + C class scores, anchors). Without
+            # this branch a detector scored 100% agreement by default, which
+            # is how an INT8 model emitting all-zero class scores passed.
+            agree += int(_dominant_class(out_a) == _dominant_class(out_b))
+            total += 1
 
     return max_diff, float(np.mean(diffs)) if diffs else 0.0, (agree / total if total else 1.0)
+
+
+def _dominant_class(output: np.ndarray, min_score: float = 0.1) -> int:
+    """Most confident class across all anchors, or -1 if nothing clears min_score."""
+    scores = output[0, 4:, :]
+    best = scores.max(axis=1)
+    return int(best.argmax()) if best.max() >= min_score else -1
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +435,10 @@ def quantize_onnx_static(
     input_name = (
         ort.InferenceSession(str(src), providers=["CPUExecutionProvider"]).get_inputs()[0].name
     )
-    samples = list(iter_calibration_images(calibration_dir, cfg, num_calibration))
+    # Calibrate on the first num_calibration images and measure fidelity on
+    # the next 32, so the agreement figure is not scored on the calibration set.
+    loaded = list(iter_calibration_images(calibration_dir, cfg, num_calibration + 32))
+    samples, held_out = loaded[:num_calibration], loaded[num_calibration:]
     if not samples:
         raise ValueError(
             f"no usable calibration images found under {calibration_dir}. "
@@ -498,7 +514,10 @@ def quantize_onnx_static(
                 f"left in fp32 for lack of an INT8 kernel: {', '.join(excluded_nodes)} "
                 "(TensorRT INT8 convolutions need input channels divisible by 4)"
             )
-    max_diff, mean_diff, agreement = _compare_or_note(src, dst, samples[:32], notes)
+    if not held_out:
+        notes.append("fidelity measured on calibration images: no held-out images were left")
+        held_out = samples[:32]
+    max_diff, mean_diff, agreement = _compare_or_note(src, dst, held_out, notes)
 
     original_mb = src.stat().st_size / 1_048_576
     quantized_mb = dst.stat().st_size / 1_048_576
