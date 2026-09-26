@@ -9,7 +9,7 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| Tests | ⟦TESTS_ROW⟧ |
+| Tests | pending |
 | Coverage | ⟦COV_API⟧% on `api/`, ⟦COV_WORKER⟧% on `worker/` |
 | Lint | `ruff`, `black` and `mypy` clean, all three enforced in CI |
 | Stack | 7 services in development; in production 10 containers plus a one-shot migration, all healthy |
@@ -196,7 +196,7 @@ against the ONNX graph. Getting INT8 to build took four fixes, described in
 
 ## Testing and CI
 
-- ⟦TESTS_BULLET⟧ tests
+- 0 tests: 0 unit, 0 integration, 0 end-to-end, 0 performance, plus Locust load
 - Unit tests need nothing running: fakeredis, in-memory SQLite and a fake
   model runtime.
 - Integration tests use real ONNX models, and real Redis, PostgreSQL and

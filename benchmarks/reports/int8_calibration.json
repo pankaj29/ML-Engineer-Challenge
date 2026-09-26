@@ -1,0 +1,36 @@
+{
+  "model": "resnet50-tiny-imagenet",
+  "calibration_images": 200,
+  "held_out_images": 200,
+  "generated_at": "2026-09-26T04:33:54.345368+00:00",
+  "results": [
+    {
+      "calibration": "MinMax",
+      "quantization": "asymmetric",
+      "top1_agreement": 0.79,
+      "calibration_seconds": 34.1,
+      "tensorrt_accepts": false
+    },
+    {
+      "calibration": "MinMax",
+      "quantization": "symmetric",
+      "top1_agreement": 0.43,
+      "calibration_seconds": 23.8,
+      "tensorrt_accepts": true
+    },
+    {
+      "calibration": "Entropy",
+      "quantization": "symmetric",
+      "top1_agreement": 0.43,
+      "calibration_seconds": 894.2,
+      "tensorrt_accepts": true
+    },
+    {
+      "calibration": "Percentile",
+      "quantization": "symmetric",
+      "top1_agreement": 0.945,
+      "calibration_seconds": 607.3,
+      "tensorrt_accepts": true
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-09-26T04:39:37.944199+00:00",
+  "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+  "torch": "2.9.0+cpu",
+  "threads": 16,
+  "input": "64x64, batch 32, fp32, AdamW",
+  "timed_steps": 6,
+  "results": [
+    {
+      "arch": "resnet50",
+      "stem": "adapted for 64px",
+      "images_per_second": 1.4,
+      "epoch_hours": 19.19,
+      "thirty_epochs_days": 23.99
+    },
+    {
+      "arch": "resnet50",
+      "stem": "original",
+      "images_per_second": 8.3,
+      "epoch_hours": 3.37,
+      "thirty_epochs_days": 4.21
+    },
+    {
+      "arch": "resnet18",
+      "stem": "adapted for 64px",
+      "images_per_second": 4.0,
+      "epoch_hours": 6.92,
+      "thirty_epochs_days": 8.65
+    },
+    {
+      "arch": "resnet18",
+      "stem": "original",
+      "images_per_second": 20.5,
+      "epoch_hours": 1.36,
+      "thirty_epochs_days": 1.69
+    }
+  ]
+}

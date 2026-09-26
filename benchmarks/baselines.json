@@ -43,7 +43,49 @@
         "gpu": null
       },
       "note": "224px EMA model, local CPU baseline"
+    },
+    "yolov8n:1.0.0": {
+      "metrics": {
+        "p50_latency_ms": 589.927,
+        "p95_latency_ms": 1103.655,
+        "p99_latency_ms": 1208.715,
+        "mean_latency_ms": 632.951,
+        "throughput_ips": 1.58,
+        "size_mb": 12.09
+      },
+      "recorded_at": "2026-09-26T04:40:38.405778+00:00",
+      "environment": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+        "python": "3.13.14",
+        "cpu_count": 22,
+        "torch": "2.9.0+cpu",
+        "gpu": null
+      },
+      "note": "baseline after INT8 fix"
+    },
+    "resnet50-embed:1.0.0": {
+      "metrics": {
+        "p50_latency_ms": 491.435,
+        "p95_latency_ms": 807.452,
+        "p99_latency_ms": 864.085,
+        "mean_latency_ms": 495.642,
+        "throughput_ips": 2.02,
+        "size_mb": 89.6
+      },
+      "recorded_at": "2026-09-26T04:41:26.560659+00:00",
+      "environment": {
+        "platform": "Windows",
+        "machine": "AMD64",
+        "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+        "python": "3.13.14",
+        "cpu_count": 22,
+        "torch": "2.9.0+cpu",
+        "gpu": null
+      },
+      "note": "initial baseline"
     }
   },
-  "updated_at": "2026-09-24T14:11:25.577265+00:00"
+  "updated_at": "2026-09-26T04:41:26.652917+00:00"
 }
