@@ -1,68 +1,6 @@
 [
   {
     "name": "resnet50",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50.onnx",
-    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
-    "original_mb": 97.41438102722168,
-    "quantized_mb": 24.872931480407715,
-    "compression_ratio": 3.9164817023660645,
-    "max_abs_diff": 2.8095682859420776,
-    "mean_abs_diff": 0.137700142185844,
-    "top1_agreement": 0.78125,
-    "duration_seconds": 92.23552699998254,
-    "calibration_images": 100,
-    "notes": []
-  },
-  {
-    "name": "resnet50-embed",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50-embed.onnx",
-    "output_path": "models\\artifacts\\resnet50-embed_int8_static.onnx",
-    "original_mb": 89.60001850128174,
-    "quantized_mb": 22.90831470489502,
-    "compression_ratio": 3.91124443921386,
-    "max_abs_diff": 0.23612573742866516,
-    "mean_abs_diff": 0.0023512842647294696,
-    "top1_agreement": 0.8125,
-    "duration_seconds": 85.54180639999686,
-    "calibration_images": 100,
-    "notes": []
-  },
-  {
-    "name": "resnet50-tiny-imagenet",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\resnet50-tiny-imagenet.onnx",
-    "output_path": "models\\artifacts\\resnet50-tiny-imagenet_int8_static.onnx",
-    "original_mb": 91.16132831573486,
-    "quantized_mb": 23.29746150970459,
-    "compression_ratio": 3.9129296673700473,
-    "max_abs_diff": 4.452429175376892,
-    "mean_abs_diff": 0.44715271395165473,
-    "top1_agreement": 0.6875,
-    "duration_seconds": 101.66044029998011,
-    "calibration_images": 100,
-    "notes": []
-  },
-  {
-    "name": "yolov8n",
-    "mode": "onnx_static",
-    "source_path": "models\\artifacts\\yolov8n.onnx",
-    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
-    "original_mb": 12.090323448181152,
-    "quantized_mb": 3.295454978942871,
-    "compression_ratio": 3.6687873223683165,
-    "max_abs_diff": 377.6076965332031,
-    "mean_abs_diff": 0.3062202983529689,
-    "top1_agreement": 0.8125,
-    "duration_seconds": 39.20900010000332,
-    "calibration_images": 100,
-    "notes": [
-      "quantized op types: Conv; the rest stay fp32"
-    ]
-  },
-  {
-    "name": "resnet50",
     "mode": "onnx_dynamic",
     "source_path": "models\\artifacts\\resnet50.onnx",
     "output_path": "models\\artifacts\\resnet50_int8.onnx",
@@ -76,6 +14,75 @@
     "calibration_images": 0,
     "notes": [
       "accuracy NOT verified: the quantized model could not be executed (NotImplemented). The file was still written. The usual cause is dynamic quantization of a convolutional model: DynamicQuantizeLinear emits uint8 activations by spec, weight_type defaults to int8, and ONNX Runtime registers ConvInteger for uint8 x uint8 only, so kernel resolution fails. QUInt8 weights avoid it; static quantization is the better answer for conv nets."
+    ]
+  },
+  {
+    "name": "resnet50",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50.onnx",
+    "output_path": "models\\artifacts\\resnet50_int8_static.onnx",
+    "original_mb": 97.41438102722168,
+    "quantized_mb": 24.87242889404297,
+    "compression_ratio": 3.9165608410102943,
+    "max_abs_diff": 1.8073110580444336,
+    "mean_abs_diff": 0.1072911215517961,
+    "top1_agreement": 0.8125,
+    "duration_seconds": 28.658893799991347,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)"
+    ]
+  },
+  {
+    "name": "resnet50-embed",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50-embed.onnx",
+    "output_path": "models\\artifacts\\resnet50-embed_int8_static.onnx",
+    "original_mb": 89.60001850128174,
+    "quantized_mb": 22.90782928466797,
+    "compression_ratio": 3.9113273190511477,
+    "max_abs_diff": 0.19880352169275284,
+    "mean_abs_diff": 0.0019199949971215981,
+    "top1_agreement": 0.78125,
+    "duration_seconds": 29.73675509999157,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)"
+    ]
+  },
+  {
+    "name": "resnet50-tiny-imagenet",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\resnet50-tiny-imagenet.onnx",
+    "output_path": "models\\artifacts\\resnet50-tiny-imagenet_int8_static.onnx",
+    "original_mb": 91.16132831573486,
+    "quantized_mb": 23.296958923339844,
+    "compression_ratio": 3.9130140811814593,
+    "max_abs_diff": 5.648634731769562,
+    "mean_abs_diff": 0.41241969076450913,
+    "top1_agreement": 0.6875,
+    "duration_seconds": 31.879781199997524,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)"
+    ]
+  },
+  {
+    "name": "yolov8n",
+    "mode": "onnx_static",
+    "source_path": "models\\artifacts\\yolov8n.onnx",
+    "output_path": "models\\artifacts\\yolov8n_int8_static.onnx",
+    "original_mb": 12.090323448181152,
+    "quantized_mb": 3.2948570251464844,
+    "compression_ratio": 3.6694531373917916,
+    "max_abs_diff": 378.79376220703125,
+    "mean_abs_diff": 0.22329035396894914,
+    "top1_agreement": 0.9375,
+    "duration_seconds": 42.151677799993195,
+    "calibration_images": 100,
+    "notes": [
+      "uint8 activations and weights (U8U8)",
+      "quantized op types: Conv; the rest stay fp32"
     ]
   }
 ]
