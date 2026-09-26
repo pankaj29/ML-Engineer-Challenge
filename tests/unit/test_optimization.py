@@ -528,3 +528,82 @@ class TestDetectorAgreement:
         from models.optimization.quantize import _dominant_class
 
         assert _dominant_class(self._yolo([0.0, 0.0, 0.0])) == -1
+
+
+# ---------------------------------------------------------------------------
+# export_tensorrt.measure_engine_agreement
+# ---------------------------------------------------------------------------
+class TestEngineAgreement:
+    """TensorRT needs a GPU, so a fake engine stands in for it."""
+
+    @pytest.fixture
+    def image_dir(self, tmp_path: Path) -> Path:
+        rng = np.random.default_rng(0)
+        for i in range(8):
+            array = rng.integers(0, 256, (20, 20, 3), dtype=np.uint8)
+            Image.fromarray(array).save(tmp_path / f"{i:02d}.png")
+        return tmp_path
+
+    def _fake_engine(self, monkeypatch, onnx_path: Path, transform) -> None:
+        import onnxruntime as ort
+
+        import api.services.model_service as model_service
+
+        session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        name = session.get_inputs()[0].name
+
+        class FakeBackend:
+            def __init__(self, path: Path) -> None:
+                pass
+
+            def infer(self, x: np.ndarray) -> list[np.ndarray]:
+                return [transform(session.run(None, {name: x})[0])]
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(model_service, "TensorRTBackend", FakeBackend)
+
+    def _measure(self, exported: Path, image_dir: Path, task: str, offset: int = 2):
+        from models.optimization.export_tensorrt import measure_engine_agreement
+
+        return measure_engine_agreement(
+            exported,
+            Path("unused.engine"),
+            image_dir,
+            PreprocessConfig(size=(16, 16)),
+            task=task,
+            images=5,
+            offset=offset,
+        )
+
+    def test_a_faithful_engine_passes(self, monkeypatch, exported: Path, image_dir: Path) -> None:
+        self._fake_engine(monkeypatch, exported, lambda out: out + 1e-4)
+        result = self._measure(exported, image_dir, "classification")
+        assert result["metric"] == "top1_agreement"
+        assert result["value"] == 1.0
+        assert result["images"] == 5
+        assert result["passed"]
+
+    def test_a_wrong_engine_fails(self, monkeypatch, exported: Path, image_dir: Path) -> None:
+        self._fake_engine(monkeypatch, exported, lambda out: -out)
+        result = self._measure(exported, image_dir, "classification")
+        assert result["value"] == 0.0
+        assert not result["passed"]
+
+    def test_similarity_reports_mean_and_min_cosine(
+        self, monkeypatch, exported: Path, image_dir: Path
+    ) -> None:
+        self._fake_engine(monkeypatch, exported, lambda out: out * 3.0)
+        result = self._measure(exported, image_dir, "similarity")
+        assert result["metric"] == "mean_cosine"
+        assert result["value"] == pytest.approx(1.0)
+        assert result["min_cosine"] == pytest.approx(1.0)
+        assert result["passed"]
+
+    def test_no_images_past_the_offset_is_an_error(
+        self, monkeypatch, exported: Path, image_dir: Path
+    ) -> None:
+        self._fake_engine(monkeypatch, exported, lambda out: out)
+        with pytest.raises(ValueError, match="no images"):
+            self._measure(exported, image_dir, "classification", offset=100)

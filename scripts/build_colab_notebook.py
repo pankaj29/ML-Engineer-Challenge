@@ -1039,24 +1039,31 @@ if trt_results:
               f"{r['benchmark']['throughput_ips']:>8.0f} {speedup:>8}")
 """),
     md("""
-## 8b. TensorRT for the other three models
+## 8b. TensorRT for all four models
 
-Section 8 builds engines for the fine-tuned classifier. This section does the
-same for the ImageNet ResNet-50, the embedding model and YOLOv8n, and it runs
-on its own: after sections 2 and 3 (the code, its LFS model files and the
-TensorRT packages) it needs no training. Run sections 1, 2, 3 and 8b, then 12.
-Without section 3 this cell prints SKIPPED, because TensorRT is not installed.
+Section 8 walks through the fine-tuned classifier step by step. This section
+builds, checks and benchmarks engines for all four served models in one go,
+and it runs on its own: after sections 2 and 3 (the code, its LFS model files
+and the TensorRT packages) it needs no training. Run sections 1, 2, 3 and 8b,
+then 12. Without section 3 this cell stops and says so.
 
-For each model it builds a TensorRT-compatible INT8 graph (fp32 biases,
-symmetric, percentile calibration, the 3-channel stem left in fp32), then
-fp32, fp16 and INT8 engines, each verified against the ONNX graph on a real
-photograph and benchmarked at batch 1. YOLOv8n is calibrated on COCO images at
-640x640 and only its convolutions are quantized: quantizing its output
-Concat rounds every class score to zero (docs/TECHNICAL.md).
+For each model it uses a TensorRT-compatible INT8 graph (fp32 biases,
+symmetric, percentile calibration, the 3-channel stem left in fp32), building
+one if the repo does not have it, then builds fp32, fp16 and INT8 engines and
+benchmarks each at batch 1. YOLOv8n is calibrated on COCO images at 640x640
+and only its convolutions are quantized: quantizing its output Concat rounds
+every class score to zero (docs/TECHNICAL.md).
+
+Each engine is then scored on 200 held-out images, past the calibration set,
+with the metrics of `scripts/measure_int8_fidelity.py`: top-1 agreement for
+the classifiers, mean cosine for the embeddings, dominant-class agreement for
+the detector. `verified` means the engine agrees with the ONNX graph it was
+built from (99%, or cosine 0.999). INT8 engines also get their agreement with
+the fp32 model, which is the quality cost of quantizing.
 
 Results merge into `benchmarks/reports/tensorrt.json`. Back on your machine,
 copy only `reports/tensorrt.json`, the engine metadata (`*.fp32.json`,
-`*.fp16.json`, `*.int8.json`) and the three `*_int8_trt.onnx` graphs from the
+`*.fp16.json`, `*.int8.json`) and the `*_int8_trt.onnx` graphs from the
 bundle. The other reports in it are this checkout's committed copies.
 """),
     code("""
@@ -1086,16 +1093,18 @@ from models.optimization.export_tensorrt import (
     benchmark_engine,
     build_engine,
     check_trt_qdq_graph,
+    measure_engine_agreement,
     tensorrt_available,
 )
 from models.optimization.quantize import quantize_onnx_static
 
 ARTIFACTS = Path("models/artifacts")
 MODELS = [
-    # name, preprocessing preset, calibration images, operator types to quantize
-    ("resnet50", "imagenet_224", TINY_VAL, None),
-    ("resnet50-embed", "imagenet_224", TINY_VAL, None),
-    ("yolov8n", "yolo_640", COCO_VAL, ["Conv"]),
+    # name, task, preprocessing preset, images, operator types to quantize
+    ("resnet50-tiny-imagenet", "classification", "tiny_imagenet", TINY_VAL, None),
+    ("resnet50", "classification", "imagenet_224", TINY_VAL, None),
+    ("resnet50-embed", "similarity", "imagenet_224", TINY_VAL, None),
+    ("yolov8n", "detection", "yolo_640", COCO_VAL, ["Conv"]),
 ]
 
 report_path = Path("benchmarks/reports/tensorrt.json")
@@ -1113,17 +1122,21 @@ available, reason = tensorrt_available()
 if not available:
     print("SKIPPED: " + reason)
 else:
-    for name, preset, calibration_dir, op_types in MODELS:
+    for name, task, preset, image_dir, op_types in MODELS:
         cfg = PREPROCESS_PRESETS[preset]
         fp32 = ARTIFACTS / (name + ".onnx")
+        int8 = ARTIFACTS / (name + "_int8_trt.onnx")
         print()
         print("=== " + name + " ===")
-        quantized = quantize_onnx_static(
-            fp32, calibration_dir, cfg, num_calibration=100,
-            trt_compatible=True, op_types_to_quantize=op_types,
-        )
-        print(quantized.summary())
-        int8 = Path(quantized.output_path)
+        if int8.exists():
+            print("  using " + int8.name + " from the repo")
+        else:
+            quantized = quantize_onnx_static(
+                fp32, image_dir, cfg, num_calibration=100,
+                trt_compatible=True, op_types_to_quantize=op_types,
+            )
+            print(quantized.summary())
+            int8 = Path(quantized.output_path)
         problems = check_trt_qdq_graph(int8)
         print("  pre-flight: " + ("clean" if not problems else "; ".join(problems)))
 
@@ -1138,21 +1151,36 @@ else:
                     Path(result.engine_path), input_shape=(1, 3, *cfg.size),
                     iterations=200, warmup=50,
                 )
+                engine = Path(result.engine_path)
+                agreement = measure_engine_agreement(source, engine, image_dir, cfg, task=task)
                 record = asdict(result)
                 record["source_onnx"] = source.name
                 record["benchmark"] = bench
+                # The one-image max-diff check only catches a mis-parsed graph;
+                # task-level agreement on 200 held-out images is the verdict.
+                record["max_diff_check_passed"] = result.verified
+                record["agreement_with_source"] = agreement
+                record["verified"] = agreement["passed"]
+                if precision == "int8":
+                    record["agreement_with_fp32"] = measure_engine_agreement(
+                        fp32, engine, image_dir, cfg, task=task
+                    )
+                engine.with_suffix(".json").write_text(json.dumps(record, indent=2), encoding="utf-8")
                 key = (record["name"], record["precision"])
                 report = [r for r in report if (r.get("name"), r.get("precision")) != key]
                 report.append(record)
+                vs_fp32 = record.get("agreement_with_fp32", agreement)
                 print("  " + precision + ": p50 " + format(bench["p50_ms"], ".3f") + " ms, "
-                      + format(bench["throughput_ips"], ".0f") + " img/s, verified="
-                      + str(result.verified))
+                      + format(bench["throughput_ips"], ".0f") + " img/s, "
+                      + agreement["metric"] + " " + str(agreement["value"]) + " vs source, "
+                      + str(vs_fp32["value"]) + " vs fp32, verified=" + str(record["verified"]))
             except Exception as exc:
                 print("  FAILED " + precision + ": " + type(exc).__name__ + ": " + str(exc))
 
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print()
-    print("wrote " + str(report_path) + " (" + str(len(report)) + " engines)")
+    print("wrote " + str(report_path) + " (" + str(len(report)) + " engines, "
+          + str(sum(1 for r in report if r.get("verified"))) + " verified)")
 """),
     md("""
 ## 9. Benchmark every format on this GPU

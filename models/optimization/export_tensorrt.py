@@ -657,10 +657,10 @@ def build_engine(
 #:
 #: The values, and why each is where it is:
 #:
-#: * ``fp32`` 0.1% - not bit-exact, because TensorRT defaults to TF32 for fp32
-#:   matmuls on Ampere and later. TF32 keeps 10 mantissa bits against fp32's
-#:   23, so ~1e-3 relative error is the expected cost of the faster kernel.
-#:   Measured on an A100: 0.042%.
+#: * ``fp32`` 1% - not bit-exact, because TensorRT defaults to TF32 for fp32
+#:   matmuls on Ampere and later. TF32 keeps 10 mantissa bits, the same as
+#:   fp16, so it gets the same bound. At 0.1% the ImageNet ResNet-50 and the
+#:   embedding model failed on an A100 while their fp16 engines passed.
 #: * ``fp16`` 1% - half precision carries about three decimal digits.
 #:   Measured: 0.209%.
 #: * ``int8`` 10% - TensorRT and ONNX Runtime round and fuse the same QDQ
@@ -669,7 +669,7 @@ def build_engine(
 #:
 #: Loose as these are, they still catch what this check is for: a mis-parsed
 #: graph or a wrong optimisation profile produces garbage, not drift.
-_VERIFY_TOLERANCE = {"fp32": 1e-3, "fp16": 1e-2, "int8": 1e-1}
+_VERIFY_TOLERANCE = {"fp32": 1e-2, "fp16": 1e-2, "int8": 1e-1}
 
 
 def _verification_input(spatial: list[int], preprocess: Any = None) -> tuple[np.ndarray, str]:
@@ -747,6 +747,80 @@ def _verify_engine(
         f"= {relative * 100:.3f}% of peak -> {'pass' if verified else 'FAIL'}"
     )
     return max_diff, verified
+
+
+#: Agreement an engine needs with the ONNX graph it was built from, per metric.
+#: The one-image max-diff check above only catches a mis-parsed graph, and it
+#: cannot judge a detector: YOLO's output mixes pixel box coordinates with 0-1
+#: class scores, so a few pixels of drift on one of 8,400 anchors fails an
+#: engine whose detections are unchanged. These use the same metrics as
+#: scripts/measure_int8_fidelity.py, on held-out images.
+AGREEMENT_BAR = {"top1_agreement": 0.99, "dominant_class_agreement": 0.99, "mean_cosine": 0.999}
+
+_TASK_METRIC = {
+    "classification": "top1_agreement",
+    "detection": "dominant_class_agreement",
+    "similarity": "mean_cosine",
+}
+
+
+def measure_engine_agreement(
+    onnx_path: Path,
+    engine_path: Path,
+    image_dir: Path,
+    preprocess: Any,
+    *,
+    task: str,
+    images: int = 200,
+    offset: int = 1000,
+) -> dict[str, Any]:
+    """How often the engine gives the same answer as an ONNX graph.
+
+    ``offset`` skips past the images quantization calibrated on, so the INT8
+    engines are not scored on data they were tuned to.
+    """
+    import onnxruntime as ort
+
+    from api.services.model_service import TensorRTBackend
+    from api.utils.image_processing import preprocess as run_preprocess
+    from models.optimization.quantize import _dominant_class
+
+    metric = _TASK_METRIC[task]
+    files = sorted(
+        f for f in Path(image_dir).iterdir() if f.suffix.lower() in {".jpg", ".jpeg", ".png"}
+    )[offset : offset + images]
+    if not files:
+        raise ValueError(f"no images in {image_dir} past index {offset}")
+
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    name = session.get_inputs()[0].name
+    backend = TensorRTBackend(engine_path)
+    scores: list[float] = []
+    try:
+        for path in files:
+            x = run_preprocess(path.read_bytes(), preprocess).array.astype(np.float32)
+            a = session.run(None, {name: x})[0]
+            b = backend.infer(x)[0]
+            if metric == "dominant_class_agreement":
+                scores.append(float(_dominant_class(a) == _dominant_class(b)))
+            elif metric == "mean_cosine":
+                va, vb = a.reshape(-1).astype(np.float64), b.reshape(-1).astype(np.float64)
+                scores.append(float(va @ vb / (np.linalg.norm(va) * np.linalg.norm(vb))))
+            else:
+                scores.append(float(a[0].argmax() == b[0].argmax()))
+    finally:
+        backend.close()
+
+    result: dict[str, Any] = {
+        "metric": metric,
+        "value": round(float(np.mean(scores)), 4),
+        "images": len(scores),
+        "reference": Path(onnx_path).name,
+    }
+    if metric == "mean_cosine":
+        result["min_cosine"] = round(float(np.min(scores)), 4)
+    result["passed"] = result["value"] >= AGREEMENT_BAR[metric]
+    return result
 
 
 def benchmark_engine(

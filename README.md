@@ -9,7 +9,7 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 
 | | |
 | --- | --- |
-| Tests | 1,436: 1232 unit, 161 integration, 28 end-to-end, 15 performance |
+| Tests | 1,440: 1236 unit, 161 integration, 28 end-to-end, 15 performance |
 | Coverage | 95.8% on `api/`, 94.6% on `worker/` |
 | Lint | `ruff`, `black` and `mypy` clean, all three enforced in CI |
 | Stack | 7 services in development; in production 10 containers plus a one-shot migration, all healthy |
@@ -266,7 +266,7 @@ they measure the service's own overhead (`benchmarks/reports/performance_tests.t
 
 ## Testing and CI
 
-- 1,436 tests: 1232 unit, 161 integration, 28 end-to-end, 15 performance, plus Locust load
+- 1,440 tests: 1236 unit, 161 integration, 28 end-to-end, 15 performance, plus Locust load
 - Unit tests need nothing running: fakeredis, in-memory SQLite and a fake
   model runtime.
 - Integration tests use real ONNX models, and real Redis, PostgreSQL and
