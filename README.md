@@ -14,8 +14,8 @@ ML Engineer challenge; the brief is in [`docs/CHALLENGE.md`](docs/CHALLENGE.md).
 | Lint | `ruff`, `black` and `mypy` clean, all three enforced in CI |
 | Stack | 7 services in development; in production 10 containers plus a one-shot migration, all healthy |
 | Fine-tuned classifier | 78.91% top-1 on Tiny-ImageNet, measured through the served ONNX model |
-| Detector | 0.392 mAP50-95 on 500 COCO images (INT8: 0.381) |
-| Latency | 66 to 97 ms p50 per image on a laptop CPU; 0.92 ms on an A100 with TensorRT INT8 |
+| Detector | 0.392 mAP50-95 on 500 COCO images (INT8: 0.388) |
+| Latency | 67 to 113 ms p50 per image on a laptop CPU in fp32, 28 to 40 ms for the INT8 ResNets; 0.92 ms on an A100 with TensorRT INT8 |
 | Load test | 1,619 requests from 20 users over 45 s: 1 failure (a 503 from load shedding), p95 440 ms, 36.8 req/s |
 
 Every number in this README comes from a file in
@@ -115,7 +115,7 @@ from cache.
 | Detection | `POST /api/v1/detect`, boxes in the original image's pixels |
 | Similarity | `POST /api/v1/similarity/{embed,index,search}` |
 | Batch | `POST /api/v1/batch` returns a job id; `GET /api/v1/batch/{id}` for results |
-| File upload | add `/upload` to any inference path for multipart |
+| File upload | `/classify/upload`, `/detect/upload`, `/similarity/upload` take a multipart file |
 | Models | `GET /api/v1/models`, what is registered and which is default |
 | Health, metrics | `GET /api/v1/health`, `GET /api/v1/metrics` (Prometheus) |
 | Tokens | `POST /api/v1/auth/token` trades an API key for a short-lived JWT |
@@ -172,10 +172,10 @@ The reasoning behind all of this is in [`docs/TECHNICAL.md`](docs/TECHNICAL.md).
 
 | Task | Model | Accuracy (measured) | CPU p50 | Size |
 | --- | --- | --- | ---: | ---: |
-| Classification (default) | ResNet-50, ImageNet-1k | 80.86% top-1 (torchvision, not re-measured) | 77.9 ms | 97.4 MB |
-| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 78.91% top-1, 92.12% top-5 | 66.6 ms | 91.2 MB |
-| Detection | YOLOv8n, COCO | 0.392 mAP50-95 on 500 val2017 images | 97.0 ms | 12.1 MB |
-| Similarity | ResNet-50 without its head, 2,048-d | not measured (no labelled retrieval set) | 65.7 ms | 89.6 MB |
+| Classification (default) | ResNet-50, ImageNet-1k | 80.86% top-1 (torchvision, not re-measured) | 75.1 ms | 97.4 MB |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 78.91% top-1, 92.12% top-5 | 66.8 ms | 91.2 MB |
+| Detection | YOLOv8n, COCO | 0.392 mAP50-95 on 500 val2017 images | 113.1 ms | 12.1 MB |
+| Similarity | ResNet-50 without its head, 2,048-d | not measured (no labelled retrieval set) | 69.1 ms | 89.6 MB |
 
 The brief's overview names three tasks and its numbered list names two; the
 third model is similarity search ([ASSUMPTIONS.md](docs/ASSUMPTIONS.md) §1.1).
@@ -206,18 +206,21 @@ Full table: [`BENCHMARKS.md`](benchmarks/reports/BENCHMARKS.md).
 
 | Model | fp32 p50 / p99 | INT8 p50 / p99 | INT8 size | INT8 quality vs fp32 |
 | --- | ---: | ---: | ---: | --- |
-| resnet50 | 77.9 / 222.6 ms | 77.1 / 309.6 ms | 3.92x smaller | 86.2% top-1 agreement |
-| resnet50-tiny-imagenet | 66.6 / 176.6 ms | 76.8 / 268.9 ms | 3.91x smaller | ⟦AB_SHORT⟧ |
-| yolov8n | 97.0 / 258.2 ms | 177.4 / 342.8 ms | 3.67x smaller | 0.381 against 0.392 mAP50-95 |
-| resnet50-embed | 65.7 / 211.2 ms | 78.5 / 255.0 ms | 3.91x smaller | 0.985 mean cosine |
+| resnet50 | 75.1 / 211.7 ms | 37.0 / 141.6 ms | 3.92x smaller | 86.2% top-1 agreement |
+| resnet50-tiny-imagenet | 66.8 / 277.1 ms | 39.5 / 149.0 ms | 3.91x smaller | 78.38% against 78.91% top-1 |
+| yolov8n | 113.1 / 307.5 ms | 150.9 / 306.9 ms | 3.67x smaller | 0.388 against 0.392 mAP50-95 |
+| resnet50-embed | 69.1 / 357.3 ms | 28.1 / 132.3 ms | 3.91x smaller | 0.985 mean cosine |
 
 Every model meets the sub-second requirement at p99 for a single image, in
 both precisions.
 
-INT8 is applied to all four models and is the default for none. On this CPU
-it buys size, not speed, and the A/B test (a paired McNemar test) decides
-whether its accuracy cost is acceptable rather than a judgement call. It stays
-available per request (`"runtime": "onnx_int8"`).
+INT8 is applied to all four models and is the default for none. For the three
+ResNets it is 1.7 to 2.5 times as fast as fp32 on this CPU and a quarter of
+the size; for the detector it is smaller but 1.33 times slower. Accuracy is the price: on all
+10,000 validation images the fine-tuned classifier scores 78.38% in INT8
+against 78.91% in fp32, and a paired McNemar test says that 0.53-point gap is
+real (p = 0.002). So fp32 stays the default and INT8 is one parameter away
+(`"runtime": "onnx_int8"`) for deployments that need the throughput.
 
 Measuring INT8 properly found three real problems, all fixed:
 
@@ -258,7 +261,7 @@ they measure the service's own overhead (`benchmarks/reports/performance_tests.t
 | No memory leak | 111.0 MB before, 111.0 MB after the first half, 99.8 MB at the end |
 | No slowdown under sustained load | p50 3.1 ms in the first half, 2.7 ms in the second |
 | Invalid input is cheap to reject | 0.003 ms per malformed image |
-| A bad image cannot fail a batch | Covered in `tests/performance/` and `tests/unit/test_worker_tasks.py` |
+| A bad image cannot fail a batch | `test_one_bad_image_does_not_fail_the_batch` in `tests/unit/test_worker_tasks.py` |
 
 ## Testing and CI
 

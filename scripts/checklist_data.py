@@ -541,7 +541,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Apply INT8 quantization to all models": (
         "DONE",
         "models/optimization/quantize.py; benchmarks/reports/quantization.json; benchmarks/reports/int8_fidelity.json",
-        "All 4 models, static QDQ: resnet50 3.92x smaller, resnet50-tiny-imagenet 3.91x, resnet50-embed 3.91x, yolov8n 3.67x (convolutions only, COCO-calibrated; 0.381 against 0.392 mAP50-95). INT8 is selectable per request and the default for none; tests/integration/test_quantized_fidelity.py checks every INT8 model against fp32 in CI.",
+        "All 4 models, static QDQ, uint8 with percentile calibration (chosen by measurement, benchmarks/reports/int8_recipes.json): resnet50 3.92x smaller, resnet50-tiny-imagenet 3.91x, resnet50-embed 3.91x, yolov8n 3.67x (convolutions only, COCO-calibrated; 0.388 against 0.392 mAP50-95). The fine-tuned classifier loses 0.53 points of top-1 on 10,000 images. INT8 is selectable per request and the default for none; tests/integration/test_quantized_fidelity.py checks every INT8 model against fp32 in CI.",
     ),
     "Convert models to ONNX format": (
         "DONE",
@@ -715,7 +715,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Benchmark inference times across all formats": (
         "DONE",
         "models/optimization/benchmark.py; benchmarks/reports/BENCHMARKS.md",
-        "fp32 and INT8 ONNX for all 4 models at batch 1 and 4, 100 runs per case interleaved across models, plus TensorRT fp32/fp16/INT8. INT8 on this CPU: level with fp32 for resnet50, 1.15x to 1.83x slower for the others, 3.67x to 3.92x smaller.",
+        "fp32 and INT8 ONNX for all 4 models at batch 1 and 4, 100 runs per case interleaved across models, plus TensorRT fp32/fp16/INT8. INT8 (uint8, percentile calibration) on this CPU: 1.7x to 2.5x faster than fp32 for the three ResNets, 1.33x slower for yolov8n, 3.67x to 3.92x smaller.",
     ),
     "Comprehensive model validation pipeline": (
         "DONE",
@@ -725,7 +725,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "A/B testing framework": (
         "DONE",
         "models/validation/ab_test.py; benchmarks/reports/ab_test.json",
-        "Paired McNemar test with a confidence interval, latency comparison, hash-based traffic splitting. name:version@runtime compares runtimes of one model. ⟦AB_CHECKLIST⟧",
+        "Paired McNemar test with a confidence interval, latency comparison, hash-based traffic splitting. name:version@runtime compares runtimes of one model. Run on all 10,000 validation images, fp32 against INT8: 78.91% against 78.38%, p = 0.002, keep fp32.",
     ),
     "Model drift detection": (
         "DONE",
@@ -735,7 +735,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Performance regression testing": (
         "DONE",
         "models/validation/regression.py; benchmarks/baselines.json; benchmarks/reports/regression.json",
-        "Baselines with per-metric tolerances and hardware fingerprinting. ⟦REG_CHECKLIST⟧",
+        "Baselines with per-metric tolerances and hardware fingerprinting. Baselines for all 4 models at 100 iterations. Accuracy gates pass; latency gates are documented as needing dedicated hardware, because this laptop varies 30% within minutes (evidence in docs/TECHNICAL.md section 7).",
     ),
     "models/ directory with training scripts": (
         "DONE",
@@ -1028,7 +1028,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Performance: sub-second inference": (
         "DONE",
         "benchmarks/reports/BENCHMARKS.md",
-        "p99 at batch 1: resnet50 222.6 ms, resnet50-tiny-imagenet 176.6 ms, yolov8n 258.2 ms, resnet50-embed 211.2 ms. Every model inside 1 s in both precisions; the slowest is yolov8n INT8 at 342.8 ms.",
+        "p99 at batch 1: resnet50 211.7 ms, resnet50-tiny-imagenet 277.1 ms, yolov8n 307.5 ms, resnet50-embed 357.3 ms. Every model inside 1 s in both precisions; the slowest single-image p99 is resnet50-embed fp32 at 357.3 ms.",
     ),
     "Security: no hardcoded secrets": (
         "DONE",

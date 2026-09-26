@@ -61,21 +61,22 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 77.9 ms | 184.8 ms | 222.6 ms | 11.9 img/s | 97.4 MB |
-| ONNX fp32 | 4 | 204.6 ms | 352.2 ms | 418.4 ms | 18.9 img/s | 97.4 MB |
-| ONNX INT8 | 1 | 77.1 ms | 172.9 ms | 309.6 ms | 12.2 img/s | 24.9 MB |
-| ONNX INT8 | 4 | 338.8 ms | 478.9 ms | 629.0 ms | 12.0 img/s | 24.9 MB |
+| ONNX fp32 | 1 | 75.1 ms | 149.8 ms | 211.7 ms | 13.8 img/s | 97.4 MB |
+| ONNX fp32 | 4 | 244.3 ms | 387.2 ms | 445.4 ms | 15.1 img/s | 97.4 MB |
+| ONNX INT8 | 1 | 37.0 ms | 97.1 ms | 141.6 ms | 22.3 img/s | 24.9 MB |
+| ONNX INT8 | 4 | 102.9 ms | 143.0 ms | 195.5 ms | 37.1 img/s | 24.9 MB |
 
-p99 for a single image is 223 ms, well inside the one-second budget.
+p99 for a single image is 211.7 ms, well inside the one-second budget.
 
 ### INT8
 
-Static INT8 is 3.92x smaller and the same speed as fp32 at batch 1 on this CPU
-(slower at batch 4). Without labels its accuracy cannot be measured here, but
-agreement can: on 500 held-out images INT8 picks the same top class as
-fp32 86.2% of the time (`benchmarks/reports/int8_fidelity.json`).
-fp32 stays the default; INT8 is available per request with
-`"runtime": "onnx_int8"`.
+INT8 (uint8, percentile calibration) is 3.92x smaller and 2.0x faster than
+fp32 at batch 1 on this CPU: 37.0 ms against 75.1 ms p50. Without labels its
+accuracy cannot be measured here, but agreement can: on 500 held-out images
+INT8 picks the same top class as fp32 86.2% of the time
+(`benchmarks/reports/int8_fidelity.json`). Because a seventh of answers change
+and the accuracy cost is unmeasured, fp32 stays the default; INT8 is available
+with `"runtime": "onnx_int8"`.
 
 ### Validation
 

@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Registry name | `resnet50-embed`, version `1.0.0`, default for similarity |
-| Endpoints | `POST /api/v1/similarity/{embed,index,search}` and `/upload` variants |
+| Endpoints | `POST /api/v1/similarity/{embed,index,search}`, and `/similarity/upload` to search by file |
 | Output | 2,048 numbers, L2-normalised |
 | Weights | torchvision `IMAGENET1K_V2` (BSD-3-Clause) |
 
@@ -44,10 +44,10 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 65.7 ms | 128.8 ms | 211.2 ms | 15.2 img/s | 89.6 MB |
-| ONNX fp32 | 4 | 198.5 ms | 309.8 ms | 372.3 ms | 19.3 img/s | 89.6 MB |
-| ONNX INT8 | 1 | 78.5 ms | 164.9 ms | 255.0 ms | 11.2 img/s | 22.9 MB |
-| ONNX INT8 | 4 | 360.7 ms | 507.3 ms | 592.3 ms | 11.4 img/s | 22.9 MB |
+| ONNX fp32 | 1 | 69.1 ms | 124.9 ms | 357.3 ms | 12.6 img/s | 89.6 MB |
+| ONNX fp32 | 4 | 246.2 ms | 370.9 ms | 421.3 ms | 15.3 img/s | 89.6 MB |
+| ONNX INT8 | 1 | 28.1 ms | 99.3 ms | 132.3 ms | 25.1 img/s | 22.9 MB |
+| ONNX INT8 | 4 | 96.6 ms | 126.6 ms | 173.1 ms | 42.0 img/s | 22.9 MB |
 
 ### Search
 

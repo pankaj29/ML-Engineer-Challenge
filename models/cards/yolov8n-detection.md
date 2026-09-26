@@ -52,7 +52,7 @@ image 1000, clear of the INT8 calibration set), through the same
 | Runtime | mAP50-95 | mAP50 | mAP75 |
 | --- | ---: | ---: | ---: |
 | ONNX fp32 | 0.392 | 0.536 | 0.430 |
-| ONNX INT8 | 0.381 | 0.529 | 0.420 |
+| ONNX INT8 | 0.388 | 0.540 | 0.429 |
 
 Ultralytics publishes 37.3 mAP50-95 on the full 5,000-image set. 39.2 on this
 500-image slice is in line with it.
@@ -64,30 +64,33 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`).
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 97.0 ms | 200.8 ms | 258.2 ms | 9.9 img/s | 12.1 MB |
-| ONNX fp32 | 4 | 319.0 ms | 484.7 ms | 509.9 ms | 12.1 img/s | 12.1 MB |
-| ONNX INT8 | 1 | 177.4 ms | 278.1 ms | 342.8 ms | 5.5 img/s | 3.3 MB |
-| ONNX INT8 | 4 | 761.6 ms | 1104.3 ms | 1341.2 ms | 4.9 img/s | 3.3 MB |
+| ONNX fp32 | 1 | 113.1 ms | 226.2 ms | 307.5 ms | 7.3 img/s | 12.1 MB |
+| ONNX fp32 | 4 | 396.9 ms | 670.3 ms | 829.3 ms | 9.5 img/s | 12.1 MB |
+| ONNX INT8 | 1 | 150.9 ms | 256.2 ms | 306.9 ms | 6.2 img/s | 3.3 MB |
+| ONNX INT8 | 4 | 523.5 ms | 975.2 ms | 1181.8 ms | 7.2 img/s | 3.3 MB |
 
 Single images are well inside the one-second budget. INT8 at batch 4 is not,
 at p99, which is one reason batches go through the async endpoint.
 
 ### INT8
 
-INT8 is 3.67x smaller, 1.1 mAP points worse and 1.8x slower on this CPU, so
-fp32 is the default and INT8 is available per request.
+INT8 is 3.67x smaller and 0.4 mAP points below fp32 (0.388 against 0.392),
+but 1.33x slower on this CPU: only the convolutions are quantized, and the
+fp32 decode head plus the extra quantize and dequantize steps outweigh the
+gain. fp32 is the default; INT8 is available per request for memory-bound
+deployments.
 
 The first INT8 model detected nothing. YOLOv8's head concatenates box
 coordinates (0 to 640) and class scores (0 to 1) into one tensor, and
 quantizing that Concat gave both one int8 scale, about 2.5 per step, so every
 class score rounded to zero. The quantization report still said "100%
-agreement", because agreement was only computed for classifier outputs.
-The current model quantizes only the convolutions, leaving the decode head in
-fp32, and is calibrated on COCO images with the detector's own letterbox
-preprocessing rather than on ImageNet-style crops. On 32 held-out COCO images
-its dominant detected class matches fp32 on 93.8%
-(`benchmarks/reports/quantization.json`). CI now runs every INT8 model against
-its fp32 twin on real images (`tests/integration/test_quantized_fidelity.py`).
+agreement", because agreement was only computed for classifier outputs. The
+current model quantizes only the convolutions, uses uint8 (portable across
+x86 CPUs, with and without VNNI), and is calibrated on 100 COCO images with
+percentile clipping and the detector's own letterbox preprocessing. On 500
+held-out COCO images its most confident class matches fp32 on 91.8%
+(`benchmarks/reports/int8_fidelity.json`). CI runs every INT8 model against its
+fp32 twin on real photos (`tests/integration/test_quantized_fidelity.py`).
 
 ### Validation
 

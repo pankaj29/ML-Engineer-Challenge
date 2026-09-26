@@ -52,7 +52,7 @@ The production overlay had never been started, only validated with
 
 | Problem | Fix |
 | --- | --- |
-| **INT8 YOLOv8n detected nothing.** One int8 scale covered box coordinates and class scores, so every score rounded to zero | Quantize convolutions only; calibrate on COCO with the detector's preprocessing. ⟦YOLO_INT8_MAP⟧ mAP50-95 against fp32's 0.392 |
+| **INT8 YOLOv8n detected nothing.** One int8 scale covered box coordinates and class scores, so every score rounded to zero | Quantize convolutions only; calibrate on COCO with the detector's preprocessing. 0.388 mAP50-95 against fp32's 0.392 |
 | INT8 results depended on the CPU: signed int8 saturates on x86 without VNNI, so CI's AMD runners got different answers from the same file | Unsigned int8 (U8U8), whose kernel cannot saturate; chosen over 7-bit weights by measurement (`int8_recipes.json`) |
 | MinMax calibration let rare outliers set every range; the fine-tuned model's INT8 build lost about 9 points and misread real photos | Percentile calibration for every model |
 | The quantizer calibrated every model with classification preprocessing, whatever it was told | Each model's registered preset |

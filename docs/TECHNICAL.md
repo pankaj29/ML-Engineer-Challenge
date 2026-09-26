@@ -22,10 +22,10 @@ mattered more than squeezing out accuracy.
 
 | Task | Model | Params | CPU p50 | Size |
 | --- | --- | ---: | ---: | ---: |
-| Classification | ResNet-50, ImageNet-1k | 25.6 M | 77.9 ms | 97.4 MB |
-| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 23.9 M | 66.6 ms | 91.2 MB |
-| Detection | YOLOv8n | 3.2 M | 97.0 ms | 12.1 MB |
-| Similarity | ResNet-50 without its head | 23.5 M | 65.7 ms | 89.6 MB |
+| Classification | ResNet-50, ImageNet-1k | 25.6 M | 75.1 ms | 97.4 MB |
+| Classification | ResNet-50 fine-tuned on Tiny-ImageNet | 23.9 M | 66.8 ms | 91.2 MB |
+| Detection | YOLOv8n | 3.2 M | 113.1 ms | 12.1 MB |
+| Similarity | ResNet-50 without its head | 23.5 M | 69.1 ms | 89.6 MB |
 
 **ResNet-50** gives good accuracy per millisecond on CPU and exports cleanly:
 every operation has a well-supported ONNX equivalent and it quantizes without
@@ -136,12 +136,16 @@ U8U8 with percentile calibration ships for all four models. Against fp32:
 
 | Model | Size | p50 change, batch 1 | Quality |
 | --- | ---: | ---: | --- |
-| resnet50 | 3.92x smaller | ⟦R50_INT8_SPEED⟧ | 86.2% top-1 agreement over 500 images |
-| resnet50-tiny-imagenet | 3.91x smaller | ⟦TINY_INT8_SPEED⟧ | ⟦AB_SHORT⟧ on all 10,000 validation images |
-| yolov8n | 3.67x smaller | ⟦YOLO_INT8_SPEED⟧ | ⟦YOLO_INT8_MAP⟧ against 0.392 mAP50-95 on 500 COCO images |
-| resnet50-embed | 3.91x smaller | ⟦EMBED_INT8_SPEED⟧ | 0.985 mean cosine to fp32 |
+| resnet50 | 3.92x smaller | 0.49x faster | 86.2% top-1 agreement over 500 images |
+| resnet50-tiny-imagenet | 3.91x smaller | 0.59x faster | 78.38% against 78.91% top-1 on all 10,000 validation images |
+| yolov8n | 3.67x smaller | 1.33x slower | 0.388 against 0.392 mAP50-95 on 500 COCO images |
+| resnet50-embed | 3.91x smaller | 0.41x faster | 0.985 mean cosine to fp32 |
 
-⟦INT8_VERDICT⟧
+For the three ResNets, INT8 now runs 1.7 to 2.5 times faster than fp32 on
+this CPU at a quarter of the size. That changes the trade-off from size-only
+to throughput against a measured half-point of accuracy on the fine-tuned
+model. fp32 stays the default because it is the more accurate answer; a
+caller that needs throughput asks for INT8 per request.
 
 ### TensorRT
 
@@ -158,7 +162,7 @@ INT8 is 1.41x faster than fp32 and a quarter of its size, and level with
 fp16. At batch 1 a ResNet-50 on an A100 is bound by memory traffic and kernel
 launches, not arithmetic, so lower precision arithmetic helps little; larger
 batches are where INT8 should pull ahead. Against the same model on the laptop
-CPU (15.2 img/s), the A100 serves 54 to 70 times the throughput.
+CPU (13.7 img/s in fp32), the A100 serves 60 to 78 times the throughput.
 
 The TensorRT API changed across the versions this had to run on:
 `EXPLICIT_BATCH` and `platform_has_fast_fp16` went in 10, `BuilderFlag.FP16`
@@ -224,19 +228,19 @@ python -m models.optimization.benchmark --iterations 100 --warmup 20 --rounds 5 
 
 | Model | Runtime | Batch 1 p50 | p95 | p99 | Batch 4 p50 | Per image at batch 4 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| resnet50 | fp32 | 77.9 | 184.8 | 222.6 | 204.6 | 53.0 |
-| resnet50 | INT8 | 77.1 | 172.9 | 309.6 | 338.8 | 83.1 |
-| resnet50-tiny-imagenet | fp32 | 66.6 | 139.0 | 176.6 | 207.5 | 53.5 |
-| resnet50-tiny-imagenet | INT8 | 76.8 | 156.5 | 268.9 | 340.7 | 88.7 |
-| yolov8n | fp32 | 97.0 | 200.8 | 258.2 | 319.0 | 82.8 |
-| yolov8n | INT8 | 177.4 | 278.1 | 342.8 | 761.6 | 202.3 |
-| resnet50-embed | fp32 | 65.7 | 128.8 | 211.2 | 198.5 | 51.8 |
-| resnet50-embed | INT8 | 78.5 | 164.9 | 255.0 | 360.7 | 87.6 |
+| resnet50 | fp32 | 75.1 | 149.8 | 211.7 | 244.3 | 66.1 |
+| resnet50 | INT8 | 37.0 | 97.1 | 141.6 | 102.9 | 27.0 |
+| resnet50-tiny-imagenet | fp32 | 66.8 | 132.8 | 277.1 | 271.4 | 72.8 |
+| resnet50-tiny-imagenet | INT8 | 39.5 | 99.6 | 149.0 | 104.0 | 29.5 |
+| yolov8n | fp32 | 113.1 | 226.2 | 307.5 | 396.9 | 105.7 |
+| yolov8n | INT8 | 150.9 | 256.2 | 306.9 | 523.5 | 138.8 |
+| resnet50-embed | fp32 | 69.1 | 124.9 | 357.3 | 246.2 | 65.4 |
+| resnet50-embed | INT8 | 28.1 | 99.3 | 132.3 | 96.6 | 23.8 |
 
 All in milliseconds. Every model meets the sub-second requirement at p99 for
 one image, in both precisions. Batching lowers the per-image cost of the fp32
-models by 18% to 37% and raises tail latency: INT8 YOLO at batch 4
-reaches 1.34 s at p99. That is why the batch endpoint is asynchronous.
+models by up to 22% and raises tail latency: INT8 YOLO at batch 4 reaches
+1.18 s at p99. That is why the batch endpoint is asynchronous.
 `BENCHMARKS.md` also lists `resnet50-tiny-imagenet_int8_trt`, the TensorRT
 graph, run on CPU for completeness; it is slow there by design.
 
@@ -263,7 +267,7 @@ benchmarks/reports/performance_tests.txt:
 | No memory leak | 111.0 MB before, 111.0 MB after the first half, 99.8 MB at the end |
 | No slowdown under sustained load | p50 3.1 ms in the first half, 2.7 ms in the second |
 | Invalid input is cheap to reject | 0.003 ms per malformed image |
-| A bad image cannot fail a batch | Covered in `tests/performance/` and `tests/unit/test_worker_tasks.py` |
+| A bad image cannot fail a batch | `test_one_bad_image_does_not_fail_the_batch` in `tests/unit/test_worker_tasks.py` |
 
 ---
 
@@ -391,7 +395,7 @@ Measured: 36.8 req/s end to end through the dev stack with one 2-CPU API contain
 | 100 to 500 req/s | 8 to 10 | 4 |
 | over 500 req/s | GPU inference | |
 
-The largest lever is the GPU: 54 to 70 times the laptop's throughput for the
+The largest lever is the GPU: 60 to 78 times the laptop's throughput for the
 fine-tuned classifier, as measured above. The second is the cache: at a high
 hit rate throughput is bounded by Redis, which is far cheaper to scale.
 
@@ -421,7 +425,13 @@ replicas at once because Postgres applies DDL transactionally.
 | `models/validation/regression.py` | Is it slower or less accurate than its recorded baseline? | `regression.json` |
 | `models/validation/coco_eval.py` | Detector mAP through the serving path | `coco_eval.json` |
 
-**A/B:** ⟦AB_PARAGRAPH⟧
+**A/B:** fp32 against INT8 for the fine-tuned classifier on all 10,000
+validation images, through the serving path (`ab_test.json`). fp32 scores
+78.91%, INT8 78.38%. INT8 got 112 images right that fp32 missed and missed 165
+that fp32 got right, and McNemar's paired test puts that difference at
+p = 0.002, so the tool recommends keeping fp32. The first INT8 build,
+calibrated with MinMax and the wrong preprocessing, lost 11 points on a
+500-image run of the same test; that is what led to the fixes in section 2.
 
 **Drift:** run on real images through the model, with the same tests the
 inference log feeds. As a control, 500 Tiny-ImageNet validation images against
@@ -432,7 +442,17 @@ aspect ratio, resolution, contrast and edge density all moved. Mean red was
 statistically significant but under the effect-size floor, and was correctly
 not flagged (`drift_report_shift.json`).
 
-**Regression:** ⟦REGRESSION_PARAGRAPH⟧
+**Regression:** baselines for all four models, recorded with 100 iterations
+(`baselines.json`), then checked (`regression.json`). Accuracy checks pass:
+the fine-tuned model's 78.91% top-1 is unchanged. The latency checks show why
+latency gates need dedicated hardware: `resnet50` was recorded at 53.9 ms p50
+and measured minutes later at 71.5 ms, same file and same machine, and failed
+its 25% tolerance. Twelve consecutive measurements a few seconds apart ranged
+from 53 to 84 ms on this hybrid laptop CPU. The tool fingerprints the hardware
+and refuses cross-machine latency comparisons; on a CI runner or a serving
+node its latency gate is meaningful, on this laptop it is not. With fewer than
+100 iterations it no longer reports p99 at all, because that is just the
+slowest run.
 
 ### Where the data comes from
 

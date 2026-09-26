@@ -91,10 +91,10 @@ interleaved with the other models (`benchmarks/reports/BENCHMARKS.md`):
 
 | Runtime | Batch | p50 | p95 | p99 | Throughput | Size |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| ONNX fp32 | 1 | 66.6 ms | 139.0 ms | 176.6 ms | 15.2 img/s | 91.2 MB |
-| ONNX fp32 | 4 | 207.5 ms | 311.7 ms | 333.1 ms | 18.7 img/s | 91.2 MB |
-| ONNX INT8 | 1 | 76.8 ms | 156.5 ms | 268.9 ms | 12.0 img/s | 23.3 MB |
-| ONNX INT8 | 4 | 340.7 ms | 560.2 ms | 687.7 ms | 11.3 img/s | 23.3 MB |
+| ONNX fp32 | 1 | 66.8 ms | 132.8 ms | 277.1 ms | 13.7 img/s | 91.2 MB |
+| ONNX fp32 | 4 | 271.4 ms | 449.4 ms | 553.3 ms | 13.7 img/s | 91.2 MB |
+| ONNX INT8 | 1 | 39.5 ms | 99.6 ms | 149.0 ms | 20.3 img/s | 23.3 MB |
+| ONNX INT8 | 4 | 104.0 ms | 215.6 ms | 273.9 ms | 33.9 img/s | 23.3 MB |
 
 TensorRT on an A100-SXM4-40GB, TensorRT 11.3.0.99, batch 1
 (`benchmarks/reports/tensorrt.json`):
@@ -117,9 +117,9 @@ the serving path (`benchmarks/reports/ab_test.json`):
 
 | | fp32 | INT8 |
 | --- | ---: | ---: |
-| Top-1 | ⟦AB_FP32⟧ | ⟦AB_INT8⟧ |
+| Top-1 | 78.91% | 78.38% |
 
-⟦AB_SENTENCE⟧
+INT8 got 112 images right that fp32 missed, and missed 165 that fp32 got right. McNemar's paired test says the 0.53-point gap is real (p = 0.002), so fp32 stays the default. INT8 is 3.91x smaller and 1.69x faster on this CPU (39.5 against 66.8 ms p50), which is the trade to weigh.
 
 The INT8 build is uint8 with percentile calibration. The first build used
 MinMax calibration, which let a few extreme activations set every range; it

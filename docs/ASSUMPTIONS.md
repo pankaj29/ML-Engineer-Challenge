@@ -53,7 +53,7 @@ The detector uses Ultralytics' COCO-trained weights; training from scratch on
 a subset would give a worse model for far more effort. The subset is used for
 what it is good for: evaluation. `models/validation/coco_eval.py` scores the
 detector on 500 val2017 images through the serving path (0.392 mAP50-95 fp32,
-0.381 INT8), and COCO images calibrate its INT8 model.
+0.388 INT8), and COCO images calibrate its INT8 model.
 
 ### 1.6 Grafana, marked optional
 

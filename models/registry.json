@@ -19,7 +19,11 @@
         224,
         224
       ],
-      "metrics": {},
+      "metrics": {
+        "p50_latency_ms": 75.1,
+        "p95_latency_ms": 149.8,
+        "size_mb": 97.4
+      },
       "limitations": [
         "Trained on ImageNet-1k: only recognises those 1000 categories, and will confidently return a wrong label for anything outside them.",
         "ImageNet is known to under-represent non-Western contexts, so accuracy is uneven across geographies and cultures.",
@@ -48,7 +52,11 @@
         224,
         224
       ],
-      "metrics": {},
+      "metrics": {
+        "p50_latency_ms": 69.1,
+        "p95_latency_ms": 124.9,
+        "size_mb": 89.6
+      },
       "limitations": [
         "Features come from an ImageNet classifier, so they encode 'what object is this' far better than style, colour or composition.",
         "Not trained with a contrastive objective, so it is weaker at instance-level retrieval (finding the same specific object) than a purpose-built model such as CLIP or DINOv2.",
@@ -77,7 +85,13 @@
         640,
         640
       ],
-      "metrics": {},
+      "metrics": {
+        "p50_latency_ms": 113.1,
+        "p95_latency_ms": 226.2,
+        "size_mb": 12.1,
+        "map50_95": 0.392,
+        "map50": 0.536
+      },
       "limitations": [
         "Trained on COCO's 80 categories only; anything else is either missed entirely or mislabelled as the nearest COCO class.",
         "The nano variant trades accuracy for speed. Small, distant or heavily occluded objects are frequently missed.",
@@ -108,9 +122,17 @@
       ],
       "metrics": {
         "top1": 78.91,
-        "top5": 92.12
+        "top5": 92.12,
+        "p50_latency_ms": 66.8,
+        "p95_latency_ms": 132.8,
+        "size_mb": 91.2
       },
-      "limitations": [],
+      "limitations": [
+        "Knows only the 200 Tiny-ImageNet classes; anything else is forced into the nearest one.",
+        "Learned from 64x64 thumbnails upsampled to 224px, so sharp high-resolution photos are unlike its training data.",
+        "Underconfident: mean confidence 0.661 against 0.789 accuracy on the validation set.",
+        "Not the default classifier; the ImageNet-1k ResNet-50 is the better general-purpose model."
+      ],
       "description": "ResNet-50 fine-tuned on Tiny-ImageNet (200 classes) at 224x224 with mixed precision, gradient clipping and cosine LR scheduling. Scores 78.91% top-1 and 92.12% top-5 on the validation split.",
       "is_default": false,
       "registered_at": "2026-09-24T04:42:05.858028+00:00",

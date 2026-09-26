@@ -281,7 +281,8 @@ prevents the endpoint being used to reach internal services or cloud metadata.
 
 ### c. Multipart upload
 
-Every endpoint has an `/upload` variant:
+Classification, detection and similarity search also take a multipart file,
+at `/classify/upload`, `/detect/upload` and `/similarity/upload`:
 
 ```bash
 curl -X POST http://localhost/api/v1/classify/upload \
@@ -376,8 +377,8 @@ EOF
   "top_prediction": { "class_id": 208, "label": "Labrador retriever", "confidence": 0.397, "rank": 1 },
   "model":  { "name": "resnet50", "version": "1.0.0", "task": "classification",
               "runtime": "onnx", "device": "cpu" },
-  "timing": { "preprocess_ms": 12.4, "inference_ms": 69.9,
-              "postprocess_ms": 0.3, "total_ms": 82.6 },
+  "timing": { "preprocess_ms": 7.11, "inference_ms": 71.84,
+              "postprocess_ms": 0.21, "total_ms": 82.1 },
   "correlation_id": "3803dbb1d6274a2e9f1c...",
   "cached": false,
   "image_id": null,
@@ -464,7 +465,7 @@ Embed an image and store it so future searches can find it.
 | `image_id` | string | Supply your own id; one is generated otherwise |
 
 ```json
-{ "id": "a3f2...", "index_size": 1, "correlation_id": "..." }
+{ "id": "4849ee8a...", "index_size": 1, "correlation_id": "bbdb6f52..." }
 ```
 
 ### `POST /api/v1/similarity/search`
@@ -480,11 +481,11 @@ Find the indexed images most similar to the supplied one.
 ```json
 {
   "results": [
-    { "id": "a3f2...", "score": 1.0, "rank": 1, "label": "the bus photo", "metadata": null }
+    { "id": "4849ee8a...", "score": 1.0, "rank": 1, "label": "the street photo", "metadata": null }
   ],
   "count": 1,
   "index_size": 1,
-  "timing": { "preprocess_ms": 9.1, "inference_ms": 49.6, "postprocess_ms": 0.1, "total_ms": 53.2 }
+  "timing": { "preprocess_ms": 6.95, "inference_ms": 95.73, "postprocess_ms": 0.21, "total_ms": 104.14 }
 }
 ```
 
@@ -597,7 +598,7 @@ currently-resident models.
       "name": "resnet50", "version": "1.0.0", "task": "classification",
       "runtime": "onnx", "device": "cpu", "loaded": true, "is_default": true,
       "num_classes": 1000, "input_shape": [1, 3, 224, 224],
-      "metrics": { "p50_latency_ms": 69.9, "size_mb": 97.4 },
+      "metrics": { "p50_latency_ms": 75.1, "p95_latency_ms": 149.8, "size_mb": 97.4, "top1": null },
       "description": "resnet50 pretrained on ImageNet-1k, exported to ONNX...",
       "limitations": [
         "Trained on ImageNet-1k: only recognises those 1000 categories...",
@@ -605,7 +606,7 @@ currently-resident models.
       ]
     }
   ],
-  "count": 3,
+  "count": 4,
   "defaults": {
     "classification": "resnet50:1.0.0",
     "detection": "yolov8n:1.0.0",
@@ -614,8 +615,10 @@ currently-resident models.
 }
 ```
 
-The `limitations` come straight from the model cards, so the caveats travel
-with the model, so it cannot rot in a separate document.
+`metrics` are the measured figures from `benchmarks/reports/` (CPU latency,
+size, and accuracy where a labelled set exists); anything not measured is
+`null`. `limitations` come from the model cards, so the caveats travel with
+the model.
 
 ### `GET /api/v1/models/{name}`, one model, `?version=` to pin.
 
@@ -758,7 +761,9 @@ outlive the incident.
 { "image_base64": "...", "runtime": "onnx_int8" }
 ```
 
-`onnx` (float32) is the default. INT8 is ~4x smaller but **measured slower**
-on CPUs without INT8 acceleration, see
+`onnx` (float32) is the default. INT8 is about 4x smaller, 1.7 to 2.5 times
+faster for the ResNet models on the benchmark CPU and 1.33 times slower for
+the detector, and slightly less accurate: 78.38% against 78.91% top-1 for the
+fine-tuned classifier. See
 [`../benchmarks/reports/BENCHMARKS.md`](../benchmarks/reports/BENCHMARKS.md)
-before switching.
+and the model cards before switching.
