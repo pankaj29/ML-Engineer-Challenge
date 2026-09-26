@@ -153,3 +153,41 @@ def test_the_queue_is_configured_for_long_running_jobs(setting: str) -> None:
     from worker.celery_app import celery_app
 
     assert setting in celery_app.conf
+
+
+class TestWorkerMetricsEndpoint:
+    """Batch metrics are recorded in child processes; the parent serves them."""
+
+    def test_nothing_starts_without_the_multiprocess_directory(self, monkeypatch) -> None:
+        import prometheus_client
+
+        from worker.celery_app import _serve_worker_metrics
+
+        monkeypatch.delenv("PROMETHEUS_MULTIPROC_DIR", raising=False)
+        started: list[int] = []
+        monkeypatch.setattr(
+            prometheus_client, "start_http_server", lambda port, **_: started.append(port)
+        )
+        _serve_worker_metrics()
+        assert started == []
+
+    def test_serves_the_aggregate_and_clears_old_files(self, monkeypatch, tmp_path) -> None:
+        import prometheus_client
+
+        from worker.celery_app import _serve_worker_metrics
+
+        directory = tmp_path / "prom"
+        directory.mkdir()
+        (directory / "counter_1234.db").write_bytes(b"left over from the last run")
+        monkeypatch.setenv("PROMETHEUS_MULTIPROC_DIR", str(directory))
+        monkeypatch.setenv("WORKER_METRICS_PORT", "9808")
+        calls: list[tuple] = []
+        monkeypatch.setattr(
+            prometheus_client,
+            "start_http_server",
+            lambda port, registry=None: calls.append((port, registry)),
+        )
+        _serve_worker_metrics()
+        assert [port for port, _ in calls] == [9808]
+        assert calls[0][1] is not None, "must serve a multiprocess registry, not the default"
+        assert list(directory.iterdir()) == []

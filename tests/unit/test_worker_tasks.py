@@ -525,12 +525,16 @@ class TestRecordJob:
             row = conn.execute(select(BatchJob.status, BatchJob.completed_items)).one()
         assert tuple(row) == ("completed", 3)
 
-    def test_database_failure_is_swallowed(self, monkeypatch, caplog) -> None:
+    def test_database_failure_is_swallowed(self, monkeypatch) -> None:
         from worker import tasks
 
         def broken():
             raise ConnectionError("database is down")
 
+        # Captured on the logger itself: once configure_logging() has run,
+        # app loggers stop propagating to pytest's caplog handler.
+        warnings: list[str] = []
         monkeypatch.setattr(tasks, "_job_engine", broken)
+        monkeypatch.setattr(tasks.logger, "warning", lambda msg, **_: warnings.append(msg))
         tasks._record_job("j1", status="running")  # must not raise
-        assert any("batch_job_record_failed" in r.getMessage() for r in caplog.records)
+        assert warnings == ["batch_job_record_failed"]

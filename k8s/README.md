@@ -164,9 +164,12 @@ kubectl -n mlcv logs job/drift-now
 
 ## Serving on a GPU
 
-`k8s/overlays/gpu` runs the API through TensorRT on a GPU node. On an
-A100 that is 0.92 ms against 11.50 ms on the same host's CPU, which is the
-reason the optimisation work exists.
+`k8s/overlays/gpu` runs the API through TensorRT on a GPU node. On an A100
+the fine-tuned classifier's INT8 engine runs at 0.92 ms and 1068 img/s, against
+15.2 img/s through ONNX Runtime on the development laptop's CPU
+(`benchmarks/reports/tensorrt.json`, `BENCHMARKS.md`). The engine has to be
+built on the serving node: it is tied to one GPU architecture and TensorRT
+version.
 
 ```bash
 docker build -f docker/Dockerfile.gpu -t your-registry/mlcv-api-gpu:1.0.0 .

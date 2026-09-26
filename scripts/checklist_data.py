@@ -535,22 +535,18 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Object detection model (YOLO": (
         "DONE",
-        "scripts/prepare_models.py; models/artifacts/yolov8n.onnx",
-        "YOLOv8n trained on COCO. Verified on a real photo: detected 4 people + 1 bus "
-        "with correct boxes in original image coordinates.",
+        "scripts/prepare_models.py; models/validation/coco_eval.py; benchmarks/reports/coco_eval.json",
+        "YOLOv8n with Ultralytics COCO weights. Measured on 500 COCO val2017 images through the serving path: 0.392 mAP50-95, 0.536 mAP50 (pycocotools).",
     ),
     "Apply INT8 quantization to all models": (
         "DONE",
-        "models/optimization/quantize.py; benchmarks/reports/quantization.json",
-        "All 3 models quantized. resnet50 97.4->24.5 MB (3.97x), yolov8n 12.2->3.3 MB "
-        "(3.67x), resnet50-embed 89.6->22.6 MB (3.97x).",
+        "models/optimization/quantize.py; benchmarks/reports/quantization.json; benchmarks/reports/int8_fidelity.json",
+        "All 4 models, static QDQ: resnet50 3.92x smaller, resnet50-tiny-imagenet 3.91x, resnet50-embed 3.91x, yolov8n 3.67x (convolutions only, COCO-calibrated; 0.381 against 0.392 mAP50-95). INT8 is selectable per request and the default for none; tests/integration/test_quantized_fidelity.py checks every INT8 model against fp32 in CI.",
     ),
     "Convert models to ONNX format": (
         "DONE",
-        "models/optimization/export_onnx.py",
-        "All 3 exported and numerically verified against PyTorch (max abs diff < 4e-6). "
-        "Uses the legacy exporter: torch 2.9's dynamo path ignored dynamic_axes "
-        "(breaking batching) and split weights into a sidecar file.",
+        "models/optimization/export_onnx.py; scripts/verify_onnx_parity.py; benchmarks/reports/onnx_export.json",
+        "All 4 exported and checked against PyTorch on real images; parity recorded for each in onnx_export.json. Uses the legacy exporter: torch 2.9's dynamo path ignored dynamic_axes and split weights into a sidecar file.",
     ),
     "api/models/schemas.py": ("DONE", "api/models/schemas.py", "Request schemas + shared enums."),
     "api/models/responses.py": (
@@ -615,7 +611,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "POST /api/v1/detect": (
         "DONE",
         "api/routers/detection.py",
-        "Verified 200, 5 objects detected.",
+        "Verified live through the gateway, in both the dev and production stacks.",
     ),
     "POST /api/v1/batch": (
         "DONE",
@@ -625,7 +621,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "GET /api/v1/models": (
         "DONE",
         "api/routers/models.py",
-        "Verified: 3 models with defaults per task.",
+        "Lists every registered model with its default per task.",
     ),
     "GET /api/v1/health": (
         "DONE",
@@ -676,12 +672,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Performance monitoring and alerting": (
         "DONE",
-        "monitoring/prometheus/alerts.yml; monitoring/grafana/",
-        "15 Prometheus metrics (counters, histograms, gauges) covering requests, "
-        "inference, cache, model loads and batch jobs. 11 alert rules validated by "
-        "promtool, each alerting on a user-visible symptom rather than a cause and "
-        "carrying a description of what to do about it. 22-panel Grafana dashboard, "
-        "auto-provisioned. All VERIFIED live against the running stack.",
+        "api/middleware/monitoring.py; monitoring/",
+        "Prometheus metrics for requests, inference (failures included), cache, model loads and batch jobs. 11 alert rules validated by promtool, each on a user-visible symptom. 18-panel Grafana dashboard, auto-provisioned. Prometheus scrapes every API replica and every worker through DNS discovery, verified live with 3 replicas.",
     ),
     # --- Part 1: training & validation -------------------------------------
     "Image classification model (ViT / ResNet": (
@@ -691,16 +683,13 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Fine-tune classifier with MIXED PRECISION": (
         "DONE",
-        "models/training/train_classifier.py",
-        "torch.autocast + GradScaler on CUDA; bf16 on CPU (no scaler needed, since bf16 has "
-        "float32 exponent range so gradients cannot underflow). Active in the full 60-epoch "
-        "A100 run: 77.66% top-1 / 91.52% top-5, validated 8/8 by validate.py.",
+        "models/training/train_classifier.py; benchmarks/reports/resnet50_training_history.json",
+        "torch.autocast fp16 with GradScaler on CUDA (bf16 on CPU). 60 epochs on an A100: 78.91% top-1, 92.12% top-5, identical when the exported ONNX model is scored through the serving path on all 10,000 validation images.",
     ),
     "Fine-tune classifier with GRADIENT CLIPPING": (
         "DONE",
         "models/training/train_classifier.py",
-        "clip_grad_norm_ after unscaling (order matters with AMP). Grad norm logged per epoch; "
-        "8 of 60 epochs hit non-finite grads, absorbed by GradScaler as designed.",
+        "clip_grad_norm_ at 1.0 after unscaling (the order matters with AMP). Grad norm and loss scale logged per epoch; the end-of-epoch loss scale drops at epochs 12, 18, 25, 43 and 49, where GradScaler skipped non-finite steps.",
     ),
     "Fine-tune classifier with LEARNING RATE SCHEDULING": (
         "DONE",
@@ -710,10 +699,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Use the tiny-ImageNet dataset": (
         "DONE",
-        "data/tiny-imagenet-200; models/training/dataset.py",
-        "200 classes / 120k images downloaded. Custom val loader reads val_annotations.txt, "
-        "because ImageFolder silently mislabels that split (the provided starter script has "
-        "this bug).",
+        "scripts/download_datasets.py; models/training/dataset.py",
+        "All 200 classes, 100,000 training and 10,000 validation images (120,203 files, 240 MB). The validation loader reads val_annotations.txt because ImageFolder labels that split as one class, a bug in the provided starter script.",
     ),
     "Implement custom data augmentation pipeline": (
         "DONE",
@@ -722,46 +709,33 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Convert models to TensorRT format": (
         "DONE",
-        "models/optimization/export_tensorrt.py; benchmarks/reports/BENCHMARKS_GPU.md",
-        "EXECUTED on an A100 (TensorRT 11.3.0.99). All three precisions built and "
-        "verified: int8 0.920 ms p50, 1068 img/s, 24.1 MB; fp16 0.990 ms, 1066 img/s, "
-        "46.0 MB; fp32 1.298 ms, 822 img/s, 91.5 MB. Handles the TRT 8/10/11 API "
-        "differences by probing attributes. INT8 needed a separate QDQ graph: fp32 "
-        "biases, symmetric, percentile calibration, stem conv excluded.",
+        "models/optimization/export_tensorrt.py; benchmarks/reports/tensorrt.json",
+        "Built and verified on an A100 (TensorRT 11.3.0.99) for the fine-tuned classifier: INT8 0.920 ms p50, 1068 img/s, 24.1 MB; fp16 0.990 ms; fp32 1.298 ms. The other three models have CPU INT8 only; building their engines needs another GPU session.",
     ),
     "Benchmark inference times across all formats": (
         "DONE",
-        "benchmarks/reports/BENCHMARKS.md",
-        "fp32 ONNX vs INT8 static, batch 1 and 4, all 4 models, p50/p95/p99 with "
-        "environment recorded, plus fp32/fp16/int8 TensorRT engines on an A100. Key "
-        "findings: dynamic INT8 will not load as configured (uint8 activations against "
-        "int8 weights is not a registered ConvInteger kernel; QUInt8 weights fix it), "
-        "static QDQ is 1.07x to 2.30x slower depending on the model and 3.9x smaller, "
-        "and on GPU int8 matches fp16 on latency while halving engine size.",
+        "models/optimization/benchmark.py; benchmarks/reports/BENCHMARKS.md",
+        "fp32 and INT8 ONNX for all 4 models at batch 1 and 4, 100 runs per case interleaved across models, plus TensorRT fp32/fp16/INT8. INT8 on this CPU: level with fp32 for resnet50, 1.15x to 1.83x slower for the others, 3.67x to 3.92x smaller.",
     ),
     "Comprehensive model validation pipeline": (
         "DONE",
-        "models/validation/validate.py",
-        "8 checks: artifacts, determinism, batch invariance, output sanity, robustness, "
-        "accuracy, calibration (ECE), latency. Caught 2 real bugs during development.",
+        "models/validation/validate.py; benchmarks/reports/validation.json",
+        "Artifacts, determinism, batch invariance, output sanity, robustness, inference errors, accuracy, calibration and latency. All 4 models pass; the fine-tuned model scores 78.91% top-1 on 10,000 images.",
     ),
     "A/B testing framework": (
         "DONE",
-        "models/validation/ab_test.py",
-        "Paired McNemar test, confidence interval on the accuracy delta, deterministic "
-        "hash-based traffic splitting, and required-sample-size guidance.",
+        "models/validation/ab_test.py; benchmarks/reports/ab_test.json",
+        "Paired McNemar test with a confidence interval, latency comparison, hash-based traffic splitting. name:version@runtime compares runtimes of one model. ⟦AB_CHECKLIST⟧",
     ),
     "Model drift detection": (
         "DONE",
-        "models/validation/drift.py",
-        "KS test, chi-square and PSI. Requires BOTH significance and a meaningful effect "
-        "size, so a large sample cannot produce alert spam. Verified on a 200k-sample case.",
+        "models/validation/drift.py; benchmarks/reports/drift_report.json; benchmarks/reports/drift_report_shift.json",
+        "KS test, chi-square and PSI, requiring significance and an effect size. ⟦DRIFT_CHECKLIST⟧",
     ),
     "Performance regression testing": (
         "DONE",
-        "models/validation/regression.py",
-        "Baseline store with per-metric tolerances (absolute for accuracy, relative for "
-        "latency) and hardware fingerprinting. Verified it catches an injected 150% regression.",
+        "models/validation/regression.py; benchmarks/baselines.json; benchmarks/reports/regression.json",
+        "Baselines with per-metric tolerances and hardware fingerprinting. ⟦REG_CHECKLIST⟧",
     ),
     "models/ directory with training scripts": (
         "DONE",
@@ -777,12 +751,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Unit tests, target >90% coverage": (
         "DONE",
         "tests/unit/",
-        "95.9% across api/ and worker/ together, the request path end to end: "
-        "95.7% on api/, 100% on worker/. 89.3% repo-wide including the training "
-        "and MLOps code. The async batch endpoint was the last gap at 82.6% and "
-        "is now fully covered, including the URL fetch with its SSRF checks, the "
-        "soft-timeout partial-results path and the completion callback at both "
-        "the helper and its call site.",
+        "⟦COV_CHECKLIST⟧",
     ),
     "Test model inference functions": (
         "DONE",
@@ -791,13 +760,13 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Test image preprocessing utilities": (
         "DONE",
-        "tests/unit/test_image_processing.py",
-        "27 tests including EXIF orientation, alpha compositing, letterbox round-trip.",
+        "tests/unit/test_image_processing.py; tests/unit/test_preprocessing_parity.py",
+        "EXIF orientation, alpha compositing, letterbox round-trip, and training/serving preprocessing parity.",
     ),
     "Test API route handlers": (
         "DONE",
-        "tests/unit/test_api_routes.py",
-        "51 tests across every endpoint.",
+        "tests/unit/test_api_routes.py; tests/unit/test_batch.py",
+        "Every endpoint, including batch ownership and error envelopes.",
     ),
     "Test service layer functions": (
         "DONE",
@@ -811,21 +780,18 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Test database operations": (
         "DONE",
-        "tests/integration/test_database.py",
-        "20 tests against real SQL (SQLite).",
+        "tests/integration/test_database.py; tests/integration/test_real_services.py",
+        "Real SQL against SQLite, and against PostgreSQL and pgvector when reachable (verified).",
     ),
     "Test model loading and inference": (
         "DONE",
-        "tests/integration/test_model_loading.py",
-        "25 tests against the real ONNX artifacts.",
+        "tests/integration/test_model_loading.py; tests/integration/test_quantized_fidelity.py",
+        "Real ONNX artifacts, including every INT8 model against its fp32 twin.",
     ),
     "Test API endpoint integration": (
         "DONE",
-        "tests/unit/test_api_routes.py, tests/integration/, scripts/smoke_test_api.py",
-        "Plus a verified live run through the Docker stack: 30 checks over every "
-        "documented endpoint, 30/30 through the gateway and 30/30 against the "
-        "API's own port. It is a script rather than a transcript, so it reruns "
-        "against any deployment and exits non-zero on a failure.",
+        "tests/integration/test_api_endpoints.py; tests/e2e/; scripts/smoke_test_api.py",
+        "In-process integration tests plus end-to-end tests through nginx against the running stack, all passing live. smoke_test_api.py checks every endpoint of any deployment and exits non-zero on failure.",
     ),
     "Stress testing for model inference": (
         "DONE",
@@ -834,8 +800,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Memory usage profiling": (
         "DONE",
-        "tests/performance/test_performance.py",
-        "Verified memory levels off over 100 inferences rather than growing linearly.",
+        "tests/performance/test_performance.py; ⟦PERF_REPORT_FILE⟧",
+        "Resident memory measured across repeated inference, batches and preprocessing; growth levels off.",
     ),
     "Pytest configuration with fixtures": ("DONE", "pytest.ini, tests/conftest.py", ""),
     "Test database setup/teardown": ("DONE", "tests/conftest.py", "Fresh in-memory DB per test."),
@@ -844,17 +810,14 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "tests/ directory with complete test suite": (
         "DONE",
         "tests/",
-        "366 tests: unit, integration and performance.",
+        "⟦TESTS_CHECKLIST⟧",
     ),
     "Test configuration and fixtures": ("DONE", "tests/conftest.py", ""),
     "Performance test reports": ("DONE", "benchmarks/reports/", ""),
     "CI/CD pipeline configuration": (
         "DONE",
-        ".github/workflows/ci.yml",
-        "Eight jobs: lint, tests on 3.11 and 3.12, security scan, image build, "
-        "end-to-end against the deployed stack, real model export. Plus release.yml "
-        "(publishes attested, scanned images on a version tag) and drift-watch.yml "
-        "(weekly retraining decision, verified by a manual run).",
+        ".github/workflows/",
+        "ci.yml: ruff, black and mypy (all enforced), tests on 3.11 and 3.12 with a coverage gate, a strict INT8 fidelity check, security scan, image build and smoke test, end-to-end against the deployed stack, real model export. release.yml publishes scanned, attested images on a tag; drift-watch.yml runs the retraining decision weekly.",
     ),
     # --- Part 4: containerisation -----------------------------------------
     "Multi-stage builds": (
@@ -891,8 +854,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Service: worker": (
         "DONE",
-        "docker-compose.yml",
-        "VERIFIED healthy; processed a real 4-image batch (3 ok, 1 bad image isolated).",
+        "docker/Dockerfile.worker; worker/",
+        "Healthy in dev and production; batch jobs verified end to end, with job state written to Postgres and metrics served to Prometheus.",
     ),
     "Service: redis": (
         "DONE",
@@ -903,17 +866,17 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Service: prometheus": (
         "DONE",
         "monitoring/prometheus/",
-        "VERIFIED scraping ml-api; 11 alert rules validated by promtool.",
+        "Scrapes every API replica and worker; 11 alert rules validated by promtool.",
     ),
     "Service: grafana": (
         "DONE",
         "monitoring/grafana/",
-        "VERIFIED: datasource and 22-panel dashboard auto-provisioned.",
+        "Data source and 18-panel dashboard auto-provisioned.",
     ),
     "Health checks for all services": (
         "DONE",
         "docker-compose.yml",
-        "All 7 report healthy. Liveness deliberately checks no dependencies.",
+        "All 7 dev services and all 10 production containers report healthy, verified live. Liveness checks no dependencies.",
     ),
     "Proper resource limits": (
         "DONE",
@@ -934,7 +897,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "docker-compose.yml for local development": (
         "DONE",
         "docker-compose.yml",
-        "VERIFIED: all 7 services healthy.",
+        "All 7 services healthy, verified live.",
     ),
     "docker-compose.prod.yml for production": (
         "DONE",
@@ -953,8 +916,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Complete FastAPI application with all endpoints": (
         "DONE",
-        "api/main.py",
-        "18 documented paths. Verified live through the Docker stack.",
+        "api/",
+        "19 paths in the OpenAPI spec, verified live through the Docker stack.",
     ),
     "Comprehensive API documentation": (
         "DONE",
@@ -965,7 +928,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Postman collection or OpenAPI spec": (
         "DONE",
         "docs/openapi.json",
-        "OpenAPI 3.1, 19 paths / 40 schemas. Importable directly into Postman.",
+        "OpenAPI 3.1, generated from the app, 19 paths. Importable into Postman.",
     ),
     "Documentation for deployment and scaling": (
         "DONE",
@@ -989,7 +952,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "README: Setup and installation instructions": (
         "DONE",
         "README.md",
-        "4-step quick start, verified from a clean state.",
+        "Quick start: clone, git lfs pull, copy .env, docker compose up.",
     ),
     "README: API usage examples": (
         "DONE",
@@ -1003,8 +966,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "README: Known limitations and future improvements": (
         "DONE",
-        "README.md, docs/ASSUMPTIONS.md",
-        "6 limitations stated plainly; 6 prioritised next steps.",
+        "README.md",
+        "7 limitations stated plainly, and next steps in priority order.",
     ),
     "API docs: Complete endpoint documentation": (
         "DONE",
@@ -1048,35 +1011,24 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Documented assumptions": (
         "DONE",
-        "docs/ASSUMPTIONS.md",
-        "Brief ambiguities, gaps stated plainly, 3 bugs found in the provided "
-        "scaffolding and 8 found in my own work.",
+        "docs/ASSUMPTIONS.md; docs/AUDIT.md",
+        "How the brief was read, fixes to 3 provided scripts, and a review against the brief with every issue found and fixed.",
     ),
     # --- Quality standards -------------------------------------------------
     "PEP 8 compliance, type hints, docstrings": (
         "DONE",
-        "pyproject.toml; ruff + black clean",
-        "Ruff (13 rule groups) and black pass with zero findings. Every module, "
-        "class and public function has a docstring explaining WHY, not just what. "
-        "Each disabled lint rule carries a written reason.",
+        "pyproject.toml",
+        "ruff, black and mypy all clean and enforced in CI. Each disabled lint rule carries a written reason.",
     ),
     "Test coverage minimum 85%": (
         "DONE",
         "pytest --cov",
-        "Zero modules below 85% on the critical path, counting worker/ as well as "
-        "api/: 95.9% across the two, 95.7% on api/, 100% on worker/tasks.py and "
-        "worker/celery_app.py. 89.3% across the whole repo. The weakest "
-        "critical-path module is health.py at 86.8%. What remains under 85% is "
-        "training and MLOps code no request touches: registry.py (a CLI, not "
-        "imported by api/ or worker/), train_classifier.py, retraining.py, "
-        "dataset.py, tracking.py.",
+        "⟦COV_CHECKLIST2⟧",
     ),
     "Performance: sub-second inference": (
         "DONE",
         "benchmarks/reports/BENCHMARKS.md",
-        "p99 at batch 1: resnet50 146ms, resnet50-tiny-imagenet 93ms, yolov8n "
-        "166ms, embed 63ms. Every model and both precisions stay inside the 1s "
-        "budget; the slowest overall is yolov8n INT8 at 338ms, 3x inside it.",
+        "p99 at batch 1: resnet50 222.6 ms, resnet50-tiny-imagenet 176.6 ms, yolov8n 258.2 ms, resnet50-embed 211.2 ms. Every model inside 1 s in both precisions; the slowest is yolov8n INT8 at 342.8 ms.",
     ),
     "Security: no hardcoded secrets": (
         "DONE",
@@ -1087,12 +1039,8 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     ),
     "Scalability: design for horizontal scaling": (
         "DONE",
-        "k8s/, docs/TECHNICAL.md, docker-compose.prod.yml",
-        "Stateless API, Redis-backed distributed rate limiting, independent worker "
-        "scaling, and a pgvector-backed similarity index shared by every replica "
-        "(the per-process default does not scale, which is why the Kubernetes "
-        "config sets SIMILARITY_BACKEND=pgvector). Verified on a kind cluster: "
-        "the HPA scaled ml-api from 1 pod to 2 under a forced target.",
+        "k8s/; docs/TECHNICAL.md; docker-compose.prod.yml",
+        "Stateless API, Redis-backed rate limiting across replicas, independent worker scaling, pgvector similarity index in production and Kubernetes. Production overlay verified live with 3 API replicas and 2 workers; HPA verified on a kind cluster.",
     ),
     "Environment-based configuration": (
         "DONE",

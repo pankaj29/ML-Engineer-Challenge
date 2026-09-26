@@ -378,6 +378,7 @@ def quantize_onnx_static(
     per_channel: bool = True,
     trt_compatible: bool = False,
     op_types_to_quantize: list[str] | None = None,
+    reduce_range: bool | None = None,
 ) -> QuantizationResult:
     """Statically quantize an ONNX model using real calibration images.
 
@@ -413,6 +414,13 @@ def quantize_onnx_static(
             leaving biases unquantized.
         op_types_to_quantize: Restrict quantization to these operator types.
             None quantizes every supported operator.
+        reduce_range: Quantize weights to 7 bits. Defaults to on for CPU
+            graphs. On x86 CPUs without VNNI, ONNX Runtime's int8 kernels can
+            saturate their 16-bit intermediate sums with per-channel 8-bit
+            weights. The same artifact then scored fine on this laptop (which
+            has VNNI) and diverged on CI's AMD runners. 7-bit weights leave
+            headroom and cost almost nothing in accuracy. TensorRT graphs do
+            not need it.
 
     Raises:
         FileNotFoundError: The calibration directory does not exist.
@@ -492,6 +500,7 @@ def quantize_onnx_static(
         ),
         nodes_to_exclude=excluded_nodes,
         op_types_to_quantize=op_types_to_quantize,
+        reduce_range=(not trt_compatible) if reduce_range is None else reduce_range,
         # Empty rather than None when off: ORT treats the two the same, and an
         # explicit dict keeps the call one shape instead of two.
         extra_options=_TRT_EXTRA_OPTIONS if trt_compatible else {},

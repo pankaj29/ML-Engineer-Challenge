@@ -540,7 +540,9 @@ be HTTPS.
 }
 ```
 
-202 means **accepted**, not finished. Poll `status_url`.
+202 means **accepted**, not finished. Poll `status_url`. Only the API key
+that submitted a job can read or cancel it; any other key gets 404, so a job id
+alone reveals nothing.
 
 ### `GET /api/v1/batch/{job_id}`
 
@@ -686,7 +688,7 @@ written for humans and may be reworded.
 | 401 | `AUTHENTICATION_FAILED` | Missing/invalid credentials | Check your key |
 | 403 | `PERMISSION_DENIED` | Insufficient scope or tier | Upgrade or request access |
 | 404 | `MODEL_NOT_FOUND` | No such model/version | `GET /models` for what exists |
-| 404 | `JOB_NOT_FOUND` | Unknown job id | Results expire after 24 h |
+| 404 | `JOB_NOT_FOUND` | Unknown job id, or a job submitted by another key | Per-item results expire after 24 h; the job's status and counts do not |
 | 413 | `IMAGE_TOO_LARGE` | Over size/pixel limit | Resize before sending |
 | 413 | `BATCH_TOO_LARGE` | Over your tier's batch cap | Split it, or upgrade |
 | 415 | `UNSUPPORTED_FORMAT` | Format not allowed | Convert to JPEG or PNG |
@@ -723,7 +725,10 @@ Supply your own to trace a request across your system and ours:
 curl -H "X-Correlation-ID: my-trace-abc-123" ...
 ```
 
-If you supply one it is preserved end to end, not replaced.
+If you supply one it is kept end to end. It must be 1 to 64 characters of
+letters, digits, `.`, `_`, `:` or `-`; anything else is replaced with a fresh
+id, so a malformed header cannot break the log record or inject text into
+the logs.
 
 ---
 
