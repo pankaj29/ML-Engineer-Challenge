@@ -730,7 +730,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Model drift detection": (
         "DONE",
         "models/validation/drift.py; benchmarks/reports/drift_report.json; benchmarks/reports/drift_report_shift.json",
-        "KS test, chi-square and PSI, requiring significance and an effect size. ⟦DRIFT_CHECKLIST⟧",
+        "KS test, chi-square and PSI, requiring significance and an effect size. Run on real images: a Tiny-ImageNet control shows no drift in any of 12 tests; against COCO photos, 8 of 12 tests drift, severity high, confidence 0.668 to 0.373 (PSI 1.51).",
     ),
     "Performance regression testing": (
         "DONE",
@@ -751,7 +751,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Unit tests, target >90% coverage": (
         "DONE",
         "tests/unit/",
-        "⟦COV_CHECKLIST⟧",
+        "94.5% on api/ and 94.6% on worker/, the whole request and batch path; CI gates api/ at 92%. External services are faked in unit tests (fakeredis, in-memory SQLite, a fake model runtime).",
     ),
     "Test model inference functions": (
         "DONE",
@@ -810,7 +810,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "tests/ directory with complete test suite": (
         "DONE",
         "tests/",
-        "⟦TESTS_CHECKLIST⟧",
+        "1,428 tests: 1,224 unit, 161 integration, 28 end-to-end, 15 performance, plus a Locust load test.",
     ),
     "Test configuration and fixtures": ("DONE", "tests/conftest.py", ""),
     "Performance test reports": ("DONE", "benchmarks/reports/", ""),
@@ -1023,7 +1023,7 @@ UPDATES: dict[str, tuple[str, str, str]] = {
     "Test coverage minimum 85%": (
         "DONE",
         "pytest --cov",
-        "⟦COV_CHECKLIST2⟧",
+        "94.5% on api/ and 94.6% on worker/. models/ is 75.9% because it holds the GPU training loop and CLIs that no request touches.",
     ),
     "Performance: sub-second inference": (
         "DONE",

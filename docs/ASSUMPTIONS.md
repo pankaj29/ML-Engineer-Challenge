@@ -95,9 +95,9 @@ reachable, real Redis, PostgreSQL and pgvector: SQLite has no native boolean
 and only a real Redis proves the rate limiter's Lua script is atomic.
 End-to-end tests drive the running stack through nginx.
 
-Coverage is ⟦COV_API⟧% on `api/` and ⟦COV_WORKER⟧% on `worker/`. The brief's
+Coverage is 94.5% on `api/` and 94.6% on `worker/`. The brief's
 bar is 85% on critical paths with a 90% target, and the batch path lives in
-`worker/`, so both are reported. `models/` is lower (⟦COV_MODELS⟧%) because it
+`worker/`, so both are reported. `models/` is lower (75.9%) because it
 holds the GPU training loop and CLIs that no request touches. CI gates `api/`
 at 92%.
 
